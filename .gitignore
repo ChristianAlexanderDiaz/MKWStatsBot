@@ -1,12 +1,3 @@
-# Environment variables and secrets
-.env
-*.env
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-
 # Python
 __pycache__/
 *.py[cod]
@@ -29,10 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
-# Mario Kart Bot specific
-mario_kart_bot.log
-table_presets.json
-temp_roi_*.png
+# Virtual environments
+venv/
+env/
+ENV/
 
 # IDE
 .vscode/
@@ -40,10 +31,26 @@ temp_roi_*.png
 *.swp
 *.swo
 
-# macOS
+# OS
 .DS_Store
+Thumbs.db
 
-# Virtual environments
-venv/
-env/
-ENV/ 
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+
+# Discord bot token (if accidentally saved)
+token.txt 

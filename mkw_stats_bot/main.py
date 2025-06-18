@@ -12,8 +12,8 @@ import os
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.bot import setup_bot
-from src import config
+from mkw_stats.bot import setup_bot
+from mkw_stats import config
 import logging
 
 def main():
@@ -22,7 +22,7 @@ def main():
     # Check if Discord token is set
     if not config.DISCORD_TOKEN:
         print("❌ Please set DISCORD_BOT_TOKEN environment variable")
-        print("Run: python utils/setup_discord.py")
+        print("Run: python management/setup_players.py first")
         return
     
     # Setup and run bot
