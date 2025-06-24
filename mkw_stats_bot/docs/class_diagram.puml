@@ -1,0 +1,110 @@
+@startuml MarioKartBot_ClassDiagram
+!theme toy
+skinparam backgroundColor #f8f9fa
+skinparam class {
+    BackgroundColor #e3f2fd
+    BorderColor #1976d2
+    ArrowColor #1976d2
+}
+
+title Mario Kart Stats Bot - Class Diagram
+
+package "Bot Core" {
+    class MarioKartBot {
+        - db: DatabaseManager
+        - ocr: OCRProcessor
+        - pending_confirmations: Dict
+        - edit_sessions: Dict
+        __
+        + __init__()
+        + on_ready()
+        + on_message(message: discord.Message)
+        + on_reaction_add(reaction, user)
+        + process_race_results_image(message, attachment)
+        + handle_confirmation_accept(message, data)
+        + handle_confirmation_reject(message, data)
+        + handle_confirmation_edit(message, data)
+        + handle_confirmation_timeout(message)
+        + format_enhanced_confirmation(results, validation, metadata)
+        + cleanup_confirmation(message_id: str)
+    }
+}
+
+package "Commands" {
+    class MarioKartCommands {
+        - bot: MarioKartBot
+        __
+        + __init__(bot: MarioKartBot)
+        + view_player_stats(ctx, player_name: str)
+        + view_recent_results(ctx, limit: int)
+        + database_info(ctx)
+        + manage_preset(ctx, action: str, preset_name: str)
+        + show_team_roster(ctx, team: str)
+        + manual_entry(ctx, war_data: str)
+        + show_full_roster(ctx)
+        + bot_help(ctx)
+        + add_player_to_edit(ctx, player_name: str, score: int)
+        + remove_player_from_edit(ctx, player_name: str)
+        + update_player_score(ctx, player_name: str, score: int)
+        + show_current_edit(ctx)
+        + save_edited_results(ctx)
+    }
+}
+
+package "Data Management" {
+    class DatabaseManager {
+        - db_path: str
+        - connection
+        __
+        + __init__()
+        + get_player_stats(player_name: str): Dict
+        + get_all_players_stats(): List[Dict]
+        + get_recent_sessions(limit: int): List[Dict]
+        + add_race_results(results: List[Dict]): bool
+        + get_database_info(): Dict
+        + create_tables()
+        + execute_query(query: str, params: tuple)
+    }
+
+    class OCRProcessor {
+        - db_manager: DatabaseManager
+        __
+        + __init__(db_manager: DatabaseManager)
+        + process_image(image_path: str, timestamp): Dict
+        + process_image_with_preset(image_path: str, preset_name: str): Dict
+        + create_default_war_metadata(timestamp): Dict
+        + extract_text_from_image(image_path: str): str
+        + parse_race_results(text: str): List[Dict]
+        + validate_results(results: List[Dict]): Dict
+    }
+}
+
+package "Configuration" {
+    class Config <<static>> {
+        + DISCORD_TOKEN: str
+        + CHANNEL_ID: int
+        + CLAN_ROSTER: List[str]
+        + FIRST_TEAM_ROSTER: List[str]
+        + TABLE_PRESETS: Dict
+        + DEFAULT_RACE_COUNT: int
+        + EXPECTED_PLAYERS_PER_TEAM: int
+        + CONFIRMATION_TIMEOUT: int
+        + DEFAULT_TABLE_PRESET: str
+    }
+}
+
+' Relationships
+MarioKartBot *-- DatabaseManager : composition
+MarioKartBot *-- OCRProcessor : composition
+MarioKartBot <-- MarioKartCommands : uses
+OCRProcessor --> DatabaseManager : uses
+MarioKartBot ..> Config : imports
+MarioKartCommands ..> Config : imports
+
+' Notes
+note right of MarioKartBot : Main bot class handling\nDiscord events and\nimage processing
+note left of MarioKartCommands : Discord.py Cog containing\nall user commands
+note bottom of DatabaseManager : SQLite database\nfor persistent storage
+note bottom of OCRProcessor : Handles image OCR\nand result parsing
+
+@enduml 

@@ -21,9 +21,13 @@ def show_all_stats(db):
     print(f"🏆 Player Rankings ({len(players)} players with race data):")
     print("-" * 80)
     
+    # Sort players by average score
     for i, player in enumerate(players, 1):
+        
+        # Show nicknames
         nicknames_text = f" ({', '.join(player['nicknames'])})" if player['nicknames'] else ""
         
+        # Show player name and nicknames
         print(f"{i:2d}. {player['main_name']:15s}{nicknames_text}")
         print(f"    Average: {player['average_score']:6.1f} | Wars: {player['war_count']:5.2f} | Races: {player['total_races']:2d} | Total: {player['total_scores']:4d}")
         

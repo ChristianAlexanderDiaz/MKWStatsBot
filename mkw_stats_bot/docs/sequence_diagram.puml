@@ -1,0 +1,60 @@
+@startuml ImageProcessing_Sequence
+!theme toy
+skinparam backgroundColor #f8f9fa
+
+title Mario Kart Bot - Image Processing Flow
+
+actor User
+participant "Discord Channel" as Channel
+participant MarioKartBot as Bot
+participant OCRProcessor as OCR
+participant DatabaseManager as DB
+participant "Temp File" as TempFile
+
+User -> Channel : Upload race results image
+Channel -> Bot : on_message(message)
+
+activate Bot
+Bot -> Bot : Check if message has attachments
+Bot -> Bot : Validate image file extension
+
+Bot -> TempFile : Create temporary file
+Bot -> TempFile : Save image data
+
+Bot -> OCR : process_image_with_preset(temp_path, preset)
+activate OCR
+
+OCR -> OCR : Extract text from image
+OCR -> OCR : Parse player names and scores
+OCR -> OCR : Validate against clan roster
+OCR -> OCR : Create war metadata from timestamp
+
+OCR -> Bot : Return results{success, results, validation}
+deactivate OCR
+
+alt If OCR successful
+    Bot -> Bot : format_enhanced_confirmation(results)
+    Bot -> Channel : Send confirmation embed with reactions
+    Bot -> Bot : Store pending_confirmations[message_id]
+    
+    User -> Channel : Click ✅ reaction
+    Channel -> Bot : on_reaction_add(✅, user)
+    
+    Bot -> Bot : handle_confirmation_accept()
+    Bot -> DB : add_race_results(results)
+    activate DB
+    DB -> DB : Insert race session
+    DB -> DB : Update player statistics
+    DB -> Bot : Return success
+    deactivate DB
+    
+    Bot -> Channel : Send success message
+    
+else If OCR failed
+    Bot -> Channel : Send error message
+end
+
+Bot -> TempFile : Delete temporary file
+deactivate Bot
+
+@enduml 

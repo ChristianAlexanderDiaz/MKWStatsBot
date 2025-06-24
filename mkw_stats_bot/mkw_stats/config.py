@@ -12,8 +12,10 @@ if GUILD_ID:
 if CHANNEL_ID:
     CHANNEL_ID = int(CHANNEL_ID)
 
-# Database Configuration
-DATABASE_PATH = 'data/database/mario_kart_clan.db'  # Updated path for new structure
+# Database Configuration (PostgreSQL)
+# DATABASE_URL is automatically set by Railway or can be set manually
+# Format: postgresql://user:password@host:port/database
+DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('RAILWAY_POSTGRES_URL')
 
 # Complete Player Roster - All clan members for validation
 # NOTE: Nicknames are managed in the database via management/setup_players.py
