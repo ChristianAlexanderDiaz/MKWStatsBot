@@ -78,7 +78,7 @@ WAR_METADATA_FIELDS = [
 ]
 
 # OCR Configuration
-TESSERACT_PATH = '/usr/local/bin/tesseract'  # Adjust path as needed for your system
+TESSERACT_PATH = os.getenv('TESSERACT_PATH', '/usr/bin/tesseract')  # Railway uses /usr/bin/tesseract
 
 # Confirmation timeout (seconds)
 CONFIRMATION_TIMEOUT = 300  # 5 minutes 
