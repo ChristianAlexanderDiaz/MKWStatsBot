@@ -305,7 +305,7 @@ class MarioKartCommands(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(name='mkhelp')
-    async def bot_help(self, ctx):
+    async def help_command(self, ctx):
         """Show bot help information."""
         embed = discord.Embed(
             title="🏁 MKWStatsBot Help",
