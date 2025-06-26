@@ -15,8 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mkw_stats.bot import setup_bot
 from mkw_stats import config
 import logging
+import asyncio
 
-def main():
+async def main():
     """Main entry point for the bot."""
     
     # Check if Discord token is set
@@ -27,10 +28,10 @@ def main():
     
     # Setup and run bot
     print("🏁 Starting MKWStatsBot...")
-    bot = setup_bot()
+    bot = await setup_bot()
     
     try:
-        bot.run(config.DISCORD_TOKEN)
+        await bot.start(config.DISCORD_TOKEN)
     except KeyboardInterrupt:
         print("\n🛑 Bot stopped by user")
     except Exception as e:
@@ -38,4 +39,4 @@ def main():
         print(f"❌ Bot crashed: {e}")
 
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 

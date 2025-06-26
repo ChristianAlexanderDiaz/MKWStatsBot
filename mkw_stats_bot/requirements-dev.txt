@@ -1,0 +1,142 @@
+# =============================================================================
+# MKW Stats Bot - Development Dependencies
+# =============================================================================
+
+# Include all production dependencies
+-r requirements.txt
+
+# -----------------------------------------------------------------------------
+# Code Quality and Linting
+# -----------------------------------------------------------------------------
+
+# Black code formatter
+black>=23.0.0
+
+# Flake8 linter
+flake8>=6.0.0
+flake8-docstrings>=1.7.0
+flake8-import-order>=0.18.2
+flake8-bugbear>=23.0.0
+
+# isort import sorter
+isort>=5.12.0
+
+# Type checking
+mypy>=1.0.0
+types-requests>=2.28.0
+
+# -----------------------------------------------------------------------------
+# Testing Framework
+# -----------------------------------------------------------------------------
+
+# pytest testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+
+# Factory boy for test data
+factory-boy>=3.2.0
+
+# -----------------------------------------------------------------------------
+# Development Tools
+# -----------------------------------------------------------------------------
+
+# IPython for better REPL
+ipython>=8.0.0
+
+# Jupyter for notebook development
+jupyter>=1.0.0
+
+# Pre-commit hooks
+pre-commit>=3.0.0
+
+# Python debugger improvements
+pdbpp>=0.10.3
+
+# -----------------------------------------------------------------------------
+# Documentation
+# -----------------------------------------------------------------------------
+
+# Sphinx documentation generator
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0
+myst-parser>=1.0.0
+
+# Documentation testing
+doc8>=1.0.0
+
+# -----------------------------------------------------------------------------
+# Performance and Monitoring
+# -----------------------------------------------------------------------------
+
+# Memory profiling
+memory-profiler>=0.60.0
+
+# Line profiling
+line-profiler>=4.0.0
+
+# Performance testing
+pytest-benchmark>=4.0.0
+
+# -----------------------------------------------------------------------------
+# Database Development
+# -----------------------------------------------------------------------------
+
+# PostgreSQL development tools
+pgcli>=3.5.0
+
+# Database migrations (if needed in future)
+alembic>=1.10.0
+
+# -----------------------------------------------------------------------------
+# API and HTTP Testing
+# -----------------------------------------------------------------------------
+
+# HTTP testing
+httpx>=0.24.0
+responses>=0.23.0
+
+# -----------------------------------------------------------------------------
+# Environment Management
+# -----------------------------------------------------------------------------
+
+# Environment variable management
+python-decouple>=3.8
+
+# Configuration validation
+pydantic>=1.10.0
+
+# -----------------------------------------------------------------------------
+# Build and Release Tools
+# -----------------------------------------------------------------------------
+
+# Build tools
+build>=0.10.0
+twine>=4.0.0
+
+# Version management
+bump2version>=1.0.0
+
+# -----------------------------------------------------------------------------
+# Security
+# -----------------------------------------------------------------------------
+
+# Security vulnerability scanner
+safety>=2.3.0
+
+# Dependency vulnerability scanner
+pip-audit>=2.5.0
+
+# -----------------------------------------------------------------------------
+# Development Utilities
+# -----------------------------------------------------------------------------
+
+# Rich terminal formatting
+rich>=13.0.0
+
+# Click CLI framework (for dev scripts)
+click>=8.1.0
+
+# Watchdog for file watching
+watchdog>=3.0.0

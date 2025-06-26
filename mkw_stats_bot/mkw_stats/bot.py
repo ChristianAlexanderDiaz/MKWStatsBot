@@ -1,29 +1,23 @@
 import discord
 from discord.ext import commands
 import asyncio
-import logging
 import json
 import os
 import tempfile
 import aiohttp
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Union
 from dotenv import load_dotenv
 from . import config
 from .database import DatabaseManager
 from .ocr_processor import OCRProcessor
+from .logging_config import get_logger, log_discord_command, setup_logging
 
 # Load environment variables from .env file if it exists
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('mario_kart_bot.log'),
-        logging.StreamHandler()
-    ]
-)
+# Setup centralized logging
+setup_logging()
+logger = get_logger(__name__)
 
 class MarioKartBot(commands.Bot):
  
@@ -54,11 +48,12 @@ class MarioKartBot(commands.Bot):
     This is the on_ready event.
     It is called when the bot is ready to start processing events.
     """
-    async def on_ready(self):
+    async def on_ready(self) -> None:
+        """Event handler called when bot is ready."""
         # Log the bot's connection to Discord
-        logging.info(f'{self.user} has connected to Discord!')
+        logger.info(f'{self.user} has connected to Discord!')
         # Log the number of guilds the bot is in
-        logging.info(f'Bot is in {len(self.guilds)} guilds')
+        logger.info(f'Bot is in {len(self.guilds)} guilds')
         
         # Set bot status
         await self.change_presence(
@@ -206,7 +201,7 @@ class MarioKartBot(commands.Bot):
                     os.unlink(temp_file_path)
         # If an error occurs, log the error
         except Exception as e:
-            logging.error(f"Error processing race results image: {e}")
+            logger.error(f"Error processing race results image: {e}")
             await message.channel.send(f"❌ **Error processing image:** {str(e)}")
     
     async def on_reaction_add(self, reaction, user):
@@ -279,7 +274,7 @@ class MarioKartBot(commands.Bot):
             self.cleanup_confirmation(str(message.id))
             
         except Exception as e:
-            logging.error(f"Error handling confirmation accept: {e}")
+            logger.error(f"Error handling confirmation accept: {e}")
             embed = discord.Embed(
                 title="❌ Error",
                 description=f"An error occurred while saving results: {str(e)}",
