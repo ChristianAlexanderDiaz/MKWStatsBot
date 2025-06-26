@@ -1,0 +1,31 @@
+# =============================================================================
+# MKW Stats Bot - Railway/Nixpacks Configuration
+# =============================================================================
+# This file tells Railway how to build and deploy the application with
+# the necessary system dependencies for OCR and image processing.
+
+[phases.setup]
+nixPkgs = [
+    "python311",
+    "tesseract",
+    "libGL",
+    "libglib",
+    "glibc"
+]
+
+[phases.install]
+cmds = [
+    "pip install --upgrade pip",
+    "pip install -r requirements.txt"
+]
+
+[phases.build]
+cmds = ["echo 'Build phase complete'"]
+
+[start]
+cmd = "python main.py"
+
+# Environment variables that Railway should set
+[variables]
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"

@@ -2,10 +2,22 @@ services:
   - type: web
     name: mkw-stats-bot
     env: python
-    buildCommand: "./render-build.sh"
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
     startCommand: "python main.py"
     envVars:
       - key: DISCORD_BOT_TOKEN
         sync: false
       - key: PYTHON_VERSION
         value: "3.11.0"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    # System packages needed for OpenCV and Tesseract
+    buildPacks:
+      - name: python
+      - name: tesseract
+    systemPackages:
+      - tesseract
+      - libgl1-mesa-glx
+      - libglib2.0-0
