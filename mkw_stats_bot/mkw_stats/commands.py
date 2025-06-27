@@ -17,14 +17,17 @@ class MarioKartCommands(commands.Cog):
                 # Get specific player stats
                 stats = self.bot.db.get_player_stats(player_name)
                 if stats:
+                    # Create an embed for the player's stats
                     embed = discord.Embed(
                         title=f"📊 Stats for {stats['main_name']}",
                         color=0x00ff00
                     )
                     
+                    # Display the players' nicknames if they exist
                     if stats['nicknames']:
                         embed.add_field(name="Nicknames", value=", ".join(stats['nicknames']), inline=False)
                     
+                    # Display the players' total score, races played, wars completed, and average score
                     embed.add_field(name="Total Score", value=stats['total_scores'], inline=True)
                     embed.add_field(name="Races Played", value=stats['total_races'], inline=True)
                     embed.add_field(name="Wars Completed", value=f"{stats['war_count']:.2f}", inline=True)
@@ -103,30 +106,6 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error viewing recent sessions: {e}")
             await ctx.send("❌ Error retrieving recent sessions")
 
-    @commands.command(name='mkdbinfo')
-    async def database_info(self, ctx):
-        """Show database information and location."""
-        try:
-            info = self.bot.db.get_database_info()
-            
-            if 'error' in info:
-                await ctx.send(f"❌ Database error: {info['error']}")
-                return
-            
-            embed = discord.Embed(
-                title="🗃️ Database Information",
-                color=0x00ff00
-            )
-            embed.add_field(name="Location", value=f"`{info['database_path']}`", inline=False)
-            embed.add_field(name="File Size", value=f"{info['file_size_kb']:.1f} KB", inline=True)
-            embed.add_field(name="Players", value=info['player_count'], inline=True)
-            embed.add_field(name="Race Sessions", value=info['session_count'], inline=True)
-            
-            await ctx.send(embed=embed)
-                
-        except Exception as e:
-            logging.error(f"Error getting database info: {e}")
-            await ctx.send("❌ Error retrieving database information")
 
     @commands.command(name='mkpreset')
     async def manage_preset(self, ctx, action: str = None, preset_name: str = None):
@@ -163,33 +142,6 @@ class MarioKartCommands(commands.Cog):
             )
             await ctx.send(embed=embed)
 
-    @commands.command(name='mkteamroster')
-    async def show_team_roster(self, ctx, team: str = None):
-        """Show specific team rosters."""
-        if team and team.lower() == "first":
-            embed = discord.Embed(
-                title="👥 First Team Roster",
-                description="First team members (alphabetical order):",
-                color=0x0099ff
-            )
-            
-            roster_text = "\n".join([f"• {name}" for name in config.FIRST_TEAM_ROSTER])
-            embed.add_field(name="Members", value=roster_text, inline=False)
-            embed.set_footer(text=f"Total: {len(config.FIRST_TEAM_ROSTER)} players")
-            
-        else:
-            embed = discord.Embed(
-                title="👥 Available Team Rosters",
-                description="Available team rosters:",
-                color=0x9932cc
-            )
-            embed.add_field(
-                name="Teams",
-                value="`!mkteamroster first` - Show first team roster",
-                inline=False
-            )
-        
-        await ctx.send(embed=embed)
 
     @commands.command(name='mkmanual')
     async def manual_entry(self, ctx, *, war_data: str = None):
@@ -239,7 +191,8 @@ class MarioKartCommands(commands.Cog):
                     else:
                         # Player:Score format
                         name, score = part.split(':', 1)
-                        if name in config.CLAN_ROSTER:
+                        roster_players = self.bot.db.get_roster_players()
+                        if name in roster_players:
                             results.append({
                                 'name': name,
                                 'score': int(score),
@@ -279,30 +232,120 @@ class MarioKartCommands(commands.Cog):
     @commands.command(name='mkroster')
     async def show_full_roster(self, ctx):
         """Show the complete clan roster."""
-        embed = discord.Embed(
-            title="👥 Complete Clan Roster",
-            description=f"All {len(config.CLAN_ROSTER)} clan members:",
-            color=0x9932cc
-        )
+        try:
+            # Get roster from database
+            roster_players = self.bot.db.get_roster_players()
+            
+            if not roster_players:
+                await ctx.send("❌ No players found in roster. Use `!mkadd <player>` to add players.")
+                return
+            
+            embed = discord.Embed(
+                title="👥 Complete Clan Roster",
+                description=f"All {len(roster_players)} clan members:",
+                color=0x9932cc
+            )
+            
+            # Split roster into columns for better display
+            mid_point = len(roster_players) // 2
+            col1 = roster_players[:mid_point]
+            col2 = roster_players[mid_point:]
+            
+            embed.add_field(
+                name="Players (A-M)", 
+                value="\n".join([f"• {name}" for name in col1]), 
+                inline=True
+            )
+            embed.add_field(
+                name="Players (M-Z)", 
+                value="\n".join([f"• {name}" for name in col2]), 
+                inline=True
+            )
+            embed.set_footer(text="Only results for these players will be saved from war images.")
+            
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error showing roster: {e}")
+            await ctx.send("❌ Error retrieving roster")
+
+    @commands.command(name='mkadd')
+    async def add_player_to_roster(self, ctx, player_name: str = None):
+        """Add a player to the clan roster."""
+        if not player_name:
+            embed = discord.Embed(
+                title="➕ Add Player to Roster",
+                description="Add a new player to the active clan roster.",
+                color=0x00ff00
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkadd <player_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkadd NewPlayer`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
         
-        # Split roster into columns for better display
-        mid_point = len(config.CLAN_ROSTER) // 2
-        col1 = config.CLAN_ROSTER[:mid_point]
-        col2 = config.CLAN_ROSTER[mid_point:]
+        try:
+            # Add player to roster
+            success = self.bot.db.add_roster_player(player_name, str(ctx.author))
+            
+            if success:
+                await ctx.send(f"✅ Added **{player_name}** to the clan roster!")
+                
+                # Also create player entry if it doesn't exist
+                self.bot.db.add_or_update_player(player_name)
+            else:
+                await ctx.send(f"❌ **{player_name}** is already in the roster or couldn't be added.")
+                
+        except Exception as e:
+            logging.error(f"Error adding player to roster: {e}")
+            await ctx.send("❌ Error adding player to roster")
+
+    @commands.command(name='mkremove')
+    async def remove_player_from_roster(self, ctx, player_name: str = None):
+        """Remove a player from the clan roster."""
+        if not player_name:
+            embed = discord.Embed(
+                title="➖ Remove Player from Roster",
+                description="Remove a player from the active clan roster.",
+                color=0xff4444
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkremove <player_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkremove OldPlayer`",
+                inline=False
+            )
+            embed.add_field(
+                name="Note",
+                value="This marks the player as inactive but keeps their stats.",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
         
-        embed.add_field(
-            name="Players (A-M)", 
-            value="\n".join([f"• {name}" for name in col1]), 
-            inline=True
-        )
-        embed.add_field(
-            name="Players (M-Z)", 
-            value="\n".join([f"• {name}" for name in col2]), 
-            inline=True
-        )
-        embed.set_footer(text="Only results for these players will be saved from war images.")
-        
-        await ctx.send(embed=embed)
+        try:
+            # Remove player from roster
+            success = self.bot.db.remove_roster_player(player_name)
+            
+            if success:
+                await ctx.send(f"✅ Removed **{player_name}** from the active roster.")
+            else:
+                await ctx.send(f"❌ **{player_name}** is not in the active roster or couldn't be removed.")
+                
+        except Exception as e:
+            logging.error(f"Error removing player from roster: {e}")
+            await ctx.send("❌ Error removing player from roster")
 
     @commands.command(name='mkhelp')
     async def help_command(self, ctx):
@@ -327,6 +370,8 @@ class MarioKartCommands(commands.Cog):
             value=(
                 "`!mkstats [player]` - Show player stats or leaderboard\n"
                 "`!mkroster` - Show complete clan roster\n"
+                "`!mkadd <player>` - Add player to roster\n"
+                "`!mkremove <player>` - Remove player from roster\n"
                 "`!mkmanual` - Manual war entry (when OCR fails)\n"
                 "`!mkpreset list` - Show table format presets\n"
                 "`!mkhelp` - Show this help message"
@@ -351,7 +396,7 @@ class MarioKartCommands(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @commands.command(name='mkadd')
+    @commands.command(name='mkeditadd')
     async def add_player_to_edit(self, ctx, player_name: str = None, score: int = None):
         """Add a player to the current edit session."""
         if not hasattr(self.bot, 'edit_sessions') or ctx.author.id not in self.bot.edit_sessions:
@@ -382,7 +427,7 @@ class MarioKartCommands(commands.Cog):
         
         await ctx.send(f"✅ Added {player_name}: {score}")
 
-    @commands.command(name='mkremove')
+    @commands.command(name='mkeditremove')
     async def remove_player_from_edit(self, ctx, player_name: str = None):
         """Remove a player from the current edit session."""
         if not hasattr(self.bot, 'edit_sessions') or ctx.author.id not in self.bot.edit_sessions:

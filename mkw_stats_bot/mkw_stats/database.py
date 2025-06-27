@@ -157,6 +157,24 @@ class DatabaseManager:
                     CREATE INDEX idx_race_sessions_created ON race_sessions(created_at DESC);
                 """)
                 
+                # Create roster table for dynamic clan member management
+                cursor.execute("""
+                    CREATE TABLE roster (
+                        id SERIAL PRIMARY KEY,
+                        player_name VARCHAR(100) UNIQUE NOT NULL,
+                        added_by VARCHAR(100),
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                
+                # Create indexes for roster
+                cursor.execute("""
+                    CREATE INDEX idx_roster_player_name ON roster(player_name);
+                    CREATE INDEX idx_roster_active ON roster(is_active);
+                """)
+                
                 # Create trigger to automatically update updated_at timestamp
                 cursor.execute("""
                     CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -169,6 +187,11 @@ class DatabaseManager:
                     
                     CREATE TRIGGER update_players_updated_at 
                         BEFORE UPDATE ON players 
+                        FOR EACH ROW 
+                        EXECUTE FUNCTION update_updated_at_column();
+                        
+                    CREATE TRIGGER update_roster_updated_at 
+                        BEFORE UPDATE ON roster 
                         FOR EACH ROW 
                         EXECUTE FUNCTION update_updated_at_column();
                 """)
@@ -497,6 +520,125 @@ class DatabaseManager:
             logging.error(f"❌ PostgreSQL health check failed: {e}")
             return False
     
+    # Roster Management Methods
+    def get_roster_players(self) -> List[str]:
+        """Get list of active roster players."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT player_name FROM roster 
+                    WHERE is_active = TRUE 
+                    ORDER BY player_name
+                """)
+                
+                return [row[0] for row in cursor.fetchall()]
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting roster players: {e}")
+            return []
+    
+    def add_roster_player(self, player_name: str, added_by: str = None) -> bool:
+        """Add a player to the active roster."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if player already exists
+                cursor.execute("""
+                    SELECT id, is_active FROM roster WHERE player_name = %s
+                """, (player_name,))
+                
+                existing = cursor.fetchone()
+                if existing:
+                    if existing[1]:  # Already active
+                        logging.info(f"Player {player_name} is already in the active roster")
+                        return False
+                    else:
+                        # Reactivate player
+                        cursor.execute("""
+                            UPDATE roster 
+                            SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP, added_by = %s
+                            WHERE player_name = %s
+                        """, (added_by, player_name))
+                        logging.info(f"✅ Reactivated player {player_name} in roster")
+                else:
+                    # Add new player
+                    cursor.execute("""
+                        INSERT INTO roster (player_name, added_by) 
+                        VALUES (%s, %s)
+                    """, (player_name, added_by))
+                    logging.info(f"✅ Added player {player_name} to roster")
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error adding player to roster: {e}")
+            return False
+    
+    def remove_roster_player(self, player_name: str) -> bool:
+        """Remove a player from the active roster (mark as inactive)."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if player exists and is active
+                cursor.execute("""
+                    SELECT id FROM roster WHERE player_name = %s AND is_active = TRUE
+                """, (player_name,))
+                
+                if not cursor.fetchone():
+                    logging.info(f"Player {player_name} is not in the active roster")
+                    return False
+                
+                # Mark as inactive instead of deleting
+                cursor.execute("""
+                    UPDATE roster 
+                    SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s
+                """, (player_name,))
+                
+                conn.commit()
+                logging.info(f"✅ Removed player {player_name} from active roster")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error removing player from roster: {e}")
+            return False
+    
+    def initialize_roster_from_config(self, config_roster: List[str]) -> bool:
+        """Initialize roster table from config.CLAN_ROSTER (migration helper)."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if roster is already populated
+                cursor.execute("SELECT COUNT(*) FROM roster WHERE is_active = TRUE")
+                existing_count = cursor.fetchone()[0]
+                
+                if existing_count > 0:
+                    logging.info(f"Roster already has {existing_count} players, skipping initialization")
+                    return True
+                
+                # Add all config roster players
+                for player in config_roster:
+                    cursor.execute("""
+                        INSERT INTO roster (player_name, added_by) 
+                        VALUES (%s, %s)
+                        ON CONFLICT (player_name) 
+                        DO UPDATE SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP
+                    """, (player, "system_migration"))
+                
+                conn.commit()
+                logging.info(f"✅ Initialized roster with {len(config_roster)} players from config")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error initializing roster from config: {e}")
+            return False
+
     def close(self):
         """Close all connections in the pool."""
         if hasattr(self, 'connection_pool'):

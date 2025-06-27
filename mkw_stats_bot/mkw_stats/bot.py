@@ -57,6 +57,12 @@ class MarioKartBot(commands.Bot):
         # Log bot version for debugging
         logger.info(f'🔧 Bot Version: {config.BOT_VERSION}')
         
+        # Initialize roster from config if needed (migration)
+        try:
+            self.db.initialize_roster_from_config(config.CLAN_ROSTER)
+        except Exception as e:
+            logger.error(f"❌ Error initializing roster: {e}")
+        
         # Set bot status
         await self.change_presence(
             # Set the bot's status to watching for Mario Kart results

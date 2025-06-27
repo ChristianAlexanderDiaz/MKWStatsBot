@@ -2,7 +2,7 @@ import os
 from typing import List
 
 # Bot Version (for debugging deployments)
-BOT_VERSION = "1.0.15"  # Increment this for each deployment
+BOT_VERSION = "1.0.16"  # Increment this for each deployment
 
 # Discord Bot Configuration  
 DISCORD_TOKEN = os.getenv('DISCORD_BOT_TOKEN')  # Required: Set this in your environment variables
@@ -27,10 +27,10 @@ DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('RAILWAY_POSTGRES_URL')
 # NOTE: Nicknames are managed in the database via management/setup_players.py
 CLAN_ROSTER = [
     "Ami",
-    "Benji", 
+    "Benjy", 
     "Corbs",
     "Cynical",
-    "Danika",
+    "Dave",
     "DEMISE",
     "Dicey",
     "Hollow",

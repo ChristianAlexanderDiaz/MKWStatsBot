@@ -286,15 +286,17 @@ class OCRProcessor:
         
         # Check for trial/guest players (not in roster)
         trials = []
+        roster_players = self.db_manager.get_roster_players() if self.db_manager else []
+        
         for result in results:
             # Use database name resolution if available, otherwise check directly
             if self.db_manager:
                 resolved_name = self.db_manager.resolve_player_name(result['name'])
-                if not resolved_name or resolved_name not in config.CLAN_ROSTER:
+                if not resolved_name or resolved_name not in roster_players:
                     trials.append(result['name'])
             else:
-                # Fallback: check if name is directly in roster
-                if result['name'] not in config.CLAN_ROSTER:
+                # Fallback: check if name is directly in roster (this shouldn't happen)
+                if result['name'] not in roster_players:
                     trials.append(result['name'])
         
         if trials:
@@ -369,6 +371,9 @@ class OCRProcessor:
         # Get patterns from preset config
         score_pattern = self.preset_config['score_pattern']
         
+        # Get current roster from database
+        roster_players = self.db_manager.get_roster_players() if self.db_manager else []
+        
         for line in lines:
             line = line.strip()
             if not line:
@@ -376,7 +381,7 @@ class OCRProcessor:
                 
             # Look for clan members and nicknames in the line
             found_in_line = False
-            for roster_name in config.CLAN_ROSTER:
+            for roster_name in roster_players:
                 if roster_name.lower() in line.lower():
                     # Use preset score pattern to find scores
                     score_matches = re.findall(score_pattern, line)
@@ -440,7 +445,7 @@ class OCRProcessor:
                                 resolved_name = word  # Fallback to original name
                             
                             # Only add if it's a clan member or a recognized nickname
-                            if resolved_name and resolved_name in config.CLAN_ROSTER:
+                            if resolved_name and resolved_name in roster_players:
                                 confidence = 0.9
                                 results.append({
                                     'name': resolved_name,
