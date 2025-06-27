@@ -12,8 +12,8 @@ from . import config
 class OCRProcessor:
     def __init__(self, table_preset=None, db_manager=None):
         """Initialize OCR processor with table preset configuration."""
-        # Set tesseract path if specified in config
-        if hasattr(config, 'TESSERACT_PATH') and config.TESSERACT_PATH:
+        # Set tesseract path from config (always set it to override pytesseract default)
+        if hasattr(config, 'TESSERACT_PATH'):
             pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_PATH
         
         # Store database manager for name resolution
