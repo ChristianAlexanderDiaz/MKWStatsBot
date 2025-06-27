@@ -278,11 +278,11 @@ class OCRProcessor:
             validation['errors'].append(f"Duplicate players found: {', '.join(duplicates)}")
             validation['is_valid'] = False
         
-        # Check score ranges
+        # Check score ranges (Mario Kart: 12-180 for 12 races)
         for result in results:
             score = result.get('score', 0)
-            if score < 0 or score > 999:
-                validation['warnings'].append(f"{result['name']}: Unusual score {score}")
+            if not (12 <= score <= 180):
+                validation['warnings'].append(f"{result['name']}: Invalid score {score} (valid range: 12-180)")
         
         # Check for trial/guest players (not in roster)
         trials = []
@@ -384,7 +384,7 @@ class OCRProcessor:
                         # Take the first reasonable score (0-999)
                         for score_str in score_matches:
                             score = int(score_str)
-                            if 0 <= score <= 999:
+                            if 12 <= score <= 180:
                                 results.append({
                                     'name': roster_name,
                                     'score': score,
@@ -416,20 +416,20 @@ class OCRProcessor:
                         for j, check_word in enumerate(words):
                             if re.match(score_pattern, check_word):
                                 score = int(check_word)
-                                if 0 <= score <= 999:
+                                if 12 <= score <= 180:
                                     all_scores_in_line.append(score)
                         
                         # If we found scores, use the last one (most likely the player's total)
                         if all_scores_in_line:
                             score = all_scores_in_line[-1]  # Take the last score in the line
                             
-                            # Score validation - flag suspicious low scores
-                            if score < 10:
-                                logging.warning(f"⚠️ Suspicious low score detected for {word}: {score} (possible OCR error)")
+                            # Score validation - already filtered to 12-180 range, but double-check
+                            if not (12 <= score <= 180):
+                                logging.warning(f"⚠️ Invalid score detected for {word}: {score} (outside 12-180 range)")
                                 # Try to find alternative scores in the line
                                 if len(all_scores_in_line) > 1:
-                                    alt_score = max(all_scores_in_line)  # Try the highest score instead
-                                    if alt_score >= 10:
+                                    alt_score = max([s for s in all_scores_in_line if 12 <= s <= 180])
+                                    if alt_score:
                                         logging.info(f"Using alternative score for {word}: {alt_score} instead of {score}")
                                         score = alt_score
                             
