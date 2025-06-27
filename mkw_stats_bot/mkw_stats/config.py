@@ -2,7 +2,7 @@ import os
 from typing import List
 
 # Bot Version (for debugging deployments)
-BOT_VERSION = "1.0.7"  # Increment this for each deployment
+BOT_VERSION = "1.0.8"  # Increment this for each deployment
 
 # Discord Bot Configuration  
 DISCORD_TOKEN = os.getenv('DISCORD_BOT_TOKEN')  # Required: Set this in your environment variables
@@ -84,7 +84,7 @@ WAR_METADATA_FIELDS = [
 ]
 
 # OCR Configuration
-TESSERACT_PATH = os.getenv('TESSERACT_PATH', '/usr/bin/tesseract')  # Railway uses /usr/bin/tesseract
+TESSERACT_PATH = os.getenv('TESSERACT_PATH')  # Let the system auto-detect if not set
 
 # Confirmation timeout (seconds)
 CONFIRMATION_TIMEOUT = 300  # 5 minutes 

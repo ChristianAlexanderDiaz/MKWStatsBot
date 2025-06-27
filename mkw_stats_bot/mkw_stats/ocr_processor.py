@@ -12,37 +12,42 @@ from . import config
 class OCRProcessor:
     def __init__(self, table_preset=None, db_manager=None):
         """Initialize OCR processor with table preset configuration."""
-        # Set tesseract path from config (always set it to override pytesseract default)
-        if hasattr(config, 'TESSERACT_PATH'):
+        # Set tesseract path from config or auto-detect
+        import os
+        import shutil
+        
+        if hasattr(config, 'TESSERACT_PATH') and config.TESSERACT_PATH:
+            # Use configured path first
             pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_PATH
             logging.info(f"🔧 Tesseract path set to: {config.TESSERACT_PATH}")
             
-            # Debug: Check if tesseract exists
-            import os
             if os.path.exists(config.TESSERACT_PATH):
                 logging.info(f"✅ Tesseract executable found at {config.TESSERACT_PATH}")
             else:
                 logging.error(f"❌ Tesseract NOT found at {config.TESSERACT_PATH}")
-                # Try to find tesseract in common locations
-                import shutil
-                common_paths = ['/usr/bin/tesseract', '/usr/local/bin/tesseract', '/opt/homebrew/bin/tesseract']
-                found_path = shutil.which('tesseract')
+                config.TESSERACT_PATH = None  # Fall back to auto-detection
+        
+        # Auto-detect tesseract if no valid path configured
+        if not hasattr(config, 'TESSERACT_PATH') or not config.TESSERACT_PATH:
+            logging.info("🔍 Auto-detecting Tesseract installation...")
+            common_paths = ['/usr/bin/tesseract', '/usr/local/bin/tesseract', '/opt/homebrew/bin/tesseract']
+            found_path = shutil.which('tesseract')
+            
+            if found_path:
+                logging.info(f"✅ Tesseract found via PATH at: {found_path}")
+                pytesseract.pytesseract.tesseract_cmd = found_path
+            else:
+                # Try common paths manually
+                for path in common_paths:
+                    if os.path.exists(path):
+                        logging.info(f"✅ Tesseract found at: {path}")
+                        pytesseract.pytesseract.tesseract_cmd = path
+                        found_path = path
+                        break
                 
-                if found_path:
-                    logging.info(f"🔍 Found tesseract at: {found_path}")
-                    pytesseract.pytesseract.tesseract_cmd = found_path
-                else:
-                    # Try common paths manually
-                    for path in common_paths:
-                        if os.path.exists(path):
-                            logging.info(f"🔍 Found tesseract at: {path}")
-                            pytesseract.pytesseract.tesseract_cmd = path
-                            found_path = path
-                            break
-                    
-                    if not found_path:
-                        logging.error("❌ Tesseract not found anywhere in PATH or common locations")
-                        logging.error("Please ensure tesseract-ocr is installed in your deployment environment")
+                if not found_path:
+                    logging.error("❌ Tesseract not found anywhere in PATH or common locations")
+                    logging.error("Please ensure tesseract-ocr is installed in your deployment environment")
         
         # Store database manager for name resolution
         self.db_manager = db_manager
