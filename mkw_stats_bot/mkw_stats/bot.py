@@ -57,13 +57,6 @@ class MarioKartBot(commands.Bot):
         # Log bot version for debugging
         logger.info(f'🔧 Bot Version: {config.BOT_VERSION}')
         
-        # Sync slash commands
-        try:
-            synced = await self.tree.sync()
-            logger.info(f"✅ Synced {len(synced)} slash commands")
-        except Exception as e:
-            logger.error(f"❌ Failed to sync slash commands: {e}")
-        
         # Set bot status
         await self.change_presence(
             # Set the bot's status to watching for Mario Kart results

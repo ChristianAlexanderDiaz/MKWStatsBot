@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
 import logging
 from . import config
 
@@ -12,16 +11,6 @@ class MarioKartCommands(commands.Cog):
 
     @commands.command(name='mkstats')
     async def view_player_stats(self, ctx, player_name: str = None):
-        """View statistics for a specific player or all players."""
-        await self._view_stats_implementation(ctx, player_name)
-
-    @app_commands.command(name='mkstats', description='View statistics for a specific player or all players')
-    @app_commands.describe(player_name='Name of the player to view stats for (optional)')
-    async def slash_view_player_stats(self, interaction: discord.Interaction, player_name: str = None):
-        """Slash command version of mkstats."""
-        await self._view_stats_implementation(interaction, player_name)
-
-    async def _view_stats_implementation(self, ctx_or_interaction, player_name: str = None):
         """View statistics for a specific player or all players."""
         try:
             if player_name:
@@ -46,19 +35,9 @@ class MarioKartCommands(commands.Cog):
                         recent_scores = stats['score_history'][-5:]  # Last 5 scores
                         embed.add_field(name="Recent Scores", value=str(recent_scores), inline=False)
                     
-                    # Send response (works for both ctx and interaction)
-                    if hasattr(ctx_or_interaction, 'response'):
-                        # It's an interaction (slash command)
-                        await ctx_or_interaction.response.send_message(embed=embed)
-                    else:
-                        # It's a context (text command)
-                        await ctx_or_interaction.send(embed=embed)
+                    await ctx.send(embed=embed)
                 else:
-                    message = f"❌ No stats found for player: {player_name}"
-                    if hasattr(ctx_or_interaction, 'response'):
-                        await ctx_or_interaction.response.send_message(message)
-                    else:
-                        await ctx_or_interaction.send(message)
+                    await ctx.send(f"❌ No stats found for player: {player_name}")
             else:
                 # Get all player stats
                 all_stats = self.bot.db.get_all_players_stats()
@@ -76,24 +55,13 @@ class MarioKartCommands(commands.Cog):
                             inline=False
                         )
                     
-                    if hasattr(ctx_or_interaction, 'response'):
-                        await ctx_or_interaction.response.send_message(embed=embed)
-                    else:
-                        await ctx_or_interaction.send(embed=embed)
+                    await ctx.send(embed=embed)
                 else:
-                    message = "❌ No player statistics found"
-                    if hasattr(ctx_or_interaction, 'response'):
-                        await ctx_or_interaction.response.send_message(message)
-                    else:
-                        await ctx_or_interaction.send(message)
+                    await ctx.send("❌ No player statistics found")
                     
         except Exception as e:
             logging.error(f"Error viewing stats: {e}")
-            error_msg = "❌ Error retrieving statistics"
-            if hasattr(ctx_or_interaction, 'response'):
-                await ctx_or_interaction.response.send_message(error_msg)
-            else:
-                await ctx_or_interaction.send(error_msg)
+            await ctx.send("❌ Error retrieving statistics")
 
     @commands.command(name='mkrecent')
     async def view_recent_results(self, ctx, limit: int = 5):
