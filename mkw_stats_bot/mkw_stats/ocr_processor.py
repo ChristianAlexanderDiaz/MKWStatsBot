@@ -30,7 +30,7 @@ class OCRProcessor:
         # Auto-detect tesseract if no valid path configured
         if not hasattr(config, 'TESSERACT_PATH') or not config.TESSERACT_PATH:
             logging.info("🔍 Auto-detecting Tesseract installation...")
-            common_paths = ['/usr/bin/tesseract', '/usr/local/bin/tesseract', '/opt/homebrew/bin/tesseract']
+            common_paths = ['/usr/bin/tesseract', '/usr/local/bin/tesseract', '/opt/homebrew/bin/tesseract', '/nix/store/*/bin/tesseract']
             found_path = shutil.which('tesseract')
             
             if found_path:
@@ -39,15 +39,38 @@ class OCRProcessor:
             else:
                 # Try common paths manually
                 for path in common_paths:
-                    if os.path.exists(path):
-                        logging.info(f"✅ Tesseract found at: {path}")
-                        pytesseract.pytesseract.tesseract_cmd = path
-                        found_path = path
-                        break
+                    if '*' in path:
+                        # Handle nix store paths with glob
+                        import glob
+                        nix_paths = glob.glob(path)
+                        for nix_path in nix_paths:
+                            if os.path.exists(nix_path):
+                                logging.info(f"✅ Tesseract found at: {nix_path}")
+                                pytesseract.pytesseract.tesseract_cmd = nix_path
+                                found_path = nix_path
+                                break
+                        if found_path:
+                            break
+                    else:
+                        if os.path.exists(path):
+                            logging.info(f"✅ Tesseract found at: {path}")
+                            pytesseract.pytesseract.tesseract_cmd = path
+                            found_path = path
+                            break
                 
                 if not found_path:
                     logging.error("❌ Tesseract not found anywhere in PATH or common locations")
                     logging.error("Please ensure tesseract-ocr is installed in your deployment environment")
+                    # Try a final system check
+                    try:
+                        import subprocess
+                        result = subprocess.run(['which', 'tesseract'], capture_output=True, text=True)
+                        if result.returncode == 0 and result.stdout.strip():
+                            found_path = result.stdout.strip()
+                            logging.info(f"✅ Tesseract found via system which: {found_path}")
+                            pytesseract.pytesseract.tesseract_cmd = found_path
+                    except Exception as e:
+                        logging.error(f"System check failed: {e}")
         
         # Store database manager for name resolution
         self.db_manager = db_manager
