@@ -344,15 +344,20 @@ class OCRProcessor:
         processed_images = self.preprocess_image(image_path)
         texts = []
         
-        # OCR config for game font
-        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ΣΩ"'
+        # OCR config for game font - multiple configs for better accuracy
+        configs = [
+            r'--oem 3 --psm 6 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ΣΩ"',
+            r'--oem 3 --psm 7 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ΣΩ"',
+            r'--oem 3 --psm 8 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ΣΩ"'
+        ]
         
         for img in processed_images:
-            try:
-                text = pytesseract.image_to_string(img, config=custom_config)
-                texts.append(text)
-            except Exception as e:
-                logging.error(f"OCR extraction error: {e}")
+            for config in configs:
+                try:
+                    text = pytesseract.image_to_string(img, config=config)
+                    texts.append(text)
+                except Exception as e:
+                    logging.error(f"OCR extraction error: {e}")
         
         return texts
     
@@ -417,6 +422,16 @@ class OCRProcessor:
                         # If we found scores, use the last one (most likely the player's total)
                         if all_scores_in_line:
                             score = all_scores_in_line[-1]  # Take the last score in the line
+                            
+                            # Score validation - flag suspicious low scores
+                            if score < 10:
+                                logging.warning(f"⚠️ Suspicious low score detected for {word}: {score} (possible OCR error)")
+                                # Try to find alternative scores in the line
+                                if len(all_scores_in_line) > 1:
+                                    alt_score = max(all_scores_in_line)  # Try the highest score instead
+                                    if alt_score >= 10:
+                                        logging.info(f"Using alternative score for {word}: {alt_score} instead of {score}")
+                                        score = alt_score
                             
                             # Resolve nickname to roster name using database
                             if self.db_manager:
