@@ -53,4 +53,11 @@ logs/
 *.temp
 
 # Discord bot token (if accidentally saved)
-token.txt 
+token.txt
+
+# PlantUML files (keep local only)
+*.puml
+mkw_stats_bot_architecture.puml
+mkw_stats_bot_simple.puml
+out/
+*.png 
