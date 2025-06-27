@@ -4,13 +4,16 @@ from typing import List
 # Discord Bot Configuration
 DISCORD_TOKEN = os.getenv('DISCORD_BOT_TOKEN')  # Required: Set this in your environment variables
 GUILD_ID = os.getenv('GUILD_ID')  # Optional: Restrict to specific server
-CHANNEL_ID = os.getenv('CHANNEL_ID')  # Optional: Restrict to specific channel
+CHANNEL_ID = os.getenv('CHANNEL_ID')  # Optional: Restrict to specific channel (legacy)
+ALLOWED_CHANNELS = os.getenv('ALLOWED_CHANNELS')  # Optional: Multiple channels (comma-separated)
 
 # Convert string IDs to integers if provided
 if GUILD_ID:
     GUILD_ID = int(GUILD_ID)
 if CHANNEL_ID:
     CHANNEL_ID = int(CHANNEL_ID)
+if ALLOWED_CHANNELS:
+    ALLOWED_CHANNELS = [int(ch.strip()) for ch in ALLOWED_CHANNELS.split(',')]
 
 # Database Configuration (PostgreSQL)
 # DATABASE_URL is automatically set by Railway or can be set manually

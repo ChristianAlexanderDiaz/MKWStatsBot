@@ -78,8 +78,10 @@ class MarioKartBot(commands.Bot):
         
         # Check if message has attachments (images)
         if message.attachments:
-            # Check if we're in the configured channel (if set)
-            if config.CHANNEL_ID and message.channel.id != config.CHANNEL_ID:
+            # Check if we're in the configured channel(s) (if set)
+            if config.ALLOWED_CHANNELS and message.channel.id not in config.ALLOWED_CHANNELS:
+                return
+            elif config.CHANNEL_ID and message.channel.id != config.CHANNEL_ID:
                 return
             
             # Process each image attachment
