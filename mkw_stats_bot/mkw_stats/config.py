@@ -2,7 +2,7 @@ import os
 from typing import List
 
 # Bot Version (for debugging deployments)
-BOT_VERSION = "1.0.9"  # Increment this for each deployment
+BOT_VERSION = "1.0.10"  # Increment this for each deployment
 
 # Discord Bot Configuration  
 DISCORD_TOKEN = os.getenv('DISCORD_BOT_TOKEN')  # Required: Set this in your environment variables

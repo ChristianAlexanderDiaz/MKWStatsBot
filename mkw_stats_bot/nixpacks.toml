@@ -6,7 +6,7 @@ PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
 
 [phases.setup]
-aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "libgl1-mesa-glx", "libglib2.0-0"]
+aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
 
 [phases.install]
 cmds = ["pip install -r requirements.txt"]
