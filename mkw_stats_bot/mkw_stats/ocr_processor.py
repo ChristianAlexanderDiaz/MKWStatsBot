@@ -23,14 +23,26 @@ class OCRProcessor:
                 logging.info(f"✅ Tesseract executable found at {config.TESSERACT_PATH}")
             else:
                 logging.error(f"❌ Tesseract NOT found at {config.TESSERACT_PATH}")
-                # Try to find tesseract
+                # Try to find tesseract in common locations
                 import shutil
+                common_paths = ['/usr/bin/tesseract', '/usr/local/bin/tesseract', '/opt/homebrew/bin/tesseract']
                 found_path = shutil.which('tesseract')
+                
                 if found_path:
-                    logging.info(f"🔍 But tesseract found at: {found_path}")
+                    logging.info(f"🔍 Found tesseract at: {found_path}")
                     pytesseract.pytesseract.tesseract_cmd = found_path
                 else:
-                    logging.error("❌ Tesseract not found anywhere in PATH")
+                    # Try common paths manually
+                    for path in common_paths:
+                        if os.path.exists(path):
+                            logging.info(f"🔍 Found tesseract at: {path}")
+                            pytesseract.pytesseract.tesseract_cmd = path
+                            found_path = path
+                            break
+                    
+                    if not found_path:
+                        logging.error("❌ Tesseract not found anywhere in PATH or common locations")
+                        logging.error("Please ensure tesseract-ocr is installed in your deployment environment")
         
         # Store database manager for name resolution
         self.db_manager = db_manager
