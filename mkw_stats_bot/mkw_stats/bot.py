@@ -54,6 +54,8 @@ class MarioKartBot(commands.Bot):
         logger.info(f'{self.user} has connected to Discord!')
         # Log the number of guilds the bot is in
         logger.info(f'Bot is in {len(self.guilds)} guilds')
+        # Log bot version for debugging
+        logger.info(f'🔧 Bot Version: {config.BOT_VERSION}')
         
         # Set bot status
         await self.change_presence(

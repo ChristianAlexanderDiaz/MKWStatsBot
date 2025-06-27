@@ -15,6 +15,22 @@ class OCRProcessor:
         # Set tesseract path from config (always set it to override pytesseract default)
         if hasattr(config, 'TESSERACT_PATH'):
             pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_PATH
+            logging.info(f"🔧 Tesseract path set to: {config.TESSERACT_PATH}")
+            
+            # Debug: Check if tesseract exists
+            import os
+            if os.path.exists(config.TESSERACT_PATH):
+                logging.info(f"✅ Tesseract executable found at {config.TESSERACT_PATH}")
+            else:
+                logging.error(f"❌ Tesseract NOT found at {config.TESSERACT_PATH}")
+                # Try to find tesseract
+                import shutil
+                found_path = shutil.which('tesseract')
+                if found_path:
+                    logging.info(f"🔍 But tesseract found at: {found_path}")
+                    pytesseract.pytesseract.tesseract_cmd = found_path
+                else:
+                    logging.error("❌ Tesseract not found anywhere in PATH")
         
         # Store database manager for name resolution
         self.db_manager = db_manager
