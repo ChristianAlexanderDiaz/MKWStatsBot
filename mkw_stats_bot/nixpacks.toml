@@ -8,11 +8,5 @@ PYTHONDONTWRITEBYTECODE = "1"
 [phases.setup]
 aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
 
-[phases.install]
-cmds = ["pip install -r requirements.txt"]
-
-[phases.build]
-cmds = ["echo 'Build complete'"]
-
 [start]
 cmd = "python main.py"
