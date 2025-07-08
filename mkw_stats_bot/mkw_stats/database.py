@@ -108,7 +108,7 @@ class DatabaseManager:
                 cursor.execute("""
                     SELECT EXISTS (
                         SELECT FROM information_schema.tables 
-                        WHERE table_schema = 'public' AND table_name = 'players'
+                        WHERE table_schema = 'public' AND table_name = 'roster'
                     );
                 """)
                 
@@ -117,44 +117,21 @@ class DatabaseManager:
                     logging.info("✅ PostgreSQL tables already exist")
                     return
                 
-                # Create players table with PostgreSQL-specific features
+                # Create wars table (simplified from race_sessions)
                 cursor.execute("""
-                    CREATE TABLE players (
+                    CREATE TABLE wars (
                         id SERIAL PRIMARY KEY,
-                        main_name VARCHAR(100) UNIQUE NOT NULL,
-                        nicknames JSONB DEFAULT '[]'::jsonb,
-                        score_history JSONB DEFAULT '[]'::jsonb,
-                        total_scores INTEGER DEFAULT 0,
-                        war_count DECIMAL(10,2) DEFAULT 0.0,
-                        average_score DECIMAL(10,2) DEFAULT 0.0,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                
-                # Create indexes for better performance
-                cursor.execute("""
-                    CREATE INDEX idx_players_main_name ON players(main_name);
-                    CREATE INDEX idx_players_average_score ON players(average_score DESC);
-                    CREATE INDEX idx_players_war_count ON players(war_count DESC);
-                    CREATE INDEX idx_players_nicknames ON players USING GIN(nicknames);
-                """)
-                
-                # Create race_sessions table
-                cursor.execute("""
-                    CREATE TABLE race_sessions (
-                        id SERIAL PRIMARY KEY,
-                        session_date DATE NOT NULL,
+                        war_date DATE NOT NULL,
                         race_count INTEGER NOT NULL,
                         players_data JSONB NOT NULL,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
                 
-                # Create indexes for race_sessions
+                # Create indexes for wars
                 cursor.execute("""
-                    CREATE INDEX idx_race_sessions_date ON race_sessions(session_date DESC);
-                    CREATE INDEX idx_race_sessions_created ON race_sessions(created_at DESC);
+                    CREATE INDEX idx_wars_date ON wars(war_date DESC);
+                    CREATE INDEX idx_wars_created ON wars(created_at DESC);
                 """)
                 
                 # Create roster table for dynamic clan member management
@@ -184,11 +161,6 @@ class DatabaseManager:
                         RETURN NEW;
                     END;
                     $$ language 'plpgsql';
-                    
-                    CREATE TRIGGER update_players_updated_at 
-                        BEFORE UPDATE ON players 
-                        FOR EACH ROW 
-                        EXECUTE FUNCTION update_updated_at_column();
                         
                     CREATE TRIGGER update_roster_updated_at 
                         BEFORE UPDATE ON roster 
@@ -204,73 +176,20 @@ class DatabaseManager:
             raise
     
     def add_or_update_player(self, main_name: str, nicknames: List[str] = None) -> bool:
-        """Add a new player or update existing player's nicknames."""
-        try:
-            if nicknames is None:
-                nicknames = []
-                
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Check if player exists
-                cursor.execute("SELECT nicknames FROM players WHERE main_name = %s", (main_name,))
-                existing = cursor.fetchone()
-                
-                if existing:
-                    # Update existing player's nicknames
-                    existing_nicknames = existing[0] if existing[0] else []
-                    # Merge nicknames (avoid duplicates)
-                    all_nicknames = list(set(existing_nicknames + nicknames))
-                    
-                    cursor.execute("""
-                        UPDATE players 
-                        SET nicknames = %s
-                        WHERE main_name = %s
-                    """, (json.dumps(all_nicknames), main_name))
-                else:
-                    # Add new player
-                    cursor.execute("""
-                        INSERT INTO players (main_name, nicknames)
-                        VALUES (%s, %s)
-                    """, (main_name, json.dumps(nicknames)))
-                
-                conn.commit()
-                return True
-                
-        except Exception as e:
-            logging.error(f"❌ Error adding/updating player {main_name}: {e}")
-            return False
+        """Add a new player to roster (simplified version)."""
+        return self.add_roster_player(main_name, "system")
     
     def resolve_player_name(self, name_or_nickname: str) -> Optional[str]:
-        """Resolve a name or nickname to the main player name."""
+        """Resolve a name to roster player name (simplified version)."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # First check if it's a main name
-                cursor.execute("SELECT main_name FROM players WHERE main_name = %s", (name_or_nickname,))
+                # Check if it's in roster
+                cursor.execute("SELECT player_name FROM roster WHERE player_name = %s AND is_active = TRUE", (name_or_nickname,))
                 result = cursor.fetchone()
                 if result:
                     return result[0]
-                
-                # Check nicknames using PostgreSQL JSONB functionality
-                cursor.execute("""
-                    SELECT main_name FROM players 
-                    WHERE nicknames @> %s
-                """, (json.dumps([name_or_nickname]),))
-                
-                result = cursor.fetchone()
-                if result:
-                    return result[0]
-                
-                # Case-insensitive search as fallback
-                cursor.execute("""
-                    SELECT main_name, nicknames FROM players
-                """)
-                for main_name, nicknames_json in cursor.fetchall():
-                    nicknames = nicknames_json if nicknames_json else []
-                    if name_or_nickname.lower() in [nick.lower() for nick in nicknames]:
-                        return main_name
                 
                 return None  # Not found
                 
@@ -288,7 +207,7 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Store the race session
+                # Store the war session
                 session_data = {
                     'race_count': race_count,
                     'results': results,
@@ -296,7 +215,7 @@ class DatabaseManager:
                 }
                 
                 cursor.execute("""
-                    INSERT INTO race_sessions (session_date, race_count, players_data)
+                    INSERT INTO wars (war_date, race_count, players_data)
                     VALUES (%s, %s, %s)
                 """, (
                     datetime.now().date(),
@@ -304,66 +223,11 @@ class DatabaseManager:
                     json.dumps(session_data)
                 ))
                 
-                # Update each player's data
-                for result in results:
-                    name = result['name']
-                    score = result['score']
-                    
-                    # Resolve to main name
-                    main_name = self.resolve_player_name(name)
-                    if not main_name:
-                        # Add as new player if not found
-                        self.add_or_update_player(name)
-                        main_name = name
-                    
-                    # Get current player data
-                    cursor.execute("""
-                        SELECT score_history, total_scores 
-                        FROM players WHERE main_name = %s
-                    """, (main_name,))
-                    
-                    row = cursor.fetchone()
-                    if row:
-                        current_scores = row[0] if row[0] else []
-                        current_total = row[1] if row[1] else 0
-                    else:
-                        current_scores = []
-                        current_total = 0
-                    
-                    # Add new score
-                    current_scores.append(score)
-                    new_total = current_total + score
-                    
-                    # Calculate wars (1 war per score entry)
-                    total_races = len(current_scores)
-                    war_count = total_races  # 1 war per score entry
-                    
-                    # Calculate average score per war
-                    if war_count > 0:
-                        average_score = new_total / war_count
-                    else:
-                        average_score = 0.0
-                    
-                    # Update player using PostgreSQL UPSERT
-                    cursor.execute("""
-                        INSERT INTO players (main_name, score_history, total_scores, war_count, average_score)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON CONFLICT (main_name) 
-                        DO UPDATE SET 
-                            score_history = EXCLUDED.score_history,
-                            total_scores = EXCLUDED.total_scores,
-                            war_count = EXCLUDED.war_count,
-                            average_score = EXCLUDED.average_score
-                    """, (
-                        main_name,
-                        json.dumps(current_scores),
-                        new_total,
-                        war_count,
-                        average_score
-                    ))
+                # Just store the war data - no individual player tracking
+                logging.info(f"War data stored with {len(results)} player results")
                 
                 conn.commit()
-                logging.info(f"✅ Added race results for {len(results)} players")
+                logging.info(f"✅ Added war results for {len(results)} players")
                 return True
                 
         except Exception as e:
@@ -371,7 +235,7 @@ class DatabaseManager:
             return False
     
     def get_player_stats(self, name_or_nickname: str) -> Optional[Dict]:
-        """Get detailed stats for a player."""
+        """Get basic roster info for a player."""
         main_name = self.resolve_player_name(name_or_nickname)
         if not main_name:
             return None
@@ -381,26 +245,19 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT main_name, nicknames, score_history, total_scores, 
-                           war_count, average_score, updated_at
-                    FROM players WHERE main_name = %s
+                    SELECT player_name, added_by, created_at, updated_at
+                    FROM roster WHERE player_name = %s AND is_active = TRUE
                 """, (main_name,))
                 
                 row = cursor.fetchone()
                 if not row:
                     return None
                 
-                score_history = row[2] if row[2] else []
-                
                 return {
-                    'main_name': row[0],
-                    'nicknames': row[1] if row[1] else [],
-                    'score_history': score_history,
-                    'total_scores': row[3],
-                    'war_count': float(row[4]),
-                    'average_score': float(row[5]),
-                    'total_races': len(score_history),
-                    'last_updated': row[6].isoformat() if row[6] else None
+                    'player_name': row[0],
+                    'added_by': row[1],
+                    'created_at': row[2].isoformat() if row[2] else None,
+                    'updated_at': row[3].isoformat() if row[3] else None
                 }
                 
         except Exception as e:
@@ -408,31 +265,25 @@ class DatabaseManager:
             return None
     
     def get_all_players_stats(self) -> List[Dict]:
-        """Get stats for all players, sorted by average score."""
+        """Get all roster players info."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT main_name, nicknames, score_history, total_scores, 
-                           war_count, average_score, updated_at
-                    FROM players 
-                    WHERE war_count > 0
-                    ORDER BY average_score DESC
+                    SELECT player_name, added_by, created_at, updated_at
+                    FROM roster 
+                    WHERE is_active = TRUE
+                    ORDER BY player_name
                 """)
                 
                 results = []
                 for row in cursor.fetchall():
-                    score_history = row[2] if row[2] else []
                     results.append({
-                        'main_name': row[0],
-                        'nicknames': row[1] if row[1] else [],
-                        'score_history': score_history,
-                        'total_scores': row[3],
-                        'war_count': float(row[4]),
-                        'average_score': float(row[5]),
-                        'total_races': len(score_history),
-                        'last_updated': row[6].isoformat() if row[6] else None
+                        'player_name': row[0],
+                        'added_by': row[1],
+                        'created_at': row[2].isoformat() if row[2] else None,
+                        'updated_at': row[3].isoformat() if row[3] else None
                     })
                 
                 return results
@@ -441,15 +292,15 @@ class DatabaseManager:
             logging.error(f"❌ Error getting all player stats: {e}")
             return []
     
-    def get_recent_sessions(self, limit: int = 5) -> List[Dict]:
-        """Get recent race sessions."""
+    def get_recent_wars(self, limit: int = 5) -> List[Dict]:
+        """Get recent war sessions."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT session_date, race_count, players_data, created_at
-                    FROM race_sessions
+                    SELECT war_date, race_count, players_data, created_at
+                    FROM wars
                     ORDER BY created_at DESC
                     LIMIT %s
                 """, (limit,))
@@ -458,7 +309,7 @@ class DatabaseManager:
                 for row in cursor.fetchall():
                     session_data = row[2] if row[2] else {}
                     results.append({
-                        'session_date': row[0].isoformat() if row[0] else None,
+                        'war_date': row[0].isoformat() if row[0] else None,
                         'race_count': row[1],
                         'results': session_data.get('results', []),
                         'created_at': row[3].isoformat() if row[3] else None
@@ -467,7 +318,7 @@ class DatabaseManager:
                 return results
                 
         except Exception as e:
-            logging.error(f"❌ Error getting recent sessions: {e}")
+            logging.error(f"❌ Error getting recent wars: {e}")
             return []
     
     def get_database_info(self) -> Dict:
@@ -477,25 +328,20 @@ class DatabaseManager:
                 'database_type': 'PostgreSQL',
                 'connection_host': self.connection_params.get('host'),
                 'connection_database': self.connection_params.get('database'),
-                'player_count': 0,
-                'session_count': 0,
-                'total_wars': 0
+                'roster_count': 0,
+                'war_count': 0
             }
             
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Get player count
-                cursor.execute("SELECT COUNT(*) FROM players")
-                info['player_count'] = cursor.fetchone()[0]
+                # Get roster count
+                cursor.execute("SELECT COUNT(*) FROM roster WHERE is_active = TRUE")
+                info['roster_count'] = cursor.fetchone()[0]
                 
-                # Get session count
-                cursor.execute("SELECT COUNT(*) FROM race_sessions")
-                info['session_count'] = cursor.fetchone()[0]
-                
-                # Get total wars across all players
-                cursor.execute("SELECT COALESCE(SUM(war_count), 0) FROM players")
-                info['total_wars'] = float(cursor.fetchone()[0])
+                # Get war count
+                cursor.execute("SELECT COUNT(*) FROM wars")
+                info['war_count'] = cursor.fetchone()[0]
                 
                 # Get database size
                 cursor.execute("""
@@ -657,28 +503,29 @@ if __name__ == "__main__":
     if db.health_check():
         print("✅ PostgreSQL connection successful")
         
-        # Test adding players
-        db.add_or_update_player("Cynical", ["Cyn", "Christian"])
-        db.add_or_update_player("rx", ["Astral", "Astralixv"])
+        # Test adding roster players
+        db.add_roster_player("TestPlayer", "system")
         
-        # Test adding results
+        # Test adding war results
         test_results = [
-            {'name': 'Cynical', 'score': 95},
-            {'name': 'Cyn', 'score': 88},  # Should resolve to Cynical
-            {'name': 'rx', 'score': 81}
+            {'name': 'TestPlayer', 'score': 95},
+            {'name': 'Player2', 'score': 88}
         ]
         
         success = db.add_race_results(test_results)
-        print(f"✅ Race results added: {success}")
+        print(f"✅ War results added: {success}")
         
         # Test queries
-        stats = db.get_player_stats("Cynical")
-        if stats:
-            print(f"✅ Cynical stats: Avg {stats['average_score']:.1f}, Wars: {stats['war_count']}")
+        roster = db.get_roster_players()
+        print(f"✅ Roster players: {roster}")
         
         # Test database info
         info = db.get_database_info()
         print(f"✅ Database info: {info}")
+        
+        # Initialize with test player
+        db.add_roster_player("TestPlayer", "system")
+        print(f"✅ Added TestPlayer to roster")
         
         db.close()
         

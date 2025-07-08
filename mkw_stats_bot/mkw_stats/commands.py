@@ -297,9 +297,6 @@ class MarioKartCommands(commands.Cog):
             
             if success:
                 await ctx.send(f"✅ Added **{player_name}** to the clan roster!")
-                
-                # Also create player entry if it doesn't exist
-                self.bot.db.add_or_update_player(player_name)
             else:
                 await ctx.send(f"❌ **{player_name}** is already in the roster or couldn't be added.")
                 

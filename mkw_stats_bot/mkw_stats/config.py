@@ -21,7 +21,8 @@ if ALLOWED_CHANNELS:
 # Database Configuration (PostgreSQL)
 # DATABASE_URL is automatically set by Railway or can be set manually
 # Format: postgresql://user:password@host:port/database
-DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('RAILWAY_POSTGRES_URL')
+# For local development, prioritize PUBLIC_URL; for Railway deployment, use private DATABASE_URL
+DATABASE_URL = os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL') or os.getenv('RAILWAY_POSTGRES_URL')
 
 # Complete Player Roster - All clan members for validation
 # NOTE: Nicknames are managed in the database via management/setup_players.py
