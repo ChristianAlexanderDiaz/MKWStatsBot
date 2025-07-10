@@ -8,6 +8,31 @@ class MarioKartCommands(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
+    
+    def parse_quoted_nicknames(self, text: str) -> list:
+        """
+        Parse nicknames from text, handling quoted strings for nicknames with spaces.
+        
+        Examples:
+        - 'Vort VortexNickname' -> ['Vort', 'VortexNickname']
+        - '"MK Vortex" Vort' -> ['MK Vortex', 'Vort']
+        - 'Vort "MK Vortex" "Another Name"' -> ['Vort', 'MK Vortex', 'Another Name']
+        """
+        import re
+        
+        nicknames = []
+        # Pattern to match quoted strings or unquoted words
+        pattern = r'"([^"]+)"|(\S+)'
+        
+        matches = re.findall(pattern, text.strip())
+        
+        for match in matches:
+            # match[0] is quoted content, match[1] is unquoted content
+            nickname = match[0] if match[0] else match[1]
+            if nickname:  # Skip empty matches
+                nicknames.append(nickname)
+        
+        return nicknames
 
     @commands.command(name='mkstats')
     async def view_player_stats(self, ctx, player_name: str = None):
@@ -440,7 +465,8 @@ class MarioKartCommands(commands.Cog):
                 "`!mkaddnickname <player> <nickname>` - Add nickname to player\n"
                 "`!mkaddnicknames <player> <nick1> <nick2>...` - Add multiple nicknames\n"
                 "`!mkremovenickname <player> <nickname>` - Remove nickname from player\n"
-                "`!mknicknames <player>` - Show all nicknames for player"
+                "`!mknicknames <player>` - Show all nicknames for player\n"
+                "💡 Use quotes for nicknames with spaces: `\"MK Player\"`"
             ),
             inline=False
         )
@@ -942,9 +968,9 @@ class MarioKartCommands(commands.Cog):
             await ctx.send("❌ Error retrieving team roster")
 
     @commands.command(name='mkaddnickname')
-    async def add_nickname(self, ctx, player_name: str = None, *nicknames):
-        """Add a single nickname to a player."""
-        if not player_name or not nicknames:
+    async def add_nickname(self, ctx, player_name: str = None, *, raw_nicknames: str = None):
+        """Add a single nickname to a player (supports quotes for nicknames with spaces)."""
+        if not player_name or not raw_nicknames:
             embed = discord.Embed(
                 title="🏷️ Add Nickname",
                 description="Add a nickname to a player for OCR recognition.",
@@ -956,8 +982,8 @@ class MarioKartCommands(commands.Cog):
                 inline=False
             )
             embed.add_field(
-                name="Example", 
-                value="`!mkaddnickname Cynical cyn`",
+                name="Examples", 
+                value="`!mkaddnickname Cynical cyn`\n`!mkaddnickname Vortex \"MK Vortex\"`",
                 inline=False
             )
             embed.add_field(
@@ -966,19 +992,34 @@ class MarioKartCommands(commands.Cog):
                 inline=False
             )
             embed.add_field(
-                name="💡 Tip",
-                value="For multiple nicknames, use `!mkaddnicknames <player> <nick1> <nick2> ...`",
+                name="💡 Tips",
+                value="• Use quotes for nicknames with spaces: `\"MK Vortex\"`\n• For multiple nicknames, use `!mkaddnicknames`",
                 inline=False
             )
             await ctx.send(embed=embed)
             return
         
-        # Check if multiple nicknames were provided
-        if len(nicknames) > 1:
-            await ctx.send(f"❌ You provided multiple nicknames. Did you mean to use `!mkaddnicknames {player_name} {' '.join(nicknames)}`?")
-            return
-        
         try:
+            # Parse nicknames using quote-aware parser
+            nicknames = self.parse_quoted_nicknames(raw_nicknames)
+            
+            # Check if multiple nicknames were provided
+            if len(nicknames) > 1:
+                # Reconstruct the suggested command with proper quoting
+                suggested_nicknames = []
+                for nick in nicknames:
+                    if ' ' in nick:
+                        suggested_nicknames.append(f'"{nick}"')
+                    else:
+                        suggested_nicknames.append(nick)
+                
+                await ctx.send(f"❌ You provided multiple nicknames. Did you mean to use `!mkaddnicknames {player_name} {' '.join(suggested_nicknames)}`?")
+                return
+            
+            if len(nicknames) == 0:
+                await ctx.send("❌ No nickname provided.")
+                return
+            
             # Resolve player name (handles nicknames)
             resolved_player = self.bot.db.resolve_player_name(player_name)
             if not resolved_player:
@@ -999,9 +1040,9 @@ class MarioKartCommands(commands.Cog):
             await ctx.send("❌ Error adding nickname")
 
     @commands.command(name='mkaddnicknames')
-    async def add_nicknames(self, ctx, player_name: str = None, *nicknames):
-        """Add multiple nicknames to a player."""
-        if not player_name or not nicknames:
+    async def add_nicknames(self, ctx, player_name: str = None, *, raw_nicknames: str = None):
+        """Add multiple nicknames to a player (supports quotes for nicknames with spaces)."""
+        if not player_name or not raw_nicknames:
             embed = discord.Embed(
                 title="🏷️ Add Multiple Nicknames",
                 description="Add multiple nicknames to a player at once.",
@@ -1013,8 +1054,8 @@ class MarioKartCommands(commands.Cog):
                 inline=False
             )
             embed.add_field(
-                name="Example", 
-                value="`!mkaddnicknames Cynical cyn cynical123 cyn_mkw`",
+                name="Examples", 
+                value="`!mkaddnicknames Cynical cyn cynical123 cyn_mkw`\n`!mkaddnicknames Vortex \"MK Vortex\" Vort \"Vortex Gaming\"`",
                 inline=False
             )
             embed.add_field(
@@ -1022,10 +1063,22 @@ class MarioKartCommands(commands.Cog):
                 value="Bulk add nicknames for OCR recognition when names appear differently in race results.",
                 inline=False
             )
+            embed.add_field(
+                name="💡 Tip",
+                value="Use quotes for nicknames with spaces: `\"MK Vortex\"`",
+                inline=False
+            )
             await ctx.send(embed=embed)
             return
         
         try:
+            # Parse nicknames using quote-aware parser
+            nicknames = self.parse_quoted_nicknames(raw_nicknames)
+            
+            if len(nicknames) == 0:
+                await ctx.send("❌ No nicknames provided.")
+                return
+            
             # Resolve player name (handles nicknames)
             resolved_player = self.bot.db.resolve_player_name(player_name)
             if not resolved_player:
@@ -1076,9 +1129,9 @@ class MarioKartCommands(commands.Cog):
             await ctx.send("❌ Error adding nicknames")
 
     @commands.command(name='mkremovenickname')
-    async def remove_nickname(self, ctx, player_name: str = None, nickname: str = None):
-        """Remove a nickname from a player."""
-        if not player_name or not nickname:
+    async def remove_nickname(self, ctx, player_name: str = None, *, raw_nickname: str = None):
+        """Remove a nickname from a player (supports quotes for nicknames with spaces)."""
+        if not player_name or not raw_nickname:
             embed = discord.Embed(
                 title="🏷️ Remove Nickname",
                 description="Remove a nickname from a player.",
@@ -1090,14 +1143,30 @@ class MarioKartCommands(commands.Cog):
                 inline=False
             )
             embed.add_field(
-                name="Example", 
-                value="`!mkremovenickname Cynical cyn`",
+                name="Examples", 
+                value="`!mkremovenickname Cynical cyn`\n`!mkremovenickname Vortex \"MK Vortex\"`",
+                inline=False
+            )
+            embed.add_field(
+                name="💡 Tip",
+                value="Use quotes for nicknames with spaces: `\"MK Vortex\"`",
                 inline=False
             )
             await ctx.send(embed=embed)
             return
         
         try:
+            # Parse nicknames using quote-aware parser
+            nicknames = self.parse_quoted_nicknames(raw_nickname)
+            
+            if len(nicknames) == 0:
+                await ctx.send("❌ No nickname provided.")
+                return
+            
+            if len(nicknames) > 1:
+                await ctx.send("❌ You can only remove one nickname at a time. Please specify a single nickname.")
+                return
+            
             # Resolve player name (handles nicknames)
             resolved_player = self.bot.db.resolve_player_name(player_name)
             if not resolved_player:
@@ -1105,6 +1174,7 @@ class MarioKartCommands(commands.Cog):
                 return
             
             # Remove nickname
+            nickname = nicknames[0]
             success = self.bot.db.remove_nickname(resolved_player, nickname)
             
             if success:
