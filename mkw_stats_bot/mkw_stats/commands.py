@@ -942,9 +942,9 @@ class MarioKartCommands(commands.Cog):
             await ctx.send("❌ Error retrieving team roster")
 
     @commands.command(name='mkaddnickname')
-    async def add_nickname(self, ctx, player_name: str = None, nickname: str = None):
-        """Add a nickname to a player."""
-        if not player_name or not nickname:
+    async def add_nickname(self, ctx, player_name: str = None, *nicknames):
+        """Add a single nickname to a player."""
+        if not player_name or not nicknames:
             embed = discord.Embed(
                 title="🏷️ Add Nickname",
                 description="Add a nickname to a player for OCR recognition.",
@@ -965,7 +965,17 @@ class MarioKartCommands(commands.Cog):
                 value="Nicknames help OCR recognize players when their names appear differently in race results.",
                 inline=False
             )
+            embed.add_field(
+                name="💡 Tip",
+                value="For multiple nicknames, use `!mkaddnicknames <player> <nick1> <nick2> ...`",
+                inline=False
+            )
             await ctx.send(embed=embed)
+            return
+        
+        # Check if multiple nicknames were provided
+        if len(nicknames) > 1:
+            await ctx.send(f"❌ You provided multiple nicknames. Did you mean to use `!mkaddnicknames {player_name} {' '.join(nicknames)}`?")
             return
         
         try:
@@ -975,7 +985,8 @@ class MarioKartCommands(commands.Cog):
                 await ctx.send(f"❌ Player **{player_name}** not found in roster. Use `!mkadd {player_name}` to add them first.")
                 return
             
-            # Add nickname
+            # Add single nickname
+            nickname = nicknames[0]
             success = self.bot.db.add_nickname(resolved_player, nickname)
             
             if success:
