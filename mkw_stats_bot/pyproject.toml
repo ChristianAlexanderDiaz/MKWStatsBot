@@ -66,8 +66,8 @@ mkw-stats-bot = "main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["mkw_stats*", "management*", "testing*"]
-exclude = ["tests*", "docs*"]
+include = ["mkw_stats*", "admin*", "testing*"]
+exclude = ["tests*", "docs*", "scripts*"]
 
 [tool.black]
 line-length = 88
@@ -93,7 +93,7 @@ profile = "black"
 multi_line_output = 3
 line_length = 88
 known_third_party = ["discord", "psycopg2", "pytesseract", "cv2", "numpy", "PIL"]
-known_first_party = ["mkw_stats", "management", "testing"]
+known_first_party = ["mkw_stats", "admin", "testing"]
 
 [tool.flake8]
 max-line-length = 88
@@ -111,6 +111,7 @@ exclude = [
     "venv",
     "data",
     "docs",
+    "scripts",
 ]
 per-file-ignores = [
     "__init__.py:F401",  # imported but unused

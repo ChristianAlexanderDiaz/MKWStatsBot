@@ -19,24 +19,32 @@ class MarioKartCommands(commands.Cog):
                 if stats:
                     # Create an embed for the player's stats
                     embed = discord.Embed(
-                        title=f"📊 Stats for {stats['main_name']}",
+                        title=f"📊 Stats for {stats['player_name']}",
                         color=0x00ff00
                     )
                     
+                    # Display team information
+                    team_info = {
+                        'Phantom Orbit': '🔮',
+                        'Moonlight Bootel': '🌙',
+                        'Unassigned': '❓'
+                    }
+                    team_icon = team_info.get(stats.get('team', 'Unassigned'), '👥')
+                    embed.add_field(name="Team", value=f"{team_icon} {stats.get('team', 'Unassigned')}", inline=True)
+                    
                     # Display the players' nicknames if they exist
-                    if stats['nicknames']:
-                        embed.add_field(name="Nicknames", value=", ".join(stats['nicknames']), inline=False)
+                    if stats.get('nicknames'):
+                        embed.add_field(name="Nicknames", value=", ".join(stats['nicknames']), inline=True)
+                    else:
+                        embed.add_field(name="Nicknames", value="None", inline=True)
                     
-                    # Display the players' total score, races played, wars completed, and average score
-                    embed.add_field(name="Total Score", value=stats['total_scores'], inline=True)
-                    embed.add_field(name="Races Played", value=stats['total_races'], inline=True)
-                    embed.add_field(name="Wars Completed", value=f"{stats['war_count']:.2f}", inline=True)
-                    embed.add_field(name="Average Score", value=f"{stats['average_score']:.1f}", inline=True)
+                    # Display the players' roster info
+                    embed.add_field(name="Added By", value=stats.get('added_by', 'Unknown'), inline=True)
                     
-                    # Show recent scores
-                    if stats['score_history']:
-                        recent_scores = stats['score_history'][-5:]  # Last 5 scores
-                        embed.add_field(name="Recent Scores", value=str(recent_scores), inline=False)
+                    # Note: The current database schema doesn't have total_scores, total_races, etc.
+                    # These would need to be calculated from the wars table
+                    embed.add_field(name="Player Since", value=stats.get('created_at', 'Unknown')[:10] if stats.get('created_at') else 'Unknown', inline=True)
+                    embed.add_field(name="Last Updated", value=stats.get('updated_at', 'Unknown')[:10] if stats.get('updated_at') else 'Unknown', inline=True)
                     
                     await ctx.send(embed=embed)
                 else:
@@ -47,16 +55,38 @@ class MarioKartCommands(commands.Cog):
                 if all_stats:
                     embed = discord.Embed(
                         title="📊 All Player Statistics",
-                        description="Ranked by average score per war",
+                        description="Players organized by teams",
                         color=0x00ff00
                     )
                     
-                    for i, stats in enumerate(all_stats[:10], 1):  # Top 10
-                        embed.add_field(
-                            name=f"{i}. {stats['main_name']}",
-                            value=f"Avg: {stats['average_score']:.1f} | Wars: {stats['war_count']:.2f} | Races: {stats['total_races']}",
-                            inline=False
-                        )
+                    # Group by teams
+                    teams = {}
+                    for stats in all_stats:
+                        team = stats.get('team', 'Unassigned')
+                        if team not in teams:
+                            teams[team] = []
+                        teams[team].append(stats)
+                    
+                    # Team icons
+                    team_icons = {
+                        'Phantom Orbit': '🔮',
+                        'Moonlight Bootel': '🌙',
+                        'Unassigned': '❓'
+                    }
+                    
+                    for team_name, players in teams.items():
+                        if players:  # Only show teams with players
+                            icon = team_icons.get(team_name, '👥')
+                            player_list = []
+                            for player in players:
+                                nickname_text = f" ({', '.join(player['nicknames'][:2])})" if player.get('nicknames') else ""
+                                player_list.append(f"• **{player['player_name']}**{nickname_text}")
+                            
+                            embed.add_field(
+                                name=f"{icon} {team_name} ({len(players)} players)",
+                                value="\n".join(player_list[:10]),  # Limit to 10 players per team
+                                inline=False
+                            )
                     
                     await ctx.send(embed=embed)
                 else:
@@ -231,37 +261,54 @@ class MarioKartCommands(commands.Cog):
 
     @commands.command(name='mkroster')
     async def show_full_roster(self, ctx):
-        """Show the complete clan roster."""
+        """Show the complete clan roster organized by teams."""
         try:
-            # Get roster from database
-            roster_players = self.bot.db.get_roster_players()
+            # Get all players with their team and nickname info
+            all_players = self.bot.db.get_all_players_stats()
             
-            if not roster_players:
+            if not all_players:
                 await ctx.send("❌ No players found in roster. Use `!mkadd <player>` to add players.")
                 return
             
             embed = discord.Embed(
                 title="👥 Complete Clan Roster",
-                description=f"All {len(roster_players)} clan members:",
+                description=f"All {len(all_players)} clan members organized by teams:",
                 color=0x9932cc
             )
             
-            # Split roster into columns for better display
-            mid_point = len(roster_players) // 2
-            col1 = roster_players[:mid_point]
-            col2 = roster_players[mid_point:]
+            # Group players by team
+            teams = {}
+            for player in all_players:
+                team = player.get('team', 'Unassigned')
+                if team not in teams:
+                    teams[team] = []
+                teams[team].append(player)
             
-            embed.add_field(
-                name="Players (A-M)", 
-                value="\n".join([f"• {name}" for name in col1]), 
-                inline=True
-            )
-            embed.add_field(
-                name="Players (M-Z)", 
-                value="\n".join([f"• {name}" for name in col2]), 
-                inline=True
-            )
-            embed.set_footer(text="Only results for these players will be saved from war images.")
+            # Team icons and colors
+            team_info = {
+                'Phantom Orbit': {'icon': '🔮', 'color': 0x9932cc},
+                'Moonlight Bootel': {'icon': '🌙', 'color': 0x4169e1},
+                'Unassigned': {'icon': '❓', 'color': 0x808080}
+            }
+            
+            # Display each team
+            for team_name, players in teams.items():
+                if players:  # Only show teams with players
+                    icon = team_info.get(team_name, {}).get('icon', '👥')
+                    player_list = []
+                    
+                    for player in players:
+                        nickname_count = len(player.get('nicknames', []))
+                        nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
+                        player_list.append(f"• **{player['player_name']}**{nickname_text}")
+                    
+                    embed.add_field(
+                        name=f"{icon} {team_name} ({len(players)} players)",
+                        value="\n".join(player_list),
+                        inline=False
+                    )
+            
+            embed.set_footer(text="Use !mkteams for detailed team view | Only results for these players will be saved from war images.")
             
             await ctx.send(embed=embed)
             
@@ -363,16 +410,44 @@ class MarioKartCommands(commands.Cog):
         )
         
         embed.add_field(
-            name="🔧 Commands",
+            name="🔧 Player & Roster Commands",
             value=(
                 "`!mkstats [player]` - Show player stats or leaderboard\n"
-                "`!mkroster` - Show complete clan roster\n"
+                "`!mkroster` - Show complete clan roster by teams\n"
                 "`!mkadd <player>` - Add player to roster\n"
                 "`!mkremove <player>` - Remove player from roster\n"
                 "`!mkmanual` - Manual war entry (when OCR fails)\n"
-                "`!mkpreset list` - Show table format presets\n"
-                "`!mkhelp` - Show this help message"
+                "`!mkpreset list` - Show table format presets"
             ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="👥 Team Management Commands",
+            value=(
+                "`!mkassignteam <player> <team>` - Assign player to team\n"
+                "`!mkassignplayerstoteam <team> <player1> <player2>...` - Assign multiple players to team\n"
+                "`!mkunassignteam <player>` - Set player to Unassigned\n"
+                "`!mkteams` - Show all teams and their players\n"
+                "`!mkteamroster <team>` - Show specific team roster"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🏷️ Nickname Management Commands",
+            value=(
+                "`!mkaddnickname <player> <nickname>` - Add nickname to player\n"
+                "`!mkaddnicknames <player> <nick1> <nick2>...` - Add multiple nicknames\n"
+                "`!mkremovenickname <player> <nickname>` - Remove nickname from player\n"
+                "`!mknicknames <player>` - Show all nicknames for player"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📋 Available Teams",
+            value="• **Phantom Orbit** 🔮\n• **Moonlight Bootel** 🌙\n• **Unassigned** ❓",
             inline=False
         )
         
@@ -551,6 +626,542 @@ class MarioKartCommands(commands.Cog):
         
         # Clean up edit session
         del self.bot.edit_sessions[ctx.author.id]
+
+    @commands.command(name='mkassignteam')
+    async def assign_player_to_team(self, ctx, player_name: str = None, *, team_name: str = None):
+        """Assign a player to a team."""
+        if not player_name or not team_name:
+            embed = discord.Embed(
+                title="👥 Assign Player to Team",
+                description="Assign a player to a team.",
+                color=0x9932cc
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkassignteam <player_name> <team_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Valid Teams",
+                value="• Unassigned\n• Phantom Orbit\n• Moonlight Bootel",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkassignteam Cynical Phantom Orbit`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Validate team name
+        valid_teams = ['Unassigned', 'Phantom Orbit', 'Moonlight Bootel']
+        if team_name not in valid_teams:
+            await ctx.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}")
+            return
+        
+        try:
+            # Resolve player name (handles nicknames)
+            resolved_player = self.bot.db.resolve_player_name(player_name)
+            if not resolved_player:
+                await ctx.send(f"❌ Player **{player_name}** not found in roster. Use `!mkadd {player_name}` to add them first.")
+                return
+            
+            # Assign team
+            success = self.bot.db.set_player_team(resolved_player, team_name)
+            
+            if success:
+                await ctx.send(f"✅ Assigned **{resolved_player}** to team **{team_name}**!")
+            else:
+                await ctx.send(f"❌ Failed to assign **{resolved_player}** to team **{team_name}**.")
+                
+        except Exception as e:
+            logging.error(f"Error assigning player to team: {e}")
+            await ctx.send("❌ Error assigning player to team")
+
+    @commands.command(name='mkassignplayerstoteam')
+    async def assign_players_to_team(self, ctx, team_name: str = None, *player_names):
+        """Assign multiple players to a team."""
+        if not team_name or not player_names:
+            embed = discord.Embed(
+                title="👥 Assign Multiple Players to Team",
+                description="Assign multiple players to a team at once.",
+                color=0x9932cc
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkassignplayerstoteam <team_name> <player1> <player2> <player3> ...`",
+                inline=False
+            )
+            embed.add_field(
+                name="Valid Teams",
+                value="• Unassigned\n• Phantom Orbit\n• Moonlight Bootel",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkassignplayerstoteam \"Phantom Orbit\" Cynical TestPlayer1 TestPlayer2`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Validate team name
+        valid_teams = ['Unassigned', 'Phantom Orbit', 'Moonlight Bootel']
+        if team_name not in valid_teams:
+            await ctx.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}")
+            return
+        
+        if len(player_names) == 0:
+            await ctx.send("❌ Please provide at least one player name.")
+            return
+        
+        try:
+            # Resolve all player names first
+            resolved_players = []
+            failed_players = []
+            
+            for player_name in player_names:
+                resolved = self.bot.db.resolve_player_name(player_name)
+                if resolved:
+                    resolved_players.append(resolved)
+                else:
+                    failed_players.append(player_name)
+            
+            if failed_players:
+                await ctx.send(f"❌ These players were not found in roster: {', '.join(failed_players)}\nUse `!mkadd <player>` to add them first.")
+                return
+            
+            # Assign all players to team
+            successful_assignments = []
+            failed_assignments = []
+            
+            for player in resolved_players:
+                success = self.bot.db.set_player_team(player, team_name)
+                if success:
+                    successful_assignments.append(player)
+                else:
+                    failed_assignments.append(player)
+            
+            # Create response embed
+            embed = discord.Embed(
+                title="👥 Team Assignment Results",
+                color=0x00ff00 if not failed_assignments else 0xff4444
+            )
+            
+            if successful_assignments:
+                embed.add_field(
+                    name=f"✅ Successfully assigned to **{team_name}**",
+                    value="\n".join([f"• {player}" for player in successful_assignments]),
+                    inline=False
+                )
+            
+            if failed_assignments:
+                embed.add_field(
+                    name="❌ Failed to assign",
+                    value="\n".join([f"• {player}" for player in failed_assignments]),
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="Summary",
+                value=f"Successfully assigned: {len(successful_assignments)}\nFailed: {len(failed_assignments)}",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+                
+        except Exception as e:
+            logging.error(f"Error assigning players to team: {e}")
+            await ctx.send("❌ Error assigning players to team")
+
+    @commands.command(name='mkunassignteam')
+    async def unassign_player_from_team(self, ctx, player_name: str = None):
+        """Unassign a player from their team (set to Unassigned)."""
+        if not player_name:
+            embed = discord.Embed(
+                title="👥 Unassign Player from Team",
+                description="Set a player's team to Unassigned.",
+                color=0xff4444
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkunassignteam <player_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkunassignteam Cynical`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            # Resolve player name (handles nicknames)
+            resolved_player = self.bot.db.resolve_player_name(player_name)
+            if not resolved_player:
+                await ctx.send(f"❌ Player **{player_name}** not found in roster.")
+                return
+            
+            # Set team to Unassigned
+            success = self.bot.db.set_player_team(resolved_player, 'Unassigned')
+            
+            if success:
+                await ctx.send(f"✅ Set **{resolved_player}** to **Unassigned**!")
+            else:
+                await ctx.send(f"❌ Failed to unassign **{resolved_player}** from team.")
+                
+        except Exception as e:
+            logging.error(f"Error unassigning player from team: {e}")
+            await ctx.send("❌ Error unassigning player from team")
+
+    @commands.command(name='mkteams')
+    async def show_teams(self, ctx):
+        """Show all players organized by teams."""
+        try:
+            teams = self.bot.db.get_players_by_team()
+            
+            if not teams:
+                await ctx.send("❌ No players found in roster.")
+                return
+            
+            embed = discord.Embed(
+                title="👥 Team Rosters",
+                description="Players organized by team assignment:",
+                color=0x9932cc
+            )
+            
+            # Define team colors
+            team_colors = {
+                'Phantom Orbit': '🔮',
+                'Moonlight Bootel': '🌙', 
+                'Unassigned': '❓'
+            }
+            
+            total_players = 0
+            for team_name, players in teams.items():
+                if players:  # Only show teams with players
+                    icon = team_colors.get(team_name, '👥')
+                    player_list = "\n".join([f"• {player}" for player in players])
+                    
+                    embed.add_field(
+                        name=f"{icon} {team_name} ({len(players)} players)",
+                        value=player_list,
+                        inline=True
+                    )
+                    total_players += len(players)
+            
+            embed.set_footer(text=f"Total players: {total_players}")
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error showing teams: {e}")
+            await ctx.send("❌ Error retrieving team information")
+
+    @commands.command(name='mkteamroster')
+    async def show_team_roster(self, ctx, *, team_name: str = None):
+        """Show roster for a specific team."""
+        if not team_name:
+            embed = discord.Embed(
+                title="👥 Show Team Roster",
+                description="Display all players in a specific team.",
+                color=0x9932cc
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkteamroster <team_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Valid Teams",
+                value="• Unassigned\n• Phantom Orbit\n• Moonlight Bootel",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkteamroster Phantom Orbit`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Validate team name
+        valid_teams = ['Unassigned', 'Phantom Orbit', 'Moonlight Bootel']
+        if team_name not in valid_teams:
+            await ctx.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}")
+            return
+        
+        try:
+            team_players = self.bot.db.get_team_roster(team_name)
+            
+            # Define team colors and icons
+            team_info = {
+                'Phantom Orbit': {'icon': '🔮', 'color': 0x9932cc},
+                'Moonlight Bootel': {'icon': '🌙', 'color': 0x4169e1},
+                'Unassigned': {'icon': '❓', 'color': 0x808080}
+            }
+            
+            team_data = team_info.get(team_name, {'icon': '👥', 'color': 0x9932cc})
+            
+            embed = discord.Embed(
+                title=f"{team_data['icon']} {team_name} Roster",
+                description=f"Players in team {team_name}:",
+                color=team_data['color']
+            )
+            
+            if team_players:
+                # Get detailed stats for team members
+                detailed_players = []
+                for player in team_players:
+                    player_stats = self.bot.db.get_player_stats(player)
+                    if player_stats:
+                        nicknames = player_stats.get('nicknames', [])
+                        nickname_text = f" ({', '.join(nicknames)})" if nicknames else ""
+                        detailed_players.append(f"• **{player}**{nickname_text}")
+                    else:
+                        detailed_players.append(f"• **{player}**")
+                
+                embed.add_field(
+                    name=f"Team Members ({len(team_players)})",
+                    value="\n".join(detailed_players),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Team Members",
+                    value="No players assigned to this team.",
+                    inline=False
+                )
+            
+            embed.set_footer(text=f"Use !mkassignteam <player> \"{team_name}\" to assign players to this team")
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error showing team roster: {e}")
+            await ctx.send("❌ Error retrieving team roster")
+
+    @commands.command(name='mkaddnickname')
+    async def add_nickname(self, ctx, player_name: str = None, nickname: str = None):
+        """Add a nickname to a player."""
+        if not player_name or not nickname:
+            embed = discord.Embed(
+                title="🏷️ Add Nickname",
+                description="Add a nickname to a player for OCR recognition.",
+                color=0x9932cc
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkaddnickname <player_name> <nickname>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkaddnickname Cynical cyn`",
+                inline=False
+            )
+            embed.add_field(
+                name="Purpose",
+                value="Nicknames help OCR recognize players when their names appear differently in race results.",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            # Resolve player name (handles nicknames)
+            resolved_player = self.bot.db.resolve_player_name(player_name)
+            if not resolved_player:
+                await ctx.send(f"❌ Player **{player_name}** not found in roster. Use `!mkadd {player_name}` to add them first.")
+                return
+            
+            # Add nickname
+            success = self.bot.db.add_nickname(resolved_player, nickname)
+            
+            if success:
+                await ctx.send(f"✅ Added nickname **{nickname}** to **{resolved_player}**!")
+            else:
+                await ctx.send(f"❌ Nickname **{nickname}** already exists for **{resolved_player}** or couldn't be added.")
+                
+        except Exception as e:
+            logging.error(f"Error adding nickname: {e}")
+            await ctx.send("❌ Error adding nickname")
+
+    @commands.command(name='mkaddnicknames')
+    async def add_nicknames(self, ctx, player_name: str = None, *nicknames):
+        """Add multiple nicknames to a player."""
+        if not player_name or not nicknames:
+            embed = discord.Embed(
+                title="🏷️ Add Multiple Nicknames",
+                description="Add multiple nicknames to a player at once.",
+                color=0x9932cc
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkaddnicknames <player_name> <nickname1> <nickname2> <nickname3> ...`",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkaddnicknames Cynical cyn cynical123 cyn_mkw`",
+                inline=False
+            )
+            embed.add_field(
+                name="Purpose",
+                value="Bulk add nicknames for OCR recognition when names appear differently in race results.",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            # Resolve player name (handles nicknames)
+            resolved_player = self.bot.db.resolve_player_name(player_name)
+            if not resolved_player:
+                await ctx.send(f"❌ Player **{player_name}** not found in roster. Use `!mkadd {player_name}` to add them first.")
+                return
+            
+            # Add all nicknames
+            successful_additions = []
+            failed_additions = []
+            
+            for nickname in nicknames:
+                success = self.bot.db.add_nickname(resolved_player, nickname)
+                if success:
+                    successful_additions.append(nickname)
+                else:
+                    failed_additions.append(nickname)
+            
+            # Create response embed
+            embed = discord.Embed(
+                title="🏷️ Nickname Addition Results",
+                color=0x00ff00 if not failed_additions else 0xff4444
+            )
+            
+            if successful_additions:
+                embed.add_field(
+                    name=f"✅ Successfully added to **{resolved_player}**",
+                    value="\n".join([f"• {nickname}" for nickname in successful_additions]),
+                    inline=False
+                )
+            
+            if failed_additions:
+                embed.add_field(
+                    name="❌ Failed to add (already exist or error)",
+                    value="\n".join([f"• {nickname}" for nickname in failed_additions]),
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="Summary",
+                value=f"Successfully added: {len(successful_additions)}\nFailed: {len(failed_additions)}",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+                
+        except Exception as e:
+            logging.error(f"Error adding nicknames: {e}")
+            await ctx.send("❌ Error adding nicknames")
+
+    @commands.command(name='mkremovenickname')
+    async def remove_nickname(self, ctx, player_name: str = None, nickname: str = None):
+        """Remove a nickname from a player."""
+        if not player_name or not nickname:
+            embed = discord.Embed(
+                title="🏷️ Remove Nickname",
+                description="Remove a nickname from a player.",
+                color=0xff4444
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkremovenickname <player_name> <nickname>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkremovenickname Cynical cyn`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            # Resolve player name (handles nicknames)
+            resolved_player = self.bot.db.resolve_player_name(player_name)
+            if not resolved_player:
+                await ctx.send(f"❌ Player **{player_name}** not found in roster.")
+                return
+            
+            # Remove nickname
+            success = self.bot.db.remove_nickname(resolved_player, nickname)
+            
+            if success:
+                await ctx.send(f"✅ Removed nickname **{nickname}** from **{resolved_player}**!")
+            else:
+                await ctx.send(f"❌ Nickname **{nickname}** not found for **{resolved_player}** or couldn't be removed.")
+                
+        except Exception as e:
+            logging.error(f"Error removing nickname: {e}")
+            await ctx.send("❌ Error removing nickname")
+
+    @commands.command(name='mknicknames')
+    async def show_nicknames(self, ctx, player_name: str = None):
+        """Show all nicknames for a player."""
+        if not player_name:
+            embed = discord.Embed(
+                title="🏷️ Show Player Nicknames",
+                description="Display all nicknames for a player.",
+                color=0x9932cc
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mknicknames <player_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mknicknames Cynical`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            # Resolve player name (handles nicknames)
+            resolved_player = self.bot.db.resolve_player_name(player_name)
+            if not resolved_player:
+                await ctx.send(f"❌ Player **{player_name}** not found in roster.")
+                return
+            
+            # Get nicknames
+            nicknames = self.bot.db.get_player_nicknames(resolved_player)
+            
+            embed = discord.Embed(
+                title=f"🏷️ Nicknames for {resolved_player}",
+                description=f"All nicknames for **{resolved_player}**:",
+                color=0x9932cc
+            )
+            
+            if nicknames:
+                embed.add_field(
+                    name=f"Nicknames ({len(nicknames)})",
+                    value="\n".join([f"• {nickname}" for nickname in nicknames]),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Nicknames",
+                    value="No nicknames set for this player.",
+                    inline=False
+                )
+            
+            embed.set_footer(text=f"Use !mkaddnickname {resolved_player} <nickname> to add more nicknames")
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error showing nicknames: {e}")
+            await ctx.send("❌ Error retrieving nicknames")
 
 async def setup(bot):
     """Setup function for the cog."""

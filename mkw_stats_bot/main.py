@@ -23,7 +23,7 @@ async def main():
     # Check if Discord token is set
     if not config.DISCORD_TOKEN:
         print("❌ Please set DISCORD_BOT_TOKEN environment variable")
-        print("Run: python management/setup_players.py first")
+        print("Run: python admin/setup_players.py first")
         return
     
     # Setup and run bot

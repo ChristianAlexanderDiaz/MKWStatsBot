@@ -265,7 +265,7 @@ def print_next_steps() -> None:
     print("1. Edit .env file with your Discord bot token:")
     print("   DISCORD_BOT_TOKEN=your_token_here")
     print("\n2. Initialize your clan database:")
-    print("   python management/setup_players.py")
+    print("   python admin/setup_players.py")
     print("\n3. Start the bot:")
     print("   python main.py")
     print("\n4. Activate virtual environment for development:")

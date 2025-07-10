@@ -180,13 +180,42 @@ class DatabaseManager:
         return self.add_roster_player(main_name, "system")
     
     def resolve_player_name(self, name_or_nickname: str) -> Optional[str]:
-        """Resolve a name to roster player name (simplified version)."""
+        """Resolve a name or nickname to roster player name."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Check if it's in roster
-                cursor.execute("SELECT player_name FROM roster WHERE player_name = %s AND is_active = TRUE", (name_or_nickname,))
+                # First, check if it's an exact match with player_name
+                cursor.execute("""
+                    SELECT player_name FROM roster 
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (name_or_nickname,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+                
+                # Then check if it's a nickname (case-insensitive)
+                cursor.execute("""
+                    SELECT player_name FROM roster 
+                    WHERE nicknames ? %s AND is_active = TRUE
+                """, (name_or_nickname,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+                
+                # Finally, try case-insensitive search for both name and nicknames
+                cursor.execute("""
+                    SELECT player_name FROM roster 
+                    WHERE (LOWER(player_name) = LOWER(%s) OR 
+                           EXISTS (
+                               SELECT 1 FROM jsonb_array_elements_text(nicknames) AS nickname
+                               WHERE LOWER(nickname) = LOWER(%s)
+                           ))
+                    AND is_active = TRUE
+                """, (name_or_nickname, name_or_nickname))
+                
                 result = cursor.fetchone()
                 if result:
                     return result[0]
@@ -245,7 +274,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT player_name, added_by, created_at, updated_at
+                    SELECT player_name, added_by, created_at, updated_at, team, nicknames
                     FROM roster WHERE player_name = %s AND is_active = TRUE
                 """, (main_name,))
                 
@@ -257,7 +286,9 @@ class DatabaseManager:
                     'player_name': row[0],
                     'added_by': row[1],
                     'created_at': row[2].isoformat() if row[2] else None,
-                    'updated_at': row[3].isoformat() if row[3] else None
+                    'updated_at': row[3].isoformat() if row[3] else None,
+                    'team': row[4] if row[4] else 'Unassigned',
+                    'nicknames': row[5] if row[5] else []
                 }
                 
         except Exception as e:
@@ -271,10 +302,10 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT player_name, added_by, created_at, updated_at
+                    SELECT player_name, added_by, created_at, updated_at, team, nicknames
                     FROM roster 
                     WHERE is_active = TRUE
-                    ORDER BY player_name
+                    ORDER BY team, player_name
                 """)
                 
                 results = []
@@ -283,7 +314,9 @@ class DatabaseManager:
                         'player_name': row[0],
                         'added_by': row[1],
                         'created_at': row[2].isoformat() if row[2] else None,
-                        'updated_at': row[3].isoformat() if row[3] else None
+                        'updated_at': row[3].isoformat() if row[3] else None,
+                        'team': row[4] if row[4] else 'Unassigned',
+                        'nicknames': row[5] if row[5] else []
                     })
                 
                 return results
@@ -483,6 +516,238 @@ class DatabaseManager:
                 
         except Exception as e:
             logging.error(f"❌ Error initializing roster from config: {e}")
+            return False
+
+    # Team Management Methods
+    def set_player_team(self, player_name: str, team: str) -> bool:
+        """Set a player's team assignment."""
+        valid_teams = ['Unassigned', 'Phantom Orbit', 'Moonlight Bootel']
+        
+        if team not in valid_teams:
+            logging.error(f"Invalid team '{team}'. Valid teams: {valid_teams}")
+            return False
+            
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if player exists and is active
+                cursor.execute("""
+                    SELECT id FROM roster WHERE player_name = %s AND is_active = TRUE
+                """, (player_name,))
+                
+                if not cursor.fetchone():
+                    logging.error(f"Player {player_name} not found in active roster")
+                    return False
+                
+                # Update player's team
+                cursor.execute("""
+                    UPDATE roster 
+                    SET team = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (team, player_name))
+                
+                conn.commit()
+                logging.info(f"✅ Set {player_name}'s team to {team}")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error setting player team: {e}")
+            return False
+    
+    def get_players_by_team(self, team: str = None) -> Dict[str, List[str]]:
+        """Get players organized by team, or players from a specific team."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                if team:
+                    # Get players from specific team
+                    cursor.execute("""
+                        SELECT player_name FROM roster 
+                        WHERE team = %s AND is_active = TRUE
+                        ORDER BY player_name
+                    """, (team,))
+                    
+                    return {team: [row[0] for row in cursor.fetchall()]}
+                else:
+                    # Get all players organized by team
+                    cursor.execute("""
+                        SELECT team, player_name FROM roster 
+                        WHERE is_active = TRUE
+                        ORDER BY team, player_name
+                    """)
+                    
+                    teams = {}
+                    for row in cursor.fetchall():
+                        team_name, player_name = row
+                        if team_name not in teams:
+                            teams[team_name] = []
+                        teams[team_name].append(player_name)
+                    
+                    return teams
+                    
+        except Exception as e:
+            logging.error(f"❌ Error getting players by team: {e}")
+            return {}
+    
+    def get_team_roster(self, team: str) -> List[str]:
+        """Get list of players in a specific team."""
+        team_data = self.get_players_by_team(team)
+        return team_data.get(team, [])
+    
+    def get_player_team(self, player_name: str) -> Optional[str]:
+        """Get a player's current team assignment."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT team FROM roster 
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (player_name,))
+                
+                result = cursor.fetchone()
+                return result[0] if result else None
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting player team: {e}")
+            return None
+
+    # Nickname Management Methods
+    def add_nickname(self, player_name: str, nickname: str) -> bool:
+        """Add a nickname to a player's nickname list."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if player exists and is active
+                cursor.execute("""
+                    SELECT nicknames FROM roster 
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (player_name,))
+                
+                result = cursor.fetchone()
+                if not result:
+                    logging.error(f"Player {player_name} not found in active roster")
+                    return False
+                
+                current_nicknames = result[0] if result[0] else []
+                
+                # Check if nickname already exists
+                if nickname in current_nicknames:
+                    logging.info(f"Nickname '{nickname}' already exists for {player_name}")
+                    return False
+                
+                # Add new nickname
+                updated_nicknames = current_nicknames + [nickname]
+                
+                cursor.execute("""
+                    UPDATE roster 
+                    SET nicknames = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (json.dumps(updated_nicknames), player_name))
+                
+                conn.commit()
+                logging.info(f"✅ Added nickname '{nickname}' to {player_name}")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error adding nickname: {e}")
+            return False
+    
+    def remove_nickname(self, player_name: str, nickname: str) -> bool:
+        """Remove a nickname from a player's nickname list."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if player exists and is active
+                cursor.execute("""
+                    SELECT nicknames FROM roster 
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (player_name,))
+                
+                result = cursor.fetchone()
+                if not result:
+                    logging.error(f"Player {player_name} not found in active roster")
+                    return False
+                
+                current_nicknames = result[0] if result[0] else []
+                
+                # Check if nickname exists
+                if nickname not in current_nicknames:
+                    logging.info(f"Nickname '{nickname}' not found for {player_name}")
+                    return False
+                
+                # Remove nickname
+                updated_nicknames = [n for n in current_nicknames if n != nickname]
+                
+                cursor.execute("""
+                    UPDATE roster 
+                    SET nicknames = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (json.dumps(updated_nicknames), player_name))
+                
+                conn.commit()
+                logging.info(f"✅ Removed nickname '{nickname}' from {player_name}")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error removing nickname: {e}")
+            return False
+    
+    def get_player_nicknames(self, player_name: str) -> List[str]:
+        """Get all nicknames for a player."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT nicknames FROM roster 
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (player_name,))
+                
+                result = cursor.fetchone()
+                return result[0] if result and result[0] else []
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting player nicknames: {e}")
+            return []
+    
+    def set_player_nicknames(self, player_name: str, nicknames: List[str]) -> bool:
+        """Set all nicknames for a player (replaces existing nicknames)."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if player exists and is active
+                cursor.execute("""
+                    SELECT id FROM roster WHERE player_name = %s AND is_active = TRUE
+                """, (player_name,))
+                
+                if not cursor.fetchone():
+                    logging.error(f"Player {player_name} not found in active roster")
+                    return False
+                
+                # Remove duplicates while preserving order
+                unique_nicknames = []
+                for nickname in nicknames:
+                    if nickname not in unique_nicknames:
+                        unique_nicknames.append(nickname)
+                
+                cursor.execute("""
+                    UPDATE roster 
+                    SET nicknames = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND is_active = TRUE
+                """, (json.dumps(unique_nicknames), player_name))
+                
+                conn.commit()
+                logging.info(f"✅ Set nicknames for {player_name}: {unique_nicknames}")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error setting player nicknames: {e}")
             return False
 
     def close(self):
