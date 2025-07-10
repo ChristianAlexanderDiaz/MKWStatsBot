@@ -750,6 +750,231 @@ class DatabaseManager:
             logging.error(f"❌ Error setting player nicknames: {e}")
             return False
 
+    # Player Statistics Management Methods
+    def update_player_stats(self, player_name: str, score: int, races: int, war_date: str) -> bool:
+        """Update player statistics when a war is added."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if player stats record exists
+                cursor.execute("""
+                    SELECT total_score, total_races, war_count 
+                    FROM player_stats WHERE player_name = %s
+                """, (player_name,))
+                
+                result = cursor.fetchone()
+                if result:
+                    # Player has existing stats - UPDATE
+                    new_total_score = result[0] + score
+                    new_total_races = result[1] + races
+                    new_war_count = result[2] + 1
+                    # Correct average calculation: total_score / war_count
+                    new_average = round(new_total_score / new_war_count, 2)
+                    
+                    cursor.execute("""
+                        UPDATE player_stats 
+                        SET total_score = %s, total_races = %s, war_count = %s, 
+                            average_score = %s, last_war_date = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE player_name = %s
+                    """, (new_total_score, new_total_races, new_war_count, new_average, war_date, player_name))
+                else:
+                    # Player's first war - INSERT new record
+                    # For first war: average = score / 1
+                    average_score = round(score / 1, 2)
+                    cursor.execute("""
+                        INSERT INTO player_stats (player_name, total_score, total_races, war_count, average_score, last_war_date)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (player_name, score, races, 1, average_score, war_date))
+                
+                conn.commit()
+                logging.info(f"✅ Updated stats for {player_name}: +{score} points, +{races} races")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error updating player stats: {e}")
+            return False
+    
+    def remove_player_stats(self, player_name: str, score: int, races: int) -> bool:
+        """Remove player statistics when a war is removed."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get current stats
+                cursor.execute("""
+                    SELECT total_score, total_races, war_count 
+                    FROM player_stats WHERE player_name = %s
+                """, (player_name,))
+                
+                result = cursor.fetchone()
+                if not result:
+                    logging.warning(f"No stats found for {player_name} to remove")
+                    return False
+                
+                # Calculate new stats with safety checks
+                new_total_score = max(0, result[0] - score)
+                new_total_races = max(0, result[1] - races)
+                new_war_count = max(0, result[2] - 1)
+                
+                # Safe average calculation - avoid division by zero
+                if new_war_count > 0:
+                    new_average = round(new_total_score / new_war_count, 2)
+                else:
+                    new_average = 0.0
+                
+                cursor.execute("""
+                    UPDATE player_stats 
+                    SET total_score = %s, total_races = %s, war_count = %s, 
+                        average_score = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s
+                """, (new_total_score, new_total_races, new_war_count, new_average, player_name))
+                
+                conn.commit()
+                logging.info(f"✅ Removed stats for {player_name}: -{score} points, -{races} races")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error removing player stats: {e}")
+            return False
+    
+    def get_player_statistics(self, player_name: str) -> Optional[Dict]:
+        """Get comprehensive player statistics."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT ps.total_score, ps.total_races, ps.war_count, ps.average_score, 
+                           ps.last_war_date, ps.created_at, ps.updated_at,
+                           r.team, r.nicknames, r.added_by
+                    FROM player_stats ps
+                    JOIN roster r ON ps.player_name = r.player_name
+                    WHERE ps.player_name = %s AND r.is_active = TRUE
+                """, (player_name,))
+                
+                result = cursor.fetchone()
+                if not result:
+                    return None
+                
+                return {
+                    'player_name': player_name,
+                    'total_score': result[0],
+                    'total_races': result[1],
+                    'war_count': result[2],
+                    'average_score': float(result[3]) if result[3] else 0.0,
+                    'last_war_date': result[4].isoformat() if result[4] else None,
+                    'stats_created_at': result[5].isoformat() if result[5] else None,
+                    'stats_updated_at': result[6].isoformat() if result[6] else None,
+                    'team': result[7] if result[7] else 'Unassigned',
+                    'nicknames': result[8] if result[8] else [],
+                    'added_by': result[9]
+                }
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting player statistics: {e}")
+            return None
+    
+    def get_war_by_id(self, war_id: int) -> Optional[Dict]:
+        """Get specific war details by ID."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, war_date, race_count, players_data, created_at
+                    FROM wars WHERE id = %s
+                """, (war_id,))
+                
+                result = cursor.fetchone()
+                if not result:
+                    return None
+                
+                session_data = result[3] if result[3] else {}
+                return {
+                    'id': result[0],
+                    'war_date': result[1].isoformat() if result[1] else None,
+                    'race_count': result[2],
+                    'results': session_data.get('results', []),
+                    'created_at': result[4].isoformat() if result[4] else None
+                }
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting war by ID: {e}")
+            return None
+    
+    def get_all_wars(self, limit: int = None) -> List[Dict]:
+        """Get all wars in the database."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                query = """
+                    SELECT id, war_date, race_count, players_data, created_at
+                    FROM wars
+                    ORDER BY created_at DESC
+                """
+                
+                if limit:
+                    query += " LIMIT %s"
+                    cursor.execute(query, (limit,))
+                else:
+                    cursor.execute(query)
+                
+                results = []
+                for row in cursor.fetchall():
+                    session_data = row[3] if row[3] else {}
+                    player_count = len(session_data.get('results', []))
+                    
+                    results.append({
+                        'id': row[0],
+                        'war_date': row[1].isoformat() if row[1] else None,
+                        'race_count': row[2],
+                        'player_count': player_count,
+                        'results': session_data.get('results', []),
+                        'created_at': row[4].isoformat() if row[4] else None
+                    })
+                
+                return results
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting all wars: {e}")
+            return []
+    
+    def remove_war_by_id(self, war_id: int) -> bool:
+        """Remove a war by ID and update player statistics."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get war details first
+                war = self.get_war_by_id(war_id)
+                if not war:
+                    logging.warning(f"War ID {war_id} not found")
+                    return False
+                
+                # Update player stats by removing this war's contribution
+                for result in war['results']:
+                    player_name = result['name']
+                    score = result['score']
+                    races = war['race_count']
+                    
+                    # Resolve player name in case the war used a nickname
+                    resolved_player = self.resolve_player_name(player_name)
+                    if resolved_player:
+                        self.remove_player_stats(resolved_player, score, races)
+                
+                # Delete the war
+                cursor.execute("DELETE FROM wars WHERE id = %s", (war_id,))
+                
+                conn.commit()
+                logging.info(f"✅ Removed war ID {war_id} and updated player stats")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error removing war: {e}")
+            return False
+
     def close(self):
         """Close all connections in the pool."""
         if hasattr(self, 'connection_pool'):

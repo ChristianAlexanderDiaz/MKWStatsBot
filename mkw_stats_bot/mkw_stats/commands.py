@@ -39,8 +39,8 @@ class MarioKartCommands(commands.Cog):
         """View statistics for a specific player or all players."""
         try:
             if player_name:
-                # Get specific player stats
-                stats = self.bot.db.get_player_stats(player_name)
+                # Get specific player stats from player_stats table
+                stats = self.bot.db.get_player_statistics(player_name)
                 if stats:
                     # Create an embed for the player's stats
                     embed = discord.Embed(
@@ -63,59 +63,122 @@ class MarioKartCommands(commands.Cog):
                     else:
                         embed.add_field(name="Nicknames", value="None", inline=True)
                     
-                    # Display the players' roster info
-                    embed.add_field(name="Added By", value=stats.get('added_by', 'Unknown'), inline=True)
+                    # Display war statistics
+                    embed.add_field(name="Wars Played", value=str(stats.get('war_count', 0)), inline=True)
+                    embed.add_field(name="Total Score", value=f"{stats.get('total_score', 0):,} points", inline=True)
+                    embed.add_field(name="Average per War", value=f"{stats.get('average_score', 0.0):.1f} points", inline=True)
+                    embed.add_field(name="Total Races", value=str(stats.get('total_races', 0)), inline=True)
                     
-                    # Note: The current database schema doesn't have total_scores, total_races, etc.
-                    # These would need to be calculated from the wars table
-                    embed.add_field(name="Player Since", value=stats.get('created_at', 'Unknown')[:10] if stats.get('created_at') else 'Unknown', inline=True)
-                    embed.add_field(name="Last Updated", value=stats.get('updated_at', 'Unknown')[:10] if stats.get('updated_at') else 'Unknown', inline=True)
+                    # Display dates
+                    if stats.get('last_war_date'):
+                        embed.add_field(name="Last War", value=stats['last_war_date'], inline=True)
+                    else:
+                        embed.add_field(name="Last War", value="No wars yet", inline=True)
+                    
+                    embed.add_field(name="Added By", value=stats.get('added_by', 'Unknown'), inline=True)
                     
                     await ctx.send(embed=embed)
                 else:
-                    await ctx.send(f"❌ No stats found for player: {player_name}")
+                    # Check if player exists in roster but has no stats yet
+                    roster_stats = self.bot.db.get_player_stats(player_name)
+                    if roster_stats:
+                        embed = discord.Embed(
+                            title=f"📊 Stats for {roster_stats['player_name']}",
+                            description="This player is in the roster but hasn't participated in any wars yet.",
+                            color=0xff9900
+                        )
+                        
+                        team_info = {
+                            'Phantom Orbit': '🔮',
+                            'Moonlight Bootel': '🌙',
+                            'Unassigned': '❓'
+                        }
+                        team_icon = team_info.get(roster_stats.get('team', 'Unassigned'), '👥')
+                        embed.add_field(name="Team", value=f"{team_icon} {roster_stats.get('team', 'Unassigned')}", inline=True)
+                        
+                        if roster_stats.get('nicknames'):
+                            embed.add_field(name="Nicknames", value=", ".join(roster_stats['nicknames']), inline=True)
+                        
+                        embed.add_field(name="Wars Played", value="0", inline=True)
+                        embed.set_footer(text="Use !mkaddwar to add this player to a war")
+                        
+                        await ctx.send(embed=embed)
+                    else:
+                        await ctx.send(f"❌ No stats found for player: {player_name}")
             else:
-                # Get all player stats
-                all_stats = self.bot.db.get_all_players_stats()
-                if all_stats:
-                    embed = discord.Embed(
-                        title="📊 All Player Statistics",
-                        description="Players organized by teams",
-                        color=0x00ff00
+                # Get all player statistics from player_stats table
+                # First get all roster players
+                roster_stats = self.bot.db.get_all_players_stats()
+                
+                if not roster_stats:
+                    await ctx.send("❌ No players found in roster.")
+                    return
+                
+                # Get war statistics for players who have them
+                players_with_stats = []
+                players_without_stats = []
+                
+                for roster_player in roster_stats:
+                    war_stats = self.bot.db.get_player_statistics(roster_player['player_name'])
+                    if war_stats:
+                        players_with_stats.append(war_stats)
+                    else:
+                        players_without_stats.append(roster_player)
+                
+                # Sort players with stats by average score (descending)
+                players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
+                
+                embed = discord.Embed(
+                    title="📊 Player Statistics Leaderboard",
+                    description="Ranked by average score per war",
+                    color=0x00ff00
+                )
+                
+                # Show top players with war stats
+                if players_with_stats:
+                    leaderboard = []
+                    for i, player in enumerate(players_with_stats[:10], 1):  # Top 10
+                        team_icons = {
+                            'Phantom Orbit': '🔮',
+                            'Moonlight Bootel': '🌙',
+                            'Unassigned': '❓'
+                        }
+                        team_icon = team_icons.get(player.get('team', 'Unassigned'), '👥')
+                        
+                        leaderboard.append(
+                            f"{i}. {team_icon} **{player['player_name']}** - "
+                            f"{player.get('average_score', 0):.1f} avg "
+                            f"({player.get('war_count', 0)} wars, "
+                            f"{player.get('total_score', 0):,} total)"
+                        )
+                    
+                    embed.add_field(
+                        name="🏆 Top War Performers",
+                        value="\n".join(leaderboard),
+                        inline=False
                     )
-                    
-                    # Group by teams
-                    teams = {}
-                    for stats in all_stats:
-                        team = stats.get('team', 'Unassigned')
-                        if team not in teams:
-                            teams[team] = []
-                        teams[team].append(stats)
-                    
-                    # Team icons
+                
+                # Show players without war stats
+                if players_without_stats:
+                    no_stats_list = []
                     team_icons = {
                         'Phantom Orbit': '🔮',
                         'Moonlight Bootel': '🌙',
                         'Unassigned': '❓'
                     }
                     
-                    for team_name, players in teams.items():
-                        if players:  # Only show teams with players
-                            icon = team_icons.get(team_name, '👥')
-                            player_list = []
-                            for player in players:
-                                nickname_text = f" ({', '.join(player['nicknames'][:2])})" if player.get('nicknames') else ""
-                                player_list.append(f"• **{player['player_name']}**{nickname_text}")
-                            
-                            embed.add_field(
-                                name=f"{icon} {team_name} ({len(players)} players)",
-                                value="\n".join(player_list[:10]),  # Limit to 10 players per team
-                                inline=False
-                            )
+                    for player in players_without_stats[:10]:  # Limit to 10
+                        team_icon = team_icons.get(player.get('team', 'Unassigned'), '👥')
+                        no_stats_list.append(f"{team_icon} **{player['player_name']}**")
                     
-                    await ctx.send(embed=embed)
-                else:
-                    await ctx.send("❌ No player statistics found")
+                    embed.add_field(
+                        name="📋 Players Without War Stats",
+                        value="\n".join(no_stats_list) + (f"\n... and {len(players_without_stats) - 10} more" if len(players_without_stats) > 10 else ""),
+                        inline=False
+                    )
+                
+                embed.set_footer(text=f"Total players: {len(roster_stats)} | With war stats: {len(players_with_stats)}")
+                await ctx.send(embed=embed)
                     
         except Exception as e:
             logging.error(f"Error viewing stats: {e}")
@@ -441,8 +504,18 @@ class MarioKartCommands(commands.Cog):
                 "`!mkroster` - Show complete clan roster by teams\n"
                 "`!mkadd <player>` - Add player to roster\n"
                 "`!mkremove <player>` - Remove player from roster\n"
-                "`!mkmanual` - Manual war entry (when OCR fails)\n"
                 "`!mkpreset list` - Show table format presets"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚔️ War Management Commands",
+            value=(
+                "`!mkaddwar [races:X] Player1:Score1 Player2:Score2...` - Add war manually\n"
+                "`!mkremovewar <war_id>` - Remove war by ID\n"
+                "`!mklistwarhistory [limit]` - Show all wars with IDs\n"
+                "`!mkmanual` - Alternative manual war entry"
             ),
             inline=False
         )
@@ -1243,6 +1316,329 @@ class MarioKartCommands(commands.Cog):
         except Exception as e:
             logging.error(f"Error showing nicknames: {e}")
             await ctx.send("❌ Error retrieving nicknames")
+
+    @commands.command(name='mkaddwar')
+    async def add_war(self, ctx, *, war_data: str = None):
+        """Add a war manually with player scores."""
+        if not war_data:
+            embed = discord.Embed(
+                title="⚔️ Add War",
+                description="Manually add a war with player scores.",
+                color=0x00ff00
+            )
+            embed.add_field(
+                name="Format",
+                value="`!mkaddwar [races:X] PlayerName1:Score1 PlayerName2:Score2 ...`",
+                inline=False
+            )
+            embed.add_field(
+                name="Examples", 
+                value="`!mkaddwar Cynical:85 TestPlayer:92 Player3:78`\n`!mkaddwar races:10 Cynical:85 TestPlayer:92`",
+                inline=False
+            )
+            embed.add_field(
+                name="Race Count",
+                value="Default: 12 races | Range: 1-12 races",
+                inline=False
+            )
+            embed.add_field(
+                name="💡 Tips",
+                value="• All players must be in roster\n• Use quotes for names with spaces: `\"MK Player\":85`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            # Parse war data
+            results = []
+            race_count = 12  # Default
+            
+            # Split input and check for races parameter
+            parts = war_data.split()
+            for part in parts:
+                if part.startswith('races:'):
+                    try:
+                        race_count = int(part.split(':', 1)[1])
+                        if race_count < 1 or race_count > 12:
+                            await ctx.send("❌ Race count must be between 1 and 12.")
+                            return
+                    except ValueError:
+                        await ctx.send("❌ Invalid race count format. Use `races:X` where X is 1-12.")
+                        return
+                elif ':' in part and not part.startswith('races:'):
+                    # This is a player:score entry
+                    try:
+                        name, score_str = part.split(':', 1)
+                        score = int(score_str)
+                        results.append({
+                            'name': name,
+                            'score': score,
+                            'raw_input': part
+                        })
+                    except ValueError:
+                        await ctx.send(f"❌ Invalid score format: `{part}`. Use PlayerName:Score.")
+                        return
+            
+            if not results:
+                await ctx.send("❌ No player scores provided. Use format: `PlayerName:Score`")
+                return
+            
+            # Resolve player names and validate they exist in roster
+            resolved_results = []
+            failed_players = []
+            
+            for result in results:
+                resolved_player = self.bot.db.resolve_player_name(result['name'])
+                if resolved_player:
+                    resolved_results.append({
+                        'name': resolved_player,
+                        'score': result['score'],
+                        'raw_line': f"Manual: {result['raw_input']}"
+                    })
+                else:
+                    failed_players.append(result['name'])
+            
+            if failed_players:
+                await ctx.send(f"❌ These players are not in the roster: {', '.join(failed_players)}\nUse `!mkadd <player>` to add them first.")
+                return
+            
+            # Store war in database
+            success = self.bot.db.add_race_results(resolved_results, race_count)
+            
+            if not success:
+                await ctx.send("❌ Failed to add war to database. Check logs for details.")
+                return
+            
+            # Update player statistics
+            current_date = ctx.message.created_at.strftime('%Y-%m-%d')
+            stats_updated = []
+            stats_failed = []
+            
+            for result in resolved_results:
+                success = self.bot.db.update_player_stats(
+                    result['name'], 
+                    result['score'], 
+                    race_count, 
+                    current_date
+                )
+                if success:
+                    stats_updated.append(result['name'])
+                else:
+                    stats_failed.append(result['name'])
+            
+            # Create success response
+            embed = discord.Embed(
+                title="⚔️ War Added Successfully!",
+                color=0x00ff00
+            )
+            
+            # Show war details
+            player_list = []
+            for result in resolved_results:
+                player_list.append(f"**{result['name']}**: {result['score']} points")
+            
+            embed.add_field(
+                name=f"🏁 War Results ({race_count} races)",
+                value="\n".join(player_list),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📊 Stats Updated",
+                value=f"✅ {len(stats_updated)} players" + (f"\n❌ {len(stats_failed)} failed" if stats_failed else ""),
+                inline=True
+            )
+            
+            embed.add_field(
+                name="📅 Date",
+                value=current_date,
+                inline=True
+            )
+            
+            embed.set_footer(text="Player statistics have been automatically updated")
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error adding war: {e}")
+            await ctx.send("❌ Error adding war. Check the command format and try again.")
+
+    @commands.command(name='mkremovewar')
+    async def remove_war(self, ctx, war_id: int = None):
+        """Remove a war by ID and update player statistics."""
+        if war_id is None:
+            embed = discord.Embed(
+                title="⚔️ Remove War",
+                description="Remove a war by its ID and update player statistics.",
+                color=0xff4444
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkremovewar <war_id>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Example", 
+                value="`!mkremovewar 15`",
+                inline=False
+            )
+            embed.add_field(
+                name="💡 Find War IDs",
+                value="Use `!mklistwarhistory` to see all wars with their IDs",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            # Get war details first
+            war = self.bot.db.get_war_by_id(war_id)
+            if not war:
+                await ctx.send(f"❌ War ID {war_id} not found. Use `!mklistwarhistory` to see available wars.")
+                return
+            
+            # Show war details for confirmation
+            player_list = []
+            for result in war['results']:
+                player_list.append(f"**{result['name']}**: {result['score']} points")
+            
+            embed = discord.Embed(
+                title=f"⚔️ Remove War ID {war_id}",
+                description="Are you sure you want to remove this war? This will update all player statistics.",
+                color=0xff4444
+            )
+            
+            embed.add_field(
+                name=f"🏁 War Details ({war['race_count']} races)",
+                value="\n".join(player_list),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📅 Date",
+                value=war['war_date'],
+                inline=True
+            )
+            
+            embed.add_field(
+                name="👥 Players",
+                value=str(len(war['results'])),
+                inline=True
+            )
+            
+            embed.set_footer(text="React with ✅ to confirm removal or ❌ to cancel")
+            
+            msg = await ctx.send(embed=embed)
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+            
+            # Wait for reaction
+            def check(reaction, user):
+                return user == ctx.author and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+            
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+                
+                if str(reaction.emoji) == "✅":
+                    # Remove the war
+                    success = self.bot.db.remove_war_by_id(war_id)
+                    
+                    if success:
+                        embed = discord.Embed(
+                            title="✅ War Removed Successfully!",
+                            description=f"War ID {war_id} has been removed and player statistics updated.",
+                            color=0x00ff00
+                        )
+                        
+                        updated_players = [result['name'] for result in war['results']]
+                        embed.add_field(
+                            name="📊 Stats Updated",
+                            value=f"Updated statistics for {len(updated_players)} players:\n" + ", ".join(updated_players),
+                            inline=False
+                        )
+                        
+                        await msg.edit(embed=embed)
+                        await msg.clear_reactions()
+                    else:
+                        await msg.edit(content="❌ Failed to remove war. Check logs for details.")
+                        await msg.clear_reactions()
+                        
+                elif str(reaction.emoji) == "❌":
+                    await msg.edit(content="❌ War removal cancelled.")
+                    await msg.clear_reactions()
+                    
+            except TimeoutError:
+                await msg.edit(content="❌ War removal timed out. Please try again.")
+                await msg.clear_reactions()
+                
+        except Exception as e:
+            logging.error(f"Error removing war: {e}")
+            await ctx.send("❌ Error removing war. Please check the war ID and try again.")
+
+    @commands.command(name='mklistwarhistory')
+    async def list_war_history(self, ctx, limit: int = None):
+        """Show all wars in the database with their IDs."""
+        try:
+            # Get wars from database
+            wars = self.bot.db.get_all_wars(limit)
+            
+            if not wars:
+                await ctx.send("❌ No wars found in database. Use `!mkaddwar` to add your first war!")
+                return
+            
+            embed = discord.Embed(
+                title="📋 War History",
+                description=f"Showing {len(wars)} wars" + (f" (limited to {limit})" if limit else " (all wars)"),
+                color=0x9932cc
+            )
+            
+            # Format wars for display
+            war_list = []
+            for war in wars:
+                # Format date nicely
+                war_date = war['war_date'] if war['war_date'] else "Unknown"
+                created_time = ""
+                if war['created_at']:
+                    # Extract time from timestamp (HH:MM format)
+                    created_time = war['created_at'][11:16] if len(war['created_at']) > 16 else ""
+                
+                war_entry = f"**ID: {war['id']}** | {war_date} | {war['race_count']} races | {war['player_count']} players"
+                if created_time:
+                    war_entry += f" | {created_time}"
+                
+                war_list.append(war_entry)
+            
+            # Split into chunks if too many wars
+            if len(war_list) <= 15:
+                embed.add_field(
+                    name="Wars (most recent first)",
+                    value="\n".join(war_list),
+                    inline=False
+                )
+            else:
+                # Split into multiple fields
+                chunk_size = 10
+                for i in range(0, len(war_list), chunk_size):
+                    chunk = war_list[i:i+chunk_size]
+                    field_name = f"Wars {i+1}-{min(i+chunk_size, len(war_list))}" if i > 0 else "Wars (most recent first)"
+                    embed.add_field(
+                        name=field_name,
+                        value="\n".join(chunk),
+                        inline=False
+                    )
+            
+            embed.add_field(
+                name="💡 Commands",
+                value="`!mkremovewar <ID>` - Remove a specific war\n`!mkaddwar` - Add a new war",
+                inline=False
+            )
+            
+            embed.set_footer(text=f"Total wars in database: {len(wars)}")
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error listing war history: {e}")
+            await ctx.send("❌ Error retrieving war history")
 
 async def setup(bot):
     """Setup function for the cog."""
