@@ -328,6 +328,24 @@ CREATE TABLE race_sessions (
 - Automatic timestamp updates
 - Efficient OCR processing
 
+## 🐛 Known Issues
+
+### Paginated Menu Reaction Management
+- **Issue**: In the `!mkstats` paginated menu, reaction buttons (⬅️➡️🔄❌) remain "clicked/highlighted" after use
+- **Impact**: Users must manually uncheck and recheck reactions for repeated actions (e.g., clicking ➡️ multiple times)
+- **Current Status**: Multiple approaches attempted (individual reaction removal, clear & re-add strategy)
+- **Workaround**: Manually click reactions to uncheck them before clicking again
+- **Root Cause**: Discord API reaction management complexities and permission handling
+- **Tracking**: [Create GitHub Issue](https://github.com/your-username/mkw_stats_bot/issues/new?template=bug_report.md&title=Paginated%20Menu%20Reaction%20Management%20Issue)
+
+### Potential Solutions Under Investigation
+- Alternative UI patterns (numbered reactions, single-cycle button)
+- Message deletion and recreation approach
+- Different Discord.py reaction handling methods
+- Custom reaction management system
+
+**Note**: This issue does not affect functionality - all navigation works correctly, it's purely a user experience issue.
+
 ## 🤝 Contributing
 
 1. Fork the repository
