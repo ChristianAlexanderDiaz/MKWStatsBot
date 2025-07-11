@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import logging
+import asyncio
 from . import config
 
 class MarioKartCommands(commands.Cog):
@@ -128,61 +129,160 @@ class MarioKartCommands(commands.Cog):
                 # Sort players with stats by average score (descending)
                 players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
                 
-                embed = discord.Embed(
-                    title="📊 Player Statistics Leaderboard",
-                    description="Ranked by average score per war",
-                    color=0x00ff00
-                )
+                # Combine and sort all players - those with stats first, then without stats
+                all_players = players_with_stats + players_without_stats
                 
-                # Show top players with war stats
-                if players_with_stats:
-                    leaderboard = []
-                    for i, player in enumerate(players_with_stats[:10], 1):  # Top 10
-                        team_icons = {
-                            'Phantom Orbit': '🔮',
-                            'Moonlight Bootel': '🌙',
-                            'Unassigned': '❓'
-                        }
-                        team_icon = team_icons.get(player.get('team', 'Unassigned'), '👥')
-                        
-                        leaderboard.append(
-                            f"{i}. {team_icon} **{player['player_name']}** - "
-                            f"{player.get('average_score', 0):.1f} avg "
-                            f"({player.get('war_count', 0)} wars, "
-                            f"{player.get('total_score', 0):,} total)"
-                        )
-                    
-                    embed.add_field(
-                        name="🏆 Top War Performers",
-                        value="\n".join(leaderboard),
-                        inline=False
-                    )
-                
-                # Show players without war stats
-                if players_without_stats:
-                    no_stats_list = []
-                    team_icons = {
-                        'Phantom Orbit': '🔮',
-                        'Moonlight Bootel': '🌙',
-                        'Unassigned': '❓'
-                    }
-                    
-                    for player in players_without_stats[:10]:  # Limit to 10
-                        team_icon = team_icons.get(player.get('team', 'Unassigned'), '👥')
-                        no_stats_list.append(f"{team_icon} **{player['player_name']}**")
-                    
-                    embed.add_field(
-                        name="📋 Players Without War Stats",
-                        value="\n".join(no_stats_list) + (f"\n... and {len(players_without_stats) - 10} more" if len(players_without_stats) > 10 else ""),
-                        inline=False
-                    )
-                
-                embed.set_footer(text=f"Total players: {len(roster_stats)} | With war stats: {len(players_with_stats)}")
-                await ctx.send(embed=embed)
+                # Create paginated view
+                await self.create_stats_paginated_view(ctx, all_players, len(players_with_stats))
                     
         except Exception as e:
             logging.error(f"Error viewing stats: {e}")
             await ctx.send("❌ Error retrieving statistics")
+
+    async def create_stats_paginated_view(self, ctx, all_players, players_with_stats_count):
+        """Create a paginated view of player statistics with navigation."""
+        if not all_players:
+            await ctx.send("❌ No players found.")
+            return
+            
+        # Pagination settings
+        players_per_page = 15
+        total_pages = (len(all_players) + players_per_page - 1) // players_per_page
+        current_page = 1
+        
+        def create_embed(page_num):
+            """Create embed for specific page."""
+            start_idx = (page_num - 1) * players_per_page
+            end_idx = min(start_idx + players_per_page, len(all_players))
+            page_players = all_players[start_idx:end_idx]
+            
+            embed = discord.Embed(
+                title=f"📊 Player Statistics - Page {page_num} of {total_pages}",
+                description="Ranked by average score per war",
+                color=0x00ff00
+            )
+            
+            # Create table
+            table_lines = []
+            table_lines.append("```")
+            table_lines.append("Rank Player          Team  Wars  Avg   Total  Last War")
+            table_lines.append("---- --------------- ---- ----- ----- ------ ----------")
+            
+            team_abbrev = {
+                'Phantom Orbit': 'PO',
+                'Moonlight Bootel': 'MB', 
+                'Unassigned': 'UN'
+            }
+            
+            for i, player in enumerate(page_players, start_idx + 1):
+                name = player['player_name'][:15]  # Truncate long names
+                team = team_abbrev.get(player.get('team', 'Unassigned'), 'UN')
+                
+                # Check if this player has war stats
+                if 'war_count' in player and player.get('war_count', 0) > 0:
+                    wars = player.get('war_count', 0)
+                    avg = player.get('average_score', 0)
+                    total = player.get('total_score', 0)
+                    last_war = player.get('last_war_date', '')
+                    
+                    # Format last war date
+                    if last_war:
+                        try:
+                            from datetime import datetime
+                            last_war_date = datetime.fromisoformat(last_war.replace('Z', '+00:00'))
+                            last_war = last_war_date.strftime('%m/%d')
+                        except:
+                            last_war = last_war[:5] if last_war else ''
+                    else:
+                        last_war = ''
+                else:
+                    # Player without war stats
+                    wars = 0
+                    avg = 0.0
+                    total = 0
+                    last_war = '-'
+                
+                table_lines.append(
+                    f"{i:2d}   {name:<15} {team:>2}  {wars:5d} {avg:5.1f} {total:6d} {last_war:>10}"
+                )
+            
+            table_lines.append("```")
+            
+            embed.add_field(
+                name="🏆 Statistics Table",
+                value="\n".join(table_lines),
+                inline=False
+            )
+            
+            embed.set_footer(text=f"Total players: {len(all_players)} | With war stats: {players_with_stats_count}")
+            return embed
+        
+        # Send initial message
+        embed = create_embed(current_page)
+        message = await ctx.send(embed=embed)
+        
+        # Don't add reactions if only one page
+        if total_pages <= 1:
+            return
+            
+        # Add reaction controls
+        reactions = ['⬅️', '➡️', '🔄', '❌']
+        for reaction in reactions:
+            await message.add_reaction(reaction)
+        
+        # Reaction handler
+        def check(reaction, user):
+            return (user == ctx.author and 
+                    reaction.message.id == message.id and 
+                    str(reaction.emoji) in reactions)
+        
+        try:
+            while True:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=60.0, check=check)
+                
+                if str(reaction.emoji) == '⬅️' and current_page > 1:
+                    current_page -= 1
+                elif str(reaction.emoji) == '➡️' and current_page < total_pages:
+                    current_page += 1
+                elif str(reaction.emoji) == '🔄':
+                    # Refresh data
+                    roster_stats = self.bot.db.get_all_players_stats()
+                    players_with_stats = []
+                    players_without_stats = []
+                    
+                    for roster_player in roster_stats:
+                        war_stats = self.bot.db.get_player_statistics(roster_player['player_name'])
+                        if war_stats:
+                            players_with_stats.append(war_stats)
+                        else:
+                            players_without_stats.append(roster_player)
+                    
+                    players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
+                    all_players = players_with_stats + players_without_stats
+                    
+                    # Recalculate pagination
+                    total_pages = (len(all_players) + players_per_page - 1) // players_per_page
+                    current_page = min(current_page, total_pages)
+                    
+                elif str(reaction.emoji) == '❌':
+                    await message.clear_reactions()
+                    return
+                
+                # Update embed
+                embed = create_embed(current_page)
+                await message.edit(embed=embed)
+                
+                # Remove user's reaction
+                await message.remove_reaction(reaction, user)
+                
+        except asyncio.TimeoutError:
+            # Remove reactions after timeout
+            await message.clear_reactions()
+            
+            # Add timeout footer
+            embed = create_embed(current_page)
+            embed.set_footer(text=f"Total players: {len(all_players)} | With war stats: {players_with_stats_count} | Menu expired")
+            await message.edit(embed=embed)
 
     @commands.command(name='mkrecent')
     async def view_recent_results(self, ctx, limit: int = 5):
@@ -1390,6 +1490,7 @@ class MarioKartCommands(commands.Cog):
             
             for result in results:
                 resolved_player = self.bot.db.resolve_player_name(result['name'])
+                logging.info(f"Player resolution: '{result['name']}' -> {resolved_player}")
                 if resolved_player:
                     resolved_results.append({
                         'name': resolved_player,
@@ -1424,8 +1525,10 @@ class MarioKartCommands(commands.Cog):
                 )
                 if success:
                     stats_updated.append(result['name'])
+                    logging.info(f"✅ Stats updated for {result['name']}")
                 else:
                     stats_failed.append(result['name'])
+                    logging.error(f"❌ Stats update failed for {result['name']}")
             
             # Create success response
             embed = discord.Embed(
