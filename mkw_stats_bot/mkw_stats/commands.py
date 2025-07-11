@@ -1677,10 +1677,18 @@ class MarioKartCommands(commands.Cog):
                 reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
                 
                 if str(reaction.emoji) == "✅":
-                    # Remove the war
-                    success = self.bot.db.remove_war_by_id(war_id)
-                    
-                    if success:
+                    # Remove the war - separate database operations from Discord API calls
+                    try:
+                        success = self.bot.db.remove_war_by_id(war_id)
+                        if not success:
+                            await msg.edit(content="❌ Failed to remove war. Check logs for details.")
+                            try:
+                                await msg.clear_reactions()
+                            except Exception as reaction_error:
+                                logging.warning(f"Failed to clear reactions after database error: {reaction_error}")
+                            return
+                        
+                        # Database operation succeeded, now update the message
                         embed = discord.Embed(
                             title="✅ War Removed Successfully!",
                             description=f"War ID {war_id} has been removed and player statistics updated.",
@@ -1694,23 +1702,45 @@ class MarioKartCommands(commands.Cog):
                             inline=False
                         )
                         
-                        await msg.edit(embed=embed)
-                        await msg.clear_reactions()
-                    else:
+                        # Try to update message, but don't fail if Discord API has issues
+                        try:
+                            await msg.edit(embed=embed)
+                        except Exception as edit_error:
+                            logging.warning(f"Failed to edit message after successful war removal: {edit_error}")
+                            # War was successfully removed, so send a new message instead
+                            await ctx.send(embed=embed)
+                        
+                        # Try to clear reactions, but don't fail if Discord API has issues
+                        try:
+                            await msg.clear_reactions()
+                        except Exception as reaction_error:
+                            logging.warning(f"Failed to clear reactions after successful war removal: {reaction_error}")
+                            
+                    except Exception as db_error:
+                        logging.error(f"Database error removing war {war_id}: {db_error}")
                         await msg.edit(content="❌ Failed to remove war. Check logs for details.")
-                        await msg.clear_reactions()
+                        try:
+                            await msg.clear_reactions()
+                        except Exception as reaction_error:
+                            logging.warning(f"Failed to clear reactions after database error: {reaction_error}")
                         
                 elif str(reaction.emoji) == "❌":
-                    await msg.edit(content="❌ War removal cancelled.")
-                    await msg.clear_reactions()
+                    try:
+                        await msg.edit(content="❌ War removal cancelled.")
+                        await msg.clear_reactions()
+                    except Exception as discord_error:
+                        logging.warning(f"Failed to update message after cancellation: {discord_error}")
                     
             except TimeoutError:
-                await msg.edit(content="❌ War removal timed out. Please try again.")
-                await msg.clear_reactions()
+                try:
+                    await msg.edit(content="❌ War removal timed out. Please try again.")
+                    await msg.clear_reactions()
+                except Exception as discord_error:
+                    logging.warning(f"Failed to update message after timeout: {discord_error}")
                 
         except Exception as e:
-            logging.error(f"Error removing war: {e}")
-            await ctx.send("❌ Error removing war. Please check the war ID and try again.")
+            logging.error(f"Error in remove_war command setup: {e}")
+            await ctx.send("❌ Error setting up war removal. Please check the war ID and try again.")
 
     @commands.command(name='mklistwarhistory')
     async def list_war_history(self, ctx, limit: int = None):
