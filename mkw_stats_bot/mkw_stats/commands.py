@@ -242,6 +242,13 @@ class MarioKartCommands(commands.Cog):
                 while True:
                     reaction, user = await self.bot.wait_for('reaction_add', timeout=60.0, check=check)
                     
+                    # Remove user's reaction immediately after each action
+                    try:
+                        await message.remove_reaction(reaction, user)
+                    except Exception as reaction_error:
+                        logging.error(f"Error removing reaction: {reaction_error}")
+                        # Continue without removing reaction if it fails
+                    
                     if str(reaction.emoji) == '⬅️' and current_page > 1:
                         current_page -= 1
                     elif str(reaction.emoji) == '➡️' and current_page < total_pages:
@@ -277,16 +284,10 @@ class MarioKartCommands(commands.Cog):
                             logging.error(f"Error clearing reactions: {clear_error}")
                         return
                     
-                    # Update embed
-                    embed = create_embed(current_page)
-                    await message.edit(embed=embed)
-                    
-                    # Remove user's reaction
-                    try:
-                        await message.remove_reaction(reaction, user)
-                    except Exception as reaction_error:
-                        logging.error(f"Error removing reaction: {reaction_error}")
-                        # Continue without removing reaction if it fails
+                    # Update embed (only for navigation actions, not close)
+                    if str(reaction.emoji) != '❌':
+                        embed = create_embed(current_page)
+                        await message.edit(embed=embed)
                     
             except asyncio.TimeoutError:
                 # Remove reactions after timeout
