@@ -145,10 +145,12 @@ class MarioKartCommands(commands.Cog):
             await ctx.send("❌ No players found.")
             return
             
-        # Pagination settings
-        players_per_page = 15
-        total_pages = (len(all_players) + players_per_page - 1) // players_per_page
-        current_page = 1
+        message = None
+        try:
+            # Pagination settings
+            players_per_page = 15
+            total_pages = (len(all_players) + players_per_page - 1) // players_per_page
+            current_page = 1
         
         def create_embed(page_num):
             """Create embed for specific page."""
@@ -246,26 +248,33 @@ class MarioKartCommands(commands.Cog):
                     current_page += 1
                 elif str(reaction.emoji) == '🔄':
                     # Refresh data
-                    roster_stats = self.bot.db.get_all_players_stats()
-                    players_with_stats = []
-                    players_without_stats = []
-                    
-                    for roster_player in roster_stats:
-                        war_stats = self.bot.db.get_player_statistics(roster_player['player_name'])
-                        if war_stats:
-                            players_with_stats.append(war_stats)
-                        else:
-                            players_without_stats.append(roster_player)
-                    
-                    players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
-                    all_players = players_with_stats + players_without_stats
-                    
-                    # Recalculate pagination
-                    total_pages = (len(all_players) + players_per_page - 1) // players_per_page
-                    current_page = min(current_page, total_pages)
+                    try:
+                        roster_stats = self.bot.db.get_all_players_stats()
+                        players_with_stats = []
+                        players_without_stats = []
+                        
+                        for roster_player in roster_stats:
+                            war_stats = self.bot.db.get_player_statistics(roster_player['player_name'])
+                            if war_stats:
+                                players_with_stats.append(war_stats)
+                            else:
+                                players_without_stats.append(roster_player)
+                        
+                        players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
+                        all_players = players_with_stats + players_without_stats
+                        
+                        # Recalculate pagination
+                        total_pages = (len(all_players) + players_per_page - 1) // players_per_page
+                        current_page = min(current_page, total_pages)
+                    except Exception as refresh_error:
+                        logging.error(f"Error refreshing data: {refresh_error}")
+                        # Continue with existing data if refresh fails
                     
                 elif str(reaction.emoji) == '❌':
-                    await message.clear_reactions()
+                    try:
+                        await message.clear_reactions()
+                    except Exception as clear_error:
+                        logging.error(f"Error clearing reactions: {clear_error}")
                     return
                 
                 # Update embed
@@ -273,16 +282,38 @@ class MarioKartCommands(commands.Cog):
                 await message.edit(embed=embed)
                 
                 # Remove user's reaction
-                await message.remove_reaction(reaction, user)
+                try:
+                    await message.remove_reaction(reaction, user)
+                except Exception as reaction_error:
+                    logging.error(f"Error removing reaction: {reaction_error}")
+                    # Continue without removing reaction if it fails
                 
         except asyncio.TimeoutError:
             # Remove reactions after timeout
-            await message.clear_reactions()
-            
-            # Add timeout footer
-            embed = create_embed(current_page)
-            embed.set_footer(text=f"Total players: {len(all_players)} | With war stats: {players_with_stats_count} | Menu expired")
-            await message.edit(embed=embed)
+            try:
+                await message.clear_reactions()
+                
+                # Add timeout footer
+                embed = create_embed(current_page)
+                embed.set_footer(text=f"Total players: {len(all_players)} | With war stats: {players_with_stats_count} | Menu expired")
+                await message.edit(embed=embed)
+            except Exception as e:
+                logging.error(f"Error handling timeout: {e}")
+                if message:
+                    try:
+                        await message.delete()
+                    except:
+                        pass
+                        
+        except Exception as e:
+            # Handle any other errors by deleting the message
+            logging.error(f"Error in paginated menu: {e}")
+            if message:
+                try:
+                    await message.delete()
+                except Exception as delete_error:
+                    logging.error(f"Error deleting message: {delete_error}")
+                    pass
 
     @commands.command(name='mkrecent')
     async def view_recent_results(self, ctx, limit: int = 5):
