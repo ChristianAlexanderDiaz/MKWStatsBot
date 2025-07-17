@@ -10,6 +10,10 @@ class MarioKartCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
+    def get_guild_id(self, ctx):
+        """Helper method to get guild ID from context."""
+        return ctx.guild.id if ctx.guild else 0
+    
     def parse_quoted_nicknames(self, text: str) -> list:
         """
         Parse nicknames from text, handling quoted strings for nicknames with spaces.
@@ -39,9 +43,10 @@ class MarioKartCommands(commands.Cog):
     async def view_player_stats(self, ctx, player_name: str = None):
         """View statistics for a specific player or all players."""
         try:
+            guild_id = self.get_guild_id(ctx)
             if player_name:
                 # Get specific player stats from player_stats table
-                stats = self.bot.db.get_player_statistics(player_name)
+                stats = self.bot.db.get_player_statistics(player_name, guild_id)
                 if stats:
                     # Create an embed for the player's stats
                     embed = discord.Embed(
@@ -81,7 +86,7 @@ class MarioKartCommands(commands.Cog):
                     await ctx.send(embed=embed)
                 else:
                     # Check if player exists in roster but has no stats yet
-                    roster_stats = self.bot.db.get_player_stats(player_name)
+                    roster_stats = self.bot.db.get_player_stats(player_name, guild_id)
                     if roster_stats:
                         embed = discord.Embed(
                             title=f"📊 Stats for {roster_stats['player_name']}",
@@ -109,7 +114,7 @@ class MarioKartCommands(commands.Cog):
             else:
                 # Get all player statistics from player_stats table
                 # First get all roster players
-                roster_stats = self.bot.db.get_all_players_stats()
+                roster_stats = self.bot.db.get_all_players_stats(guild_id)
                 
                 if not roster_stats:
                     await ctx.send("❌ No players found in roster.")
@@ -120,7 +125,7 @@ class MarioKartCommands(commands.Cog):
                 players_without_stats = []
                 
                 for roster_player in roster_stats:
-                    war_stats = self.bot.db.get_player_statistics(roster_player['player_name'])
+                    war_stats = self.bot.db.get_player_statistics(roster_player['player_name'], guild_id)
                     if war_stats:
                         players_with_stats.append(war_stats)
                     else:
@@ -133,13 +138,13 @@ class MarioKartCommands(commands.Cog):
                 all_players = players_with_stats + players_without_stats
                 
                 # Create paginated view
-                await self.create_stats_paginated_view(ctx, all_players, len(players_with_stats))
+                await self.create_stats_paginated_view(ctx, all_players, len(players_with_stats), guild_id)
                     
         except Exception as e:
             logging.error(f"Error viewing stats: {e}")
             await ctx.send("❌ Error retrieving statistics")
 
-    async def create_stats_paginated_view(self, ctx, all_players, players_with_stats_count):
+    async def create_stats_paginated_view(self, ctx, all_players, players_with_stats_count, guild_id):
         """Create a paginated view of player statistics with navigation."""
         if not all_players:
             await ctx.send("❌ No players found.")
@@ -249,12 +254,12 @@ class MarioKartCommands(commands.Cog):
                     elif str(reaction.emoji) == '🔄':
                         # Refresh data
                         try:
-                            roster_stats = self.bot.db.get_all_players_stats()
+                            roster_stats = self.bot.db.get_all_players_stats(guild_id)
                             players_with_stats = []
                             players_without_stats = []
                             
                             for roster_player in roster_stats:
-                                war_stats = self.bot.db.get_player_statistics(roster_player['player_name'])
+                                war_stats = self.bot.db.get_player_statistics(roster_player['player_name'], guild_id)
                                 if war_stats:
                                     players_with_stats.append(war_stats)
                                 else:
@@ -322,7 +327,8 @@ class MarioKartCommands(commands.Cog):
     async def view_recent_results(self, ctx, limit: int = 5):
         """View recent race sessions."""
         try:
-            sessions = self.bot.db.get_recent_sessions(limit)
+            guild_id = self.get_guild_id(ctx)
+            sessions = self.bot.db.get_recent_wars(limit, guild_id)
             
             if sessions:
                 embed = discord.Embed(
@@ -398,6 +404,7 @@ class MarioKartCommands(commands.Cog):
     @commands.command(name='mkmanual')
     async def manual_entry(self, ctx, *, war_data: str = None):
         """Manually enter war results when OCR fails."""
+        guild_id = self.get_guild_id(ctx)
         if not war_data:
             embed = discord.Embed(
                 title="📝 Manual War Entry",
@@ -443,7 +450,7 @@ class MarioKartCommands(commands.Cog):
                     else:
                         # Player:Score format
                         name, score = part.split(':', 1)
-                        roster_players = self.bot.db.get_roster_players()
+                        roster_players = self.bot.db.get_roster_players(guild_id)
                         if name in roster_players:
                             results.append({
                                 'name': name,
@@ -485,8 +492,10 @@ class MarioKartCommands(commands.Cog):
     async def show_full_roster(self, ctx):
         """Show the complete clan roster organized by teams."""
         try:
+            # Get guild id 
+            guild_id = self.get_guild_id(ctx)
             # Get all players with their team and nickname info
-            all_players = self.bot.db.get_all_players_stats()
+            all_players = self.bot.db.get_all_players_stats(guild_id)
             
             if not all_players:
                 await ctx.send("❌ No players found in roster. Use `!mkadd <player>` to add players.")
@@ -561,8 +570,9 @@ class MarioKartCommands(commands.Cog):
             return
         
         try:
+            guild_id = self.get_guild_id(ctx)
             # Add player to roster
-            success = self.bot.db.add_roster_player(player_name, str(ctx.author))
+            success = self.bot.db.add_roster_player(player_name, str(ctx.author), guild_id)
             
             if success:
                 await ctx.send(f"✅ Added **{player_name}** to the clan roster!")
@@ -601,8 +611,9 @@ class MarioKartCommands(commands.Cog):
             return
         
         try:
+            guild_id = self.get_guild_id(ctx)
             # Remove player from roster
-            success = self.bot.db.remove_roster_player(player_name)
+            success = self.bot.db.remove_roster_player(player_name, guild_id)
             
             if success:
                 await ctx.send(f"✅ Removed **{player_name}** from the active roster.")
@@ -657,6 +668,10 @@ class MarioKartCommands(commands.Cog):
         embed.add_field(
             name="👥 Team Management Commands",
             value=(
+                "`!mkaddteam <team_name>` - Create a new team\n"
+                "`!mkremoveteam <team_name>` - Remove a team\n"
+                "`!mkrenameteam <old_name> <new_name>` - Rename a team\n"
+                "`!mklistallteams` - List all teams with player counts\n"
                 "`!mkassignteam <player> <team>` - Assign player to team\n"
                 "`!mkassignplayerstoteam <team> <player1> <player2>...` - Assign multiple players to team\n"
                 "`!mkunassignteam <player>` - Set player to Unassigned\n"
@@ -680,7 +695,7 @@ class MarioKartCommands(commands.Cog):
         
         embed.add_field(
             name="📋 Available Teams",
-            value="• **Phantom Orbit** 🔮\n• **Moonlight Bootel** 🌙\n• **Unassigned** ❓",
+            value="Use `!mklistallteams` to see all teams in this guild.",
             inline=False
         )
         
@@ -811,6 +826,7 @@ class MarioKartCommands(commands.Cog):
             await ctx.send("❌ No active edit session. React with ✏️ to an OCR result first.")
             return
         
+        guild_id = self.get_guild_id(ctx)
         edit_session = self.bot.edit_sessions[ctx.author.id]
         results = edit_session['results']
         
@@ -826,7 +842,7 @@ class MarioKartCommands(commands.Cog):
             result['message_id'] = edit_session['original_message_id']
         
         # Save to database
-        success = self.bot.db.add_race_results(results)
+        success = self.bot.db.add_race_results(results, guild_id=guild_id)
         
         if success:
             embed = discord.Embed(
@@ -876,7 +892,7 @@ class MarioKartCommands(commands.Cog):
             )
             embed.add_field(
                 name="Valid Teams",
-                value="• Unassigned\n• Phantom Orbit\n• Moonlight Bootel",
+                value="Use `!mklistallteams` to see available teams or `!mkaddteam` to create new teams.",
                 inline=False
             )
             embed.add_field(
@@ -888,20 +904,22 @@ class MarioKartCommands(commands.Cog):
             return
         
         # Validate team name
-        valid_teams = ['Unassigned', 'Phantom Orbit', 'Moonlight Bootel']
+        valid_teams = self.bot.db.get_guild_team_names(guild_id)
+        valid_teams.append('Unassigned')  # Always allow Unassigned
         if team_name not in valid_teams:
             await ctx.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}")
             return
         
         try:
+            guild_id = self.get_guild_id(ctx)
             # Resolve player name (handles nicknames)
-            resolved_player = self.bot.db.resolve_player_name(player_name)
+            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await ctx.send(f"❌ Player **{player_name}** not found in roster. Use `!mkadd {player_name}` to add them first.")
                 return
             
             # Assign team
-            success = self.bot.db.set_player_team(resolved_player, team_name)
+            success = self.bot.db.set_player_team(resolved_player, team_name, guild_id)
             
             if success:
                 await ctx.send(f"✅ Assigned **{resolved_player}** to team **{team_name}**!")
@@ -928,7 +946,7 @@ class MarioKartCommands(commands.Cog):
             )
             embed.add_field(
                 name="Valid Teams",
-                value="• Unassigned\n• Phantom Orbit\n• Moonlight Bootel",
+                value="Use `!mklistallteams` to see available teams or `!mkaddteam` to create new teams.",
                 inline=False
             )
             embed.add_field(
@@ -940,7 +958,8 @@ class MarioKartCommands(commands.Cog):
             return
         
         # Validate team name
-        valid_teams = ['Unassigned', 'Phantom Orbit', 'Moonlight Bootel']
+        valid_teams = self.bot.db.get_guild_team_names(guild_id)
+        valid_teams.append('Unassigned')  # Always allow Unassigned
         if team_name not in valid_teams:
             await ctx.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}")
             return
@@ -950,12 +969,13 @@ class MarioKartCommands(commands.Cog):
             return
         
         try:
+            guild_id = self.get_guild_id(ctx)
             # Resolve all player names first
             resolved_players = []
             failed_players = []
             
             for player_name in player_names:
-                resolved = self.bot.db.resolve_player_name(player_name)
+                resolved = self.bot.db.resolve_player_name(player_name, guild_id)
                 if resolved:
                     resolved_players.append(resolved)
                 else:
@@ -970,7 +990,7 @@ class MarioKartCommands(commands.Cog):
             failed_assignments = []
             
             for player in resolved_players:
-                success = self.bot.db.set_player_team(player, team_name)
+                success = self.bot.db.set_player_team(player, team_name, guild_id)
                 if success:
                     successful_assignments.append(player)
                 else:
@@ -1031,14 +1051,15 @@ class MarioKartCommands(commands.Cog):
             return
         
         try:
+            guild_id = self.get_guild_id(ctx)
             # Resolve player name (handles nicknames)
-            resolved_player = self.bot.db.resolve_player_name(player_name)
+            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await ctx.send(f"❌ Player **{player_name}** not found in roster.")
                 return
             
             # Set team to Unassigned
-            success = self.bot.db.set_player_team(resolved_player, 'Unassigned')
+            success = self.bot.db.set_player_team(resolved_player, 'Unassigned', guild_id)
             
             if success:
                 await ctx.send(f"✅ Set **{resolved_player}** to **Unassigned**!")
@@ -1053,7 +1074,8 @@ class MarioKartCommands(commands.Cog):
     async def show_teams(self, ctx):
         """Show all players organized by teams."""
         try:
-            teams = self.bot.db.get_players_by_team()
+            guild_id = self.get_guild_id(ctx)
+            teams = self.bot.db.get_players_by_team(guild_id=guild_id)
             
             if not teams:
                 await ctx.send("❌ No players found in roster.")
@@ -1108,7 +1130,7 @@ class MarioKartCommands(commands.Cog):
             )
             embed.add_field(
                 name="Valid Teams",
-                value="• Unassigned\n• Phantom Orbit\n• Moonlight Bootel",
+                value="Use `!mklistallteams` to see available teams or `!mkaddteam` to create new teams.",
                 inline=False
             )
             embed.add_field(
@@ -1120,13 +1142,15 @@ class MarioKartCommands(commands.Cog):
             return
         
         # Validate team name
-        valid_teams = ['Unassigned', 'Phantom Orbit', 'Moonlight Bootel']
+        valid_teams = self.bot.db.get_guild_team_names(guild_id)
+        valid_teams.append('Unassigned')  # Always allow Unassigned
         if team_name not in valid_teams:
             await ctx.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}")
             return
         
         try:
-            team_players = self.bot.db.get_team_roster(team_name)
+            guild_id = self.get_guild_id(ctx)
+            team_players = self.bot.db.get_team_roster(team_name, guild_id)
             
             # Define team colors and icons
             team_info = {
@@ -1147,7 +1171,7 @@ class MarioKartCommands(commands.Cog):
                 # Get detailed stats for team members
                 detailed_players = []
                 for player in team_players:
-                    player_stats = self.bot.db.get_player_stats(player)
+                    player_stats = self.bot.db.get_player_stats(player, guild_id)
                     if player_stats:
                         nicknames = player_stats.get('nicknames', [])
                         nickname_text = f" ({', '.join(nicknames)})" if nicknames else ""
@@ -1227,15 +1251,16 @@ class MarioKartCommands(commands.Cog):
                 await ctx.send("❌ No nickname provided.")
                 return
             
+            guild_id = self.get_guild_id(ctx)
             # Resolve player name (handles nicknames)
-            resolved_player = self.bot.db.resolve_player_name(player_name)
+            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await ctx.send(f"❌ Player **{player_name}** not found in roster. Use `!mkadd {player_name}` to add them first.")
                 return
             
             # Add single nickname
             nickname = nicknames[0]
-            success = self.bot.db.add_nickname(resolved_player, nickname)
+            success = self.bot.db.add_nickname(resolved_player, nickname, guild_id)
             
             if success:
                 await ctx.send(f"✅ Added nickname **{nickname}** to **{resolved_player}**!")
@@ -1286,8 +1311,9 @@ class MarioKartCommands(commands.Cog):
                 await ctx.send("❌ No nicknames provided.")
                 return
             
+            guild_id = self.get_guild_id(ctx)
             # Resolve player name (handles nicknames)
-            resolved_player = self.bot.db.resolve_player_name(player_name)
+            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await ctx.send(f"❌ Player **{player_name}** not found in roster. Use `!mkadd {player_name}` to add them first.")
                 return
@@ -1297,7 +1323,7 @@ class MarioKartCommands(commands.Cog):
             failed_additions = []
             
             for nickname in nicknames:
-                success = self.bot.db.add_nickname(resolved_player, nickname)
+                success = self.bot.db.add_nickname(resolved_player, nickname, guild_id)
                 if success:
                     successful_additions.append(nickname)
                 else:
@@ -1374,15 +1400,16 @@ class MarioKartCommands(commands.Cog):
                 await ctx.send("❌ You can only remove one nickname at a time. Please specify a single nickname.")
                 return
             
+            guild_id = self.get_guild_id(ctx)
             # Resolve player name (handles nicknames)
-            resolved_player = self.bot.db.resolve_player_name(player_name)
+            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await ctx.send(f"❌ Player **{player_name}** not found in roster.")
                 return
             
             # Remove nickname
             nickname = nicknames[0]
-            success = self.bot.db.remove_nickname(resolved_player, nickname)
+            success = self.bot.db.remove_nickname(resolved_player, nickname, guild_id)
             
             if success:
                 await ctx.send(f"✅ Removed nickname **{nickname}** from **{resolved_player}**!")
@@ -1416,14 +1443,15 @@ class MarioKartCommands(commands.Cog):
             return
         
         try:
+            guild_id = self.get_guild_id(ctx)
             # Resolve player name (handles nicknames)
-            resolved_player = self.bot.db.resolve_player_name(player_name)
+            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await ctx.send(f"❌ Player **{player_name}** not found in roster.")
                 return
             
             # Get nicknames
-            nicknames = self.bot.db.get_player_nicknames(resolved_player)
+            nicknames = self.bot.db.get_player_nicknames(resolved_player, guild_id)
             
             embed = discord.Embed(
                 title=f"🏷️ Nicknames for {resolved_player}",
@@ -1518,12 +1546,13 @@ class MarioKartCommands(commands.Cog):
                 await ctx.send("❌ No player scores provided. Use format: `PlayerName:Score`")
                 return
             
+            guild_id = self.get_guild_id(ctx)
             # Resolve player names and validate they exist in roster
             resolved_results = []
             failed_players = []
             
             for result in results:
-                resolved_player = self.bot.db.resolve_player_name(result['name'])
+                resolved_player = self.bot.db.resolve_player_name(result['name'], guild_id)
                 logging.info(f"Player resolution: '{result['name']}' -> {resolved_player}")
                 if resolved_player:
                     resolved_results.append({
@@ -1539,7 +1568,7 @@ class MarioKartCommands(commands.Cog):
                 return
             
             # Store war in database
-            success = self.bot.db.add_race_results(resolved_results, race_count)
+            success = self.bot.db.add_race_results(resolved_results, race_count, guild_id)
             
             if not success:
                 await ctx.send("❌ Failed to add war to database. Check logs for details.")
@@ -1555,7 +1584,8 @@ class MarioKartCommands(commands.Cog):
                     result['name'], 
                     result['score'], 
                     race_count, 
-                    current_date
+                    current_date,
+                    guild_id
                 )
                 if success:
                     stats_updated.append(result['name'])
@@ -1628,8 +1658,9 @@ class MarioKartCommands(commands.Cog):
             return
         
         try:
+            guild_id = self.get_guild_id(ctx)
             # Get war details first
-            war = self.bot.db.get_war_by_id(war_id)
+            war = self.bot.db.get_war_by_id(war_id, guild_id)
             if not war:
                 await ctx.send(f"❌ War ID {war_id} not found. Use `!mklistwarhistory` to see available wars.")
                 return
@@ -1679,7 +1710,7 @@ class MarioKartCommands(commands.Cog):
                 if str(reaction.emoji) == "✅":
                     # Remove the war - separate database operations from Discord API calls
                     try:
-                        success = self.bot.db.remove_war_by_id(war_id)
+                        success = self.bot.db.remove_war_by_id(war_id, guild_id)
                         if not success:
                             await msg.edit(content="❌ Failed to remove war. Check logs for details.")
                             try:
@@ -1746,8 +1777,9 @@ class MarioKartCommands(commands.Cog):
     async def list_war_history(self, ctx, limit: int = None):
         """Show all wars in the database with their IDs."""
         try:
+            guild_id = self.get_guild_id(ctx)
             # Get wars from database
-            wars = self.bot.db.get_all_wars(limit)
+            wars = self.bot.db.get_all_wars(limit, guild_id)
             
             if not wars:
                 await ctx.send("❌ No wars found in database. Use `!mkaddwar` to add your first war!")
@@ -1806,6 +1838,476 @@ class MarioKartCommands(commands.Cog):
         except Exception as e:
             logging.error(f"Error listing war history: {e}")
             await ctx.send("❌ Error retrieving war history")
+    
+    # Guild Management Commands
+    @commands.command(name='mkguildsetup')
+    async def setup_guild(self, ctx, guild_name: str = None):
+        """Set up the bot for this guild."""
+        guild_id = self.get_guild_id(ctx)
+        
+        if not guild_name:
+            guild_name = ctx.guild.name if ctx.guild else "Unknown Guild"
+        
+        try:
+            # Check if guild config already exists
+            existing_config = self.bot.db.get_guild_config(guild_id)
+            if existing_config:
+                embed = discord.Embed(
+                    title="⚙️ Guild Already Configured",
+                    description=f"This guild is already set up as: **{existing_config['guild_name']}**",
+                    color=0xff9900
+                )
+                embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+                embed.add_field(name="Teams", value=", ".join(existing_config['team_names']), inline=True)
+                embed.add_field(name="Active", value="Yes" if existing_config['is_active'] else "No", inline=True)
+                embed.set_footer(text="Use !mkguildconfig to modify settings")
+                await ctx.send(embed=embed)
+                return
+            
+            # Create new guild configuration
+            success = self.bot.db.create_guild_config(guild_id, guild_name)
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Guild Setup Complete!",
+                    description=f"Successfully configured guild: **{guild_name}**",
+                    color=0x00ff00
+                )
+                embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+                embed.add_field(name="Teams", value="Use `!mkaddteam` to create custom teams", inline=True)
+                embed.add_field(name="Next Steps", value="• Add players with `!mkadd <player>`\n• Configure teams with `!mkassignteam`\n• Start tracking wars with `!mkaddwar`", inline=False)
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Failed to set up guild configuration. Check logs for details.")
+                
+        except Exception as e:
+            logging.error(f"Error setting up guild: {e}")
+            await ctx.send("❌ Error setting up guild")
+    
+    @commands.command(name='mkguildconfig')
+    async def guild_config(self, ctx, action: str = None, *, value: str = None):
+        """Configure guild settings."""
+        guild_id = self.get_guild_id(ctx)
+        
+        if not action:
+            # Show current configuration
+            try:
+                config = self.bot.db.get_guild_config(guild_id)
+                if not config:
+                    await ctx.send("❌ Guild not configured. Use `!mkguildsetup` first.")
+                    return
+                
+                embed = discord.Embed(
+                    title="⚙️ Guild Configuration",
+                    description=f"Current settings for **{config['guild_name']}**",
+                    color=0x9932cc
+                )
+                embed.add_field(name="Guild ID", value=str(config['guild_id']), inline=True)
+                embed.add_field(name="Active", value="Yes" if config['is_active'] else "No", inline=True)
+                embed.add_field(name="Teams", value=", ".join(config['team_names']), inline=False)
+                
+                if config['allowed_channels']:
+                    channels = [f"<#{ch}>" for ch in config['allowed_channels']]
+                    embed.add_field(name="Allowed Channels", value=", ".join(channels), inline=False)
+                else:
+                    embed.add_field(name="Allowed Channels", value="All channels", inline=False)
+                
+                embed.add_field(
+                    name="Available Commands",
+                    value="`!mkguildconfig name <new_name>`\n`!mkguildconfig teams <team1,team2,...>`\n`!mkguildconfig channels <channel1,channel2,...>`\n`!mkguildconfig activate`\n`!mkguildconfig deactivate`",
+                    inline=False
+                )
+                
+                await ctx.send(embed=embed)
+                return
+                
+            except Exception as e:
+                logging.error(f"Error getting guild config: {e}")
+                await ctx.send("❌ Error retrieving guild configuration")
+                return
+        
+        # Handle configuration actions
+        try:
+            if action.lower() == "name":
+                if not value:
+                    await ctx.send("❌ Please provide a new guild name.")
+                    return
+                
+                success = self.bot.db.update_guild_config(guild_id, guild_name=value)
+                if success:
+                    await ctx.send(f"✅ Updated guild name to: **{value}**")
+                else:
+                    await ctx.send("❌ Failed to update guild name.")
+            
+            elif action.lower() == "teams":
+                if not value:
+                    await ctx.send("❌ Please provide team names separated by commas.")
+                    return
+                
+                teams = [team.strip() for team in value.split(',')]
+                success = self.bot.db.update_guild_config(guild_id, team_names=teams)
+                if success:
+                    await ctx.send(f"✅ Updated teams to: **{', '.join(teams)}**")
+                else:
+                    await ctx.send("❌ Failed to update teams.")
+            
+            elif action.lower() == "channels":
+                if not value:
+                    await ctx.send("❌ Please provide channel mentions or IDs separated by commas.")
+                    return
+                
+                # Parse channel mentions/IDs
+                channel_ids = []
+                for ch in value.split(','):
+                    ch = ch.strip()
+                    if ch.startswith('<#') and ch.endswith('>'):
+                        channel_ids.append(int(ch[2:-1]))
+                    elif ch.isdigit():
+                        channel_ids.append(int(ch))
+                
+                if not channel_ids:
+                    await ctx.send("❌ No valid channels found. Use channel mentions or IDs.")
+                    return
+                
+                success = self.bot.db.update_guild_config(guild_id, allowed_channels=channel_ids)
+                if success:
+                    channels = [f"<#{ch}>" for ch in channel_ids]
+                    await ctx.send(f"✅ Updated allowed channels to: {', '.join(channels)}")
+                else:
+                    await ctx.send("❌ Failed to update allowed channels.")
+            
+            elif action.lower() == "activate":
+                success = self.bot.db.update_guild_config(guild_id, is_active=True)
+                if success:
+                    await ctx.send("✅ Guild configuration activated!")
+                else:
+                    await ctx.send("❌ Failed to activate guild configuration.")
+            
+            elif action.lower() == "deactivate":
+                success = self.bot.db.update_guild_config(guild_id, is_active=False)
+                if success:
+                    await ctx.send("⚠️ Guild configuration deactivated.")
+                else:
+                    await ctx.send("❌ Failed to deactivate guild configuration.")
+            
+            else:
+                await ctx.send("❌ Invalid action. Use `!mkguildconfig` without parameters to see available options.")
+                
+        except Exception as e:
+            logging.error(f"Error updating guild config: {e}")
+            await ctx.send("❌ Error updating guild configuration")
+    
+    @commands.command(name='mkguildinfo')
+    async def guild_info(self, ctx):
+        """Show detailed guild information including statistics."""
+        guild_id = self.get_guild_id(ctx)
+        
+        try:
+            # Get guild configuration
+            config = self.bot.db.get_guild_config(guild_id)
+            if not config:
+                await ctx.send("❌ Guild not configured. Use `!mkguildsetup` first.")
+                return
+            
+            # Get guild statistics
+            db_info = self.bot.db.get_database_info(guild_id)
+            
+            embed = discord.Embed(
+                title="📊 Guild Information",
+                description=f"Detailed information for **{config['guild_name']}**",
+                color=0x00ff00
+            )
+            
+            # Basic info
+            embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+            embed.add_field(name="Status", value="Active" if config['is_active'] else "Inactive", inline=True)
+            embed.add_field(name="Database", value=db_info.get('database_type', 'PostgreSQL'), inline=True)
+            
+            # Statistics
+            embed.add_field(name="Total Players", value=str(db_info.get('roster_count', 0)), inline=True)
+            embed.add_field(name="Total Wars", value=str(db_info.get('war_count', 0)), inline=True)
+            embed.add_field(name="Database Size", value=db_info.get('database_size', 'Unknown'), inline=True)
+            
+            # Team information
+            teams = self.bot.db.get_players_by_team(guild_id=guild_id)
+            if teams:
+                team_info = []
+                for team_name, players in teams.items():
+                    team_info.append(f"**{team_name}**: {len(players)} players")
+                embed.add_field(name="Team Distribution", value="\n".join(team_info), inline=False)
+            
+            # Recent activity
+            recent_wars = self.bot.db.get_recent_wars(3, guild_id)
+            if recent_wars:
+                war_info = []
+                for war in recent_wars:
+                    war_info.append(f"• {war['war_date']} - {len(war['results'])} players")
+                embed.add_field(name="Recent Wars", value="\n".join(war_info), inline=False)
+            
+            embed.set_footer(text=f"Configuration created: {config['created_at'][:10]}")
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error getting guild info: {e}")
+            await ctx.send("❌ Error retrieving guild information")
+    
+    # Team Management Commands
+    @commands.command(name='mkaddteam')
+    async def add_team(self, ctx, *, team_name: str = None):
+        """Add a new team to the guild."""
+        if not team_name:
+            embed = discord.Embed(
+                title="➕ Add Team",
+                description="Create a new team for your guild.",
+                color=0x00ff00
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkaddteam <team_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Examples",
+                value="`!mkaddteam Fire Team`\n`!mkaddteam Ω Warriors`\n`!mkaddteam 🔥Blazers🔥`",
+                inline=False
+            )
+            embed.add_field(
+                name="Rules",
+                value="• 1-50 characters long\n• Unicode characters supported\n• Maximum 5 teams per guild\n• Cannot use 'Unassigned'",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            guild_id = self.get_guild_id(ctx)
+            success = self.bot.db.add_guild_team(guild_id, team_name)
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Team Created!",
+                    description=f"Successfully created team: **{team_name}**",
+                    color=0x00ff00
+                )
+                embed.add_field(
+                    name="Next Steps",
+                    value=f"• Assign players with `!mkassignteam <player> {team_name}`\n• View team roster with `!mkteamroster {team_name}`\n• List all teams with `!mklistallteams`",
+                    inline=False
+                )
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Failed to create team. Check if the name is valid and you haven't reached the 5-team limit.")
+                
+        except Exception as e:
+            logging.error(f"Error adding team: {e}")
+            await ctx.send("❌ Error creating team")
+    
+    @commands.command(name='mkremoveteam')
+    async def remove_team(self, ctx, *, team_name: str = None):
+        """Remove a team from the guild."""
+        if not team_name:
+            embed = discord.Embed(
+                title="❌ Remove Team",
+                description="Delete a team from your guild.",
+                color=0xff4444
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkremoveteam <team_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Warning",
+                value="This will move all players from the team to 'Unassigned'.",
+                inline=False
+            )
+            embed.add_field(
+                name="Example",
+                value="`!mkremoveteam Fire Team`",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            guild_id = self.get_guild_id(ctx)
+            
+            # Check if team exists
+            current_teams = self.bot.db.get_guild_team_names(guild_id)
+            team_exists = any(team.lower() == team_name.lower() for team in current_teams)
+            
+            if not team_exists:
+                await ctx.send(f"❌ Team '{team_name}' not found. Use `!mklistallteams` to see available teams.")
+                return
+            
+            # Get team player count for confirmation
+            teams_with_counts = self.bot.db.get_guild_teams_with_counts(guild_id)
+            player_count = 0
+            actual_team_name = team_name
+            
+            for team, count in teams_with_counts.items():
+                if team.lower() == team_name.lower():
+                    player_count = count
+                    actual_team_name = team
+                    break
+            
+            # Confirmation embed
+            embed = discord.Embed(
+                title=f"⚠️ Remove Team: {actual_team_name}",
+                description=f"Are you sure you want to remove this team?\n\n**{player_count} players** will be moved to 'Unassigned'.",
+                color=0xff4444
+            )
+            embed.set_footer(text="React with ✅ to confirm or ❌ to cancel")
+            
+            msg = await ctx.send(embed=embed)
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+            
+            def check(reaction, user):
+                return user == ctx.author and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+            
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+                
+                if str(reaction.emoji) == "✅":
+                    success = self.bot.db.remove_guild_team(guild_id, actual_team_name)
+                    
+                    if success:
+                        embed = discord.Embed(
+                            title="✅ Team Removed!",
+                            description=f"Successfully removed team: **{actual_team_name}**\n\n{player_count} players moved to 'Unassigned'.",
+                            color=0x00ff00
+                        )
+                        await msg.edit(embed=embed)
+                    else:
+                        await msg.edit(content="❌ Failed to remove team. Check logs for details.")
+                else:
+                    await msg.edit(content="❌ Team removal cancelled.")
+                
+                try:
+                    await msg.clear_reactions()
+                except:
+                    pass
+                    
+            except asyncio.TimeoutError:
+                await msg.edit(content="❌ Team removal timed out.")
+                try:
+                    await msg.clear_reactions()
+                except:
+                    pass
+                
+        except Exception as e:
+            logging.error(f"Error removing team: {e}")
+            await ctx.send("❌ Error removing team")
+    
+    @commands.command(name='mkrenameteam')
+    async def rename_team(self, ctx, old_name: str = None, *, new_name: str = None):
+        """Rename a team in the guild."""
+        if not old_name or not new_name:
+            embed = discord.Embed(
+                title="🏷️ Rename Team",
+                description="Rename an existing team in your guild.",
+                color=0x9932cc
+            )
+            embed.add_field(
+                name="Usage",
+                value="`!mkrenameteam <old_name> <new_name>`",
+                inline=False
+            )
+            embed.add_field(
+                name="Examples",
+                value="`!mkrenameteam 'Fire Team' 'Blazing Squad'`\n`!mkrenameteam Alpha ΩWarriors`",
+                inline=False
+            )
+            embed.add_field(
+                name="Note",
+                value="Player assignments will be preserved.",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        try:
+            guild_id = self.get_guild_id(ctx)
+            success = self.bot.db.rename_guild_team(guild_id, old_name, new_name)
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Team Renamed!",
+                    description=f"Successfully renamed:\n**{old_name}** → **{new_name}**",
+                    color=0x00ff00
+                )
+                embed.add_field(
+                    name="Player Assignments",
+                    value="All player assignments have been preserved.",
+                    inline=False
+                )
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Failed to rename team. Check if the old team exists and the new name is valid.")
+                
+        except Exception as e:
+            logging.error(f"Error renaming team: {e}")
+            await ctx.send("❌ Error renaming team")
+    
+    @commands.command(name='mklistallteams')
+    async def list_all_teams(self, ctx):
+        """List all teams in the guild with player counts."""
+        try:
+            guild_id = self.get_guild_id(ctx)
+            teams_with_counts = self.bot.db.get_guild_teams_with_counts(guild_id)
+            
+            if not teams_with_counts:
+                embed = discord.Embed(
+                    title="📝 No Teams Found",
+                    description="This guild has no teams yet.",
+                    color=0xff9900
+                )
+                embed.add_field(
+                    name="Create a Team",
+                    value="Use `!mkaddteam <team_name>` to create your first team!",
+                    inline=False
+                )
+                await ctx.send(embed=embed)
+                return
+            
+            embed = discord.Embed(
+                title="📝 All Teams",
+                description=f"Teams in this guild ({len(teams_with_counts)} total):",
+                color=0x9932cc
+            )
+            
+            # Sort teams by player count (descending), then by name
+            sorted_teams = sorted(teams_with_counts.items(), key=lambda x: (-x[1], x[0]))
+            
+            team_list = []
+            total_players = 0
+            
+            for team_name, player_count in sorted_teams:
+                if team_name == 'Unassigned':
+                    team_list.append(f"❓ **{team_name}**: {player_count} players")
+                else:
+                    team_list.append(f"⚔️ **{team_name}**: {player_count} players")
+                total_players += player_count
+            
+            embed.add_field(
+                name="Team Roster",
+                value="\n".join(team_list),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="Summary",
+                value=f"**Total Players**: {total_players}\n**Teams Available**: {len([t for t in teams_with_counts.keys() if t != 'Unassigned'])}/5",
+                inline=False
+            )
+            
+            embed.set_footer(text="Use !mkteamroster <team> to see players in a specific team")
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error listing teams: {e}")
+            await ctx.send("❌ Error retrieving team list")
 
 async def setup(bot):
     """Setup function for the cog."""
