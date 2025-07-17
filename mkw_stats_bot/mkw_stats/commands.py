@@ -1509,6 +1509,12 @@ class MarioKartCommands(commands.Cog):
                         name, score_str = part.split(':', 1)
                         name = name.strip()
                         score = int(score_str.strip())
+                        
+                        # Validate score range (12-180 inclusive)
+                        if score < 12 or score > 180:
+                            await interaction.response.send_message(f"❌ Invalid score: {score}. Scores must be between 12 and 180.", ephemeral=True)
+                            return
+                        
                         results.append({
                             'name': name,
                             'score': score,
