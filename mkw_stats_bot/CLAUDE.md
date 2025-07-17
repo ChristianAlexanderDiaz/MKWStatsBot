@@ -120,7 +120,7 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 - **Roster Management**: `!mkroster`, `!mkadd`, `!mkremove`
 - **Team Management**: `!mkassignteam`, `!mkteams`, `!mkteamroster`
 - **Nickname Management**: `!mkaddnickname`, `!mkaddnicknames`, `!mkremovenickname`
-- **War Management**: `!mkaddwar`, `!mkremovewar`, `!mklistwarhistory`
+- **War Management**: `/addwar`, `!mkremovewar`, `!mklistwarhistory`
 - **Edit Mode**: `!mkeditadd`, `!mkupdate`, `!mksave`
 - **Utility**: `!mkhelp`, `!mkpreset`
 

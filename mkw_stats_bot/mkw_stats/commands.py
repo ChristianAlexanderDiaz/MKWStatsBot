@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import logging
 import asyncio
 from . import config
@@ -13,6 +14,10 @@ class MarioKartCommands(commands.Cog):
     def get_guild_id(self, ctx):
         """Helper method to get guild ID from context."""
         return ctx.guild.id if ctx.guild else 0
+    
+    def get_guild_id_from_interaction(self, interaction: discord.Interaction) -> int:
+        """Get guild ID from interaction, similar to get_guild_id but for interactions."""
+        return interaction.guild.id if interaction.guild else 0
     
     def parse_quoted_nicknames(self, text: str) -> list:
         """
@@ -106,7 +111,7 @@ class MarioKartCommands(commands.Cog):
                             embed.add_field(name="Nicknames", value=", ".join(roster_stats['nicknames']), inline=True)
                         
                         embed.add_field(name="Wars Played", value="0", inline=True)
-                        embed.set_footer(text="Use !mkaddwar to add this player to a war")
+                        embed.set_footer(text="Use /addwar to add this player to a war")
                         
                         await ctx.send(embed=embed)
                     else:
@@ -657,7 +662,7 @@ class MarioKartCommands(commands.Cog):
         embed.add_field(
             name="⚔️ War Management Commands",
             value=(
-                "`!mkaddwar [races:X] Player1:Score1 Player2:Score2...` - Add war manually\n"
+                "`/addwar` - Add war with player scores (slash command)\n"
                 "`!mkremovewar <war_id>` - Remove war by ID\n"
                 "`!mklistwarhistory [limit]` - Show all wars with IDs\n"
                 "`!mkmanual` - Alternative manual war entry"
@@ -1479,74 +1484,46 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error showing nicknames: {e}")
             await ctx.send("❌ Error retrieving nicknames")
 
-    @commands.command(name='mkaddwar')
-    async def add_war(self, ctx, *, war_data: str = None):
-        """Add a war manually with player scores."""
-        if not war_data:
-            embed = discord.Embed(
-                title="⚔️ Add War",
-                description="Manually add a war with player scores.",
-                color=0x00ff00
-            )
-            embed.add_field(
-                name="Format",
-                value="`!mkaddwar [races:X] PlayerName1:Score1 PlayerName2:Score2 ...`",
-                inline=False
-            )
-            embed.add_field(
-                name="Examples", 
-                value="`!mkaddwar Cynical:85 TestPlayer:92 Player3:78`\n`!mkaddwar races:10 Cynical:85 TestPlayer:92`",
-                inline=False
-            )
-            embed.add_field(
-                name="Race Count",
-                value="Default: 12 races | Range: 1-12 races",
-                inline=False
-            )
-            embed.add_field(
-                name="💡 Tips",
-                value="• All players must be in roster\n• Use quotes for names with spaces: `\"MK Player\":85`",
-                inline=False
-            )
-            await ctx.send(embed=embed)
-            return
-        
+    @app_commands.command(name="addwar", description="Add a war with player scores")
+    @app_commands.describe(
+        player_scores="Player scores in format: 'Player1: 104, Player2: 105, Player3: 50'",
+        races="Number of races played (1-12, default: 12)"
+    )
+    async def addwar_slash(self, interaction: discord.Interaction, player_scores: str, races: int = 12):
+        """Add a war manually with player scores using slash command."""
         try:
-            # Parse war data
-            results = []
-            race_count = 12  # Default
+            # Validate race count
+            if races < 1 or races > 12:
+                await interaction.response.send_message("❌ Race count must be between 1 and 12.", ephemeral=True)
+                return
             
-            # Split input and check for races parameter
-            parts = war_data.split()
+            # Parse player scores
+            results = []
+            
+            # Split by comma and clean up spaces
+            parts = [p.strip() for p in player_scores.split(',')]
+            
             for part in parts:
-                if part.startswith('races:'):
-                    try:
-                        race_count = int(part.split(':', 1)[1])
-                        if race_count < 1 or race_count > 12:
-                            await ctx.send("❌ Race count must be between 1 and 12.")
-                            return
-                    except ValueError:
-                        await ctx.send("❌ Invalid race count format. Use `races:X` where X is 1-12.")
-                        return
-                elif ':' in part and not part.startswith('races:'):
-                    # This is a player:score entry
+                if ':' in part:
                     try:
                         name, score_str = part.split(':', 1)
-                        score = int(score_str)
+                        name = name.strip()
+                        score = int(score_str.strip())
                         results.append({
                             'name': name,
                             'score': score,
                             'raw_input': part
                         })
                     except ValueError:
-                        await ctx.send(f"❌ Invalid score format: `{part}`. Use PlayerName:Score.")
+                        await interaction.response.send_message(f"❌ Invalid score format: `{part}`. Use PlayerName: Score.", ephemeral=True)
                         return
             
             if not results:
-                await ctx.send("❌ No player scores provided. Use format: `PlayerName:Score`")
+                await interaction.response.send_message("❌ No player scores provided. Use format: `PlayerName: Score`", ephemeral=True)
                 return
             
-            guild_id = self.get_guild_id(ctx)
+            guild_id = self.get_guild_id_from_interaction(interaction)
+            
             # Resolve player names and validate they exist in roster
             resolved_results = []
             failed_players = []
@@ -1564,18 +1541,19 @@ class MarioKartCommands(commands.Cog):
                     failed_players.append(result['name'])
             
             if failed_players:
-                await ctx.send(f"❌ These players are not in the roster: {', '.join(failed_players)}\nUse `!mkadd <player>` to add them first.")
+                await interaction.response.send_message(f"❌ These players are not in the roster: {', '.join(failed_players)}\nUse `!mkadd <player>` to add them first.", ephemeral=True)
                 return
             
             # Store war in database
-            success = self.bot.db.add_race_results(resolved_results, race_count, guild_id)
+            success = self.bot.db.add_race_results(resolved_results, races, guild_id)
             
             if not success:
-                await ctx.send("❌ Failed to add war to database. Check logs for details.")
+                await interaction.response.send_message("❌ Failed to add war to database. Check logs for details.", ephemeral=True)
                 return
             
             # Update player statistics
-            current_date = ctx.message.created_at.strftime('%Y-%m-%d')
+            import datetime
+            current_date = datetime.datetime.now().strftime('%Y-%m-%d')
             stats_updated = []
             stats_failed = []
             
@@ -1583,7 +1561,7 @@ class MarioKartCommands(commands.Cog):
                 success = self.bot.db.update_player_stats(
                     result['name'], 
                     result['score'], 
-                    race_count, 
+                    races, 
                     current_date,
                     guild_id
                 )
@@ -1606,7 +1584,7 @@ class MarioKartCommands(commands.Cog):
                 player_list.append(f"**{result['name']}**: {result['score']} points")
             
             embed.add_field(
-                name=f"🏁 War Results ({race_count} races)",
+                name=f"🏁 War Results ({races} races)",
                 value="\n".join(player_list),
                 inline=False
             )
@@ -1624,11 +1602,11 @@ class MarioKartCommands(commands.Cog):
             )
             
             embed.set_footer(text="Player statistics have been automatically updated")
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
             
         except Exception as e:
             logging.error(f"Error adding war: {e}")
-            await ctx.send("❌ Error adding war. Check the command format and try again.")
+            await interaction.response.send_message("❌ Error adding war. Check the command format and try again.", ephemeral=True)
 
     @commands.command(name='mkremovewar')
     async def remove_war(self, ctx, war_id: int = None):
@@ -1782,7 +1760,7 @@ class MarioKartCommands(commands.Cog):
             wars = self.bot.db.get_all_wars(limit, guild_id)
             
             if not wars:
-                await ctx.send("❌ No wars found in database. Use `!mkaddwar` to add your first war!")
+                await ctx.send("❌ No wars found in database. Use `/addwar` to add your first war!")
                 return
             
             embed = discord.Embed(
@@ -1828,7 +1806,7 @@ class MarioKartCommands(commands.Cog):
             
             embed.add_field(
                 name="💡 Commands",
-                value="`!mkremovewar <ID>` - Remove a specific war\n`!mkaddwar` - Add a new war",
+                value="`!mkremovewar <ID>` - Remove a specific war\n`/addwar` - Add a new war",
                 inline=False
             )
             
@@ -1875,7 +1853,7 @@ class MarioKartCommands(commands.Cog):
                 )
                 embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
                 embed.add_field(name="Teams", value="Use `!mkaddteam` to create custom teams", inline=True)
-                embed.add_field(name="Next Steps", value="• Add players with `!mkadd <player>`\n• Configure teams with `!mkassignteam`\n• Start tracking wars with `!mkaddwar`", inline=False)
+                embed.add_field(name="Next Steps", value="• Add players with `!mkadd <player>`\n• Configure teams with `!mkassignteam`\n• Start tracking wars with `/addwar`", inline=False)
                 await ctx.send(embed=embed)
             else:
                 await ctx.send("❌ Failed to set up guild configuration. Check logs for details.")
