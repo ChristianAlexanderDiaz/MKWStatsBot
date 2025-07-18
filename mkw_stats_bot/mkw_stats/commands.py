@@ -3,6 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import logging
 import asyncio
+import json
 from . import config
 
 class MarioKartCommands(commands.Cog):
@@ -67,7 +68,7 @@ class MarioKartCommands(commands.Cog):
                         guild_name = EXCLUDED.guild_name,
                         is_active = EXCLUDED.is_active,
                         updated_at = CURRENT_TIMESTAMP
-                """, (guild_id, servername, [teamname], [], True))
+                """, (guild_id, servername, json.dumps([teamname]), json.dumps([]), True))
                 
                 # 2. Add all players to players table
                 added_players = []
