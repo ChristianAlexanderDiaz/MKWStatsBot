@@ -19,6 +19,91 @@ class MarioKartCommands(commands.Cog):
         """Get guild ID from interaction, similar to get_guild_id but for interactions."""
         return interaction.guild.id if interaction.guild else 0
     
+    def is_guild_initialized(self, guild_id: int) -> bool:
+        """Check if guild is properly initialized."""
+        try:
+            with self.bot.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM guild_configs WHERE guild_id = %s AND is_active = TRUE", (guild_id,))
+                return cursor.fetchone()[0] > 0
+        except Exception:
+            return False
+
+    @app_commands.command(name="setup", description="Initialize guild for Mario Kart stats tracking")
+    @app_commands.describe(
+        guild_name="Name for your guild/server (optional)",
+        first_player="First player to add to the roster",
+        team_name="Name for the first team (default: Team Alpha)"
+    )
+    async def setup_guild(self, interaction: discord.Interaction, first_player: str, guild_name: str = None, team_name: str = "Team Alpha"):
+        """Initialize guild with basic setup."""
+        try:
+            guild_id = self.get_guild_id_from_interaction(interaction)
+            
+            # Check if already initialized
+            if self.is_guild_initialized(guild_id):
+                await interaction.response.send_message("✅ Guild is already set up! Use other commands to manage your clan.", ephemeral=True)
+                return
+            
+            # Use guild name or default to Discord server name
+            if not guild_name:
+                guild_name = interaction.guild.name if interaction.guild else f"Guild {guild_id}"
+            
+            with self.bot.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 1. Create guild config
+                cursor.execute("""
+                    INSERT INTO guild_configs (guild_id, guild_name, team_names, allowed_channels, is_active)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (guild_id) DO UPDATE SET
+                        guild_name = EXCLUDED.guild_name,
+                        is_active = EXCLUDED.is_active,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (guild_id, guild_name, [team_name], [], True))
+                
+                # 2. Add first player to roster
+                cursor.execute("""
+                    INSERT INTO roster (player_name, added_by, guild_id, team, nicknames, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (player_name, guild_id) DO UPDATE SET
+                        is_active = TRUE,
+                        team = EXCLUDED.team,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (first_player, f"setup_{interaction.user.name}", guild_id, team_name, [], True))
+                
+                conn.commit()
+            
+            # Create success response
+            embed = discord.Embed(
+                title="🚀 Guild Setup Complete!",
+                description=f"Successfully initialized **{guild_name}** for Mario Kart clan tracking.",
+                color=0x00ff00
+            )
+            
+            embed.add_field(name="Guild Name", value=guild_name, inline=True)
+            embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+            embed.add_field(name="First Team", value=team_name, inline=True)
+            embed.add_field(name="First Player", value=first_player, inline=True)
+            
+            embed.add_field(
+                name="🎯 Next Steps",
+                value=(
+                    "• Add more players: `!mkadd <player>`\n"
+                    "• Start tracking wars: `/addwar`\n"
+                    "• View stats: `!mkstats [player]`\n"
+                    "• Manage teams: `!mkassignteam`"
+                ),
+                inline=False
+            )
+            
+            embed.set_footer(text="Your guild is now ready for Mario Kart clan management!")
+            await interaction.response.send_message(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error in guild setup: {e}")
+            await interaction.response.send_message("❌ Error setting up guild. Please try again or contact support.", ephemeral=True)
+
     def parse_quoted_nicknames(self, text: str) -> list:
         """
         Parse nicknames from text, handling quoted strings for nicknames with spaces.
@@ -1492,6 +1577,13 @@ class MarioKartCommands(commands.Cog):
     async def addwar_slash(self, interaction: discord.Interaction, player_scores: str, races: int = 12):
         """Add a war manually with player scores using slash command."""
         try:
+            guild_id = self.get_guild_id_from_interaction(interaction)
+            
+            # Check if guild is initialized
+            if not self.is_guild_initialized(guild_id):
+                await interaction.response.send_message("❌ Guild not set up! Please run `/setup` first to initialize your clan.", ephemeral=True)
+                return
+            
             # Validate race count
             if races < 1 or races > 12:
                 await interaction.response.send_message("❌ Race count must be between 1 and 12.", ephemeral=True)
@@ -1527,8 +1619,6 @@ class MarioKartCommands(commands.Cog):
             if not results:
                 await interaction.response.send_message("❌ No player scores provided. Use format: `PlayerName: Score`", ephemeral=True)
                 return
-            
-            guild_id = self.get_guild_id_from_interaction(interaction)
             
             # Resolve player names and validate they exist in roster
             resolved_results = []

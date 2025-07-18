@@ -101,16 +101,57 @@ def show_recent_sessions(db):
 
 def show_database_info(db):
     """Show database information."""
-    info = db.get_database_info()
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            print("🗃️ Database Tables and Structure:")
+            print("-" * 60)
+            
+            # Get all tables
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+                ORDER BY table_name;
+            """)
+            tables = cursor.fetchall()
+            
+            for (table_name,) in tables:
+                print(f"\n📋 Table: {table_name}")
+                
+                # Get table structure
+                cursor.execute("""
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns 
+                    WHERE table_name = %s AND table_schema = 'public'
+                    ORDER BY ordinal_position;
+                """, (table_name,))
+                columns = cursor.fetchall()
+                
+                for col_name, data_type, nullable in columns:
+                    null_info = "NULL" if nullable == "YES" else "NOT NULL"
+                    print(f"   {col_name:<20} {data_type:<15} {null_info}")
+                
+                # Get row count
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                count = cursor.fetchone()[0]
+                print(f"   → {count} rows")
+                
+                # Show sample data for roster and player_stats
+                if table_name in ['roster', 'player_stats', 'players']:
+                    cursor.execute(f"SELECT * FROM {table_name} LIMIT 5")
+                    rows = cursor.fetchall()
+                    if rows:
+                        print(f"   Sample data:")
+                        for row in rows:
+                            print(f"     {row}")
     
-    print("🗃️ Database Information:")
-    print(f"   Location: {info['database_path']}")
-    print(f"   Size: {info['file_size_kb']:.1f} KB")
-    print(f"   Players: {info['player_count']}")
-    print(f"   Sessions: {info['session_count']}")
+    except Exception as e:
+        print(f"❌ Error getting database info: {e}")
 
 def main():
-    db = DatabaseManager("database/mario_kart_clan.db")
+    db = DatabaseManager()  # Use default PostgreSQL connection
     
     if len(sys.argv) > 1:
         command = sys.argv[1].lower()
