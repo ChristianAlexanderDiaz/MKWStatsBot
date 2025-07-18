@@ -31,11 +31,10 @@ class MarioKartCommands(commands.Cog):
 
     @app_commands.command(name="setup", description="Initialize guild for Mario Kart stats tracking")
     @app_commands.describe(
-        guild_name="Name for your guild/server (optional)",
-        first_player="First player to add to the roster",
-        team_name="Name for the first team (default: Team Alpha)"
+        teamname="Name for the first team",
+        players="Players to add (comma-separated): 'Player1, Player2, Player3'"
     )
-    async def setup_guild(self, interaction: discord.Interaction, first_player: str, guild_name: str = None, team_name: str = "Team Alpha"):
+    async def setup_guild(self, interaction: discord.Interaction, teamname: str, players: str):
         """Initialize guild with basic setup."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
@@ -45,9 +44,17 @@ class MarioKartCommands(commands.Cog):
                 await interaction.response.send_message("✅ Guild is already set up! Use other commands to manage your clan.", ephemeral=True)
                 return
             
-            # Use guild name or default to Discord server name
-            if not guild_name:
-                guild_name = interaction.guild.name if interaction.guild else f"Guild {guild_id}"
+            # Parse players from comma-separated string
+            player_list = [p.strip() for p in players.split(',')]
+            player_list = [p for p in player_list if p]  # Remove empty strings
+            
+            # Validate at least one player
+            if not player_list:
+                await interaction.response.send_message("❌ You must provide at least one player.", ephemeral=True)
+                return
+            
+            # Auto-detect server name from Discord
+            servername = interaction.guild.name if interaction.guild else f"Guild {guild_id}"
             
             with self.bot.db.get_connection() as conn:
                 cursor = conn.cursor()
@@ -60,31 +67,40 @@ class MarioKartCommands(commands.Cog):
                         guild_name = EXCLUDED.guild_name,
                         is_active = EXCLUDED.is_active,
                         updated_at = CURRENT_TIMESTAMP
-                """, (guild_id, guild_name, [team_name], [], True))
+                """, (guild_id, servername, [teamname], [], True))
                 
-                # 2. Add first player to players table
-                cursor.execute("""
-                    INSERT INTO players (player_name, added_by, guild_id, team, nicknames, is_active)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (player_name, guild_id) DO UPDATE SET
-                        is_active = TRUE,
-                        team = EXCLUDED.team,
-                        updated_at = CURRENT_TIMESTAMP
-                """, (first_player, f"setup_{interaction.user.name}", guild_id, team_name, [], True))
+                # 2. Add all players to players table
+                added_players = []
+                for player_name in player_list:
+                    cursor.execute("""
+                        INSERT INTO players (player_name, added_by, guild_id, team, nicknames, is_active)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (player_name, guild_id) DO UPDATE SET
+                            is_active = TRUE,
+                            team = EXCLUDED.team,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (player_name, f"setup_{interaction.user.name}", guild_id, teamname, [], True))
+                    added_players.append(player_name)
                 
                 conn.commit()
             
             # Create success response
             embed = discord.Embed(
                 title="🚀 Guild Setup Complete!",
-                description=f"Successfully initialized **{guild_name}** for Mario Kart clan tracking.",
+                description=f"Successfully initialized **{servername}** for Mario Kart clan tracking.",
                 color=0x00ff00
             )
             
-            embed.add_field(name="Guild Name", value=guild_name, inline=True)
+            embed.add_field(name="Server Name", value=servername, inline=True)
             embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
-            embed.add_field(name="First Team", value=team_name, inline=True)
-            embed.add_field(name="First Player", value=first_player, inline=True)
+            embed.add_field(name="Team Name", value=teamname, inline=True)
+            embed.add_field(name="Players Added", value=f"{len(added_players)} players", inline=True)
+            
+            # Show all added players
+            players_text = ", ".join(added_players)
+            if len(players_text) > 1000:  # Discord field limit
+                players_text = players_text[:1000] + "..."
+            embed.add_field(name="👥 Team Roster", value=players_text, inline=False)
             
             embed.add_field(
                 name="🎯 Next Steps",
