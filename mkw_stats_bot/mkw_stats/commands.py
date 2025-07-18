@@ -1617,6 +1617,7 @@ class MarioKartCommands(commands.Cog):
                     try:
                         name, score_str = part.split(':', 1)
                         name = name.strip()
+                        original_name = name  # Store original before parsing
                         score = int(score_str.strip())
                         
                         # Check for individual race count in parentheses
@@ -1643,9 +1644,14 @@ class MarioKartCommands(commands.Cog):
                                 await interaction.response.send_message(f"❌ Invalid race count format in: `{name}`. Use PlayerName(races): Score.", ephemeral=True)
                                 return
                         
-                        # Validate score range (12-180 inclusive)
-                        if score < 12 or score > 180:
-                            await interaction.response.send_message(f"❌ Invalid score: {score}. Scores must be between 12 and 180.", ephemeral=True)
+                        # Dynamic score validation based on races played
+                        min_score = individual_races * 1  # All last place (1 point per race)
+                        max_score = individual_races * 15  # All first place (15 points per race)
+                        if score < min_score or score > max_score:
+                            if '(' in original_name and ')' in original_name:
+                                await interaction.response.send_message(f"❌ {base_name}({individual_races}): {score} points invalid. Must be {min_score}-{max_score} points for {individual_races} races.", ephemeral=True)
+                            else:
+                                await interaction.response.send_message(f"❌ {name}: {score} points invalid. Must be {min_score}-{max_score} points for {individual_races} races.", ephemeral=True)
                             return
                         
                         # Calculate war participation (fractional wars)
