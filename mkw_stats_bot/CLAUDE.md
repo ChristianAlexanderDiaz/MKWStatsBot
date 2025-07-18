@@ -88,7 +88,7 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 - **guild_configs**: Per-guild settings and configurations
 
 ### Guild Management Commands
-- **Setup**: `!mkguildsetup [guild_name]` - Initialize guild configuration
+- **Setup**: `/setup` - Initialize guild configuration (slash command)
 - **Configure**: `!mkguildconfig [action] [value]` - Manage guild settings
 - **Information**: `!mkguildinfo` - View guild statistics and configuration
 - **Team Names**: Configure custom team names per guild
@@ -98,7 +98,7 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 1. **Run Migration**: `python scripts/utilities/migrate_add_guild_support.py`
 2. **Existing Data**: Automatically migrated to default guild_id (0)
 3. **Test Setup**: `python testing/test_multi_guild.py`
-4. **Guild Setup**: Use `!mkguildsetup` in each Discord server
+4. **Guild Setup**: Use `/setup` in each Discord server
 
 ### Guild Configuration Options
 - **Guild Name**: Display name for the guild

@@ -104,11 +104,11 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Check if tables exist
+                # Check if tables exist (check for players table now)
                 cursor.execute("""
                     SELECT EXISTS (
                         SELECT FROM information_schema.tables 
-                        WHERE table_schema = 'public' AND table_name = 'roster'
+                        WHERE table_schema = 'public' AND table_name = 'players'
                     );
                 """)
                 
@@ -134,22 +134,35 @@ class DatabaseManager:
                     CREATE INDEX idx_wars_created ON wars(created_at DESC);
                 """)
                 
-                # Create roster table for dynamic clan member management
+                # Create players table (unified roster + player_stats)
                 cursor.execute("""
-                    CREATE TABLE roster (
+                    CREATE TABLE players (
                         id SERIAL PRIMARY KEY,
-                        player_name VARCHAR(100) UNIQUE NOT NULL,
+                        player_name VARCHAR(100) NOT NULL,
+                        guild_id BIGINT NOT NULL,
+                        team VARCHAR(50) DEFAULT 'Unassigned',
+                        nicknames JSONB DEFAULT '[]',
                         added_by VARCHAR(100),
                         is_active BOOLEAN DEFAULT TRUE,
+                        -- Statistics fields
+                        total_score INTEGER DEFAULT 0,
+                        total_races INTEGER DEFAULT 0,
+                        war_count INTEGER DEFAULT 0,
+                        average_score DECIMAL(5,2) DEFAULT 0.0,
+                        last_war_date DATE,
+                        -- Metadata
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(player_name, guild_id)
                     );
                 """)
                 
-                # Create indexes for roster
+                # Create indexes for players
                 cursor.execute("""
-                    CREATE INDEX idx_roster_player_name ON roster(player_name);
-                    CREATE INDEX idx_roster_active ON roster(is_active);
+                    CREATE INDEX idx_players_guild_id ON players(guild_id);
+                    CREATE INDEX idx_players_active ON players(is_active);
+                    CREATE INDEX idx_players_team ON players(team);
+                    CREATE INDEX idx_players_name ON players(player_name);
                 """)
                 
                 # Create trigger to automatically update updated_at timestamp
@@ -162,8 +175,8 @@ class DatabaseManager:
                     END;
                     $$ language 'plpgsql';
                         
-                    CREATE TRIGGER update_roster_updated_at 
-                        BEFORE UPDATE ON roster 
+                    CREATE TRIGGER update_players_updated_at 
+                        BEFORE UPDATE ON players 
                         FOR EACH ROW 
                         EXECUTE FUNCTION update_updated_at_column();
                 """)
@@ -180,14 +193,14 @@ class DatabaseManager:
         return self.add_roster_player(main_name, "system", guild_id)
     
     def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0) -> Optional[str]:
-        """Resolve a name or nickname to roster player name."""
+        """Resolve a name or nickname to players table player name."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
                 # First, check if it's an exact match with player_name
                 cursor.execute("""
-                    SELECT player_name FROM roster 
+                    SELECT player_name FROM players 
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (name_or_nickname, guild_id))
                 
@@ -197,7 +210,7 @@ class DatabaseManager:
                 
                 # Then check if it's a nickname (case-insensitive)
                 cursor.execute("""
-                    SELECT player_name FROM roster 
+                    SELECT player_name FROM players 
                     WHERE nicknames ? %s AND guild_id = %s AND is_active = TRUE
                 """, (name_or_nickname, guild_id))
                 
@@ -207,7 +220,7 @@ class DatabaseManager:
                 
                 # Finally, try case-insensitive search for both name and nicknames
                 cursor.execute("""
-                    SELECT player_name FROM roster 
+                    SELECT player_name FROM players 
                     WHERE (LOWER(player_name) = LOWER(%s) OR 
                            EXISTS (
                                SELECT 1 FROM jsonb_array_elements_text(nicknames) AS nickname
@@ -761,10 +774,10 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Check if player stats record exists
+                # Check if player exists and get current stats
                 cursor.execute("""
                     SELECT total_score, total_races, war_count 
-                    FROM player_stats WHERE player_name = %s AND guild_id = %s
+                    FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
                 result = cursor.fetchone()
@@ -777,19 +790,15 @@ class DatabaseManager:
                     new_average = round(new_total_score / new_war_count, 2)
                     
                     cursor.execute("""
-                        UPDATE player_stats 
+                        UPDATE players 
                         SET total_score = %s, total_races = %s, war_count = %s, 
                             average_score = %s, last_war_date = %s, updated_at = CURRENT_TIMESTAMP
                         WHERE player_name = %s AND guild_id = %s
                     """, (new_total_score, new_total_races, new_war_count, new_average, war_date, player_name, guild_id))
                 else:
-                    # Player's first war - INSERT new record
-                    # For first war: average = score / 1
-                    average_score = round(score / 1, 2)
-                    cursor.execute("""
-                        INSERT INTO player_stats (player_name, total_score, total_races, war_count, average_score, last_war_date, guild_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """, (player_name, score, races, 1, average_score, war_date, guild_id))
+                    # Player doesn't exist - this shouldn't happen if /setup was used properly
+                    logging.error(f"Player {player_name} not found in players table for guild {guild_id}")
+                    return False
                 
                 conn.commit()
                 logging.info(f"✅ Updated stats for {player_name}: +{score} points, +{races} races")

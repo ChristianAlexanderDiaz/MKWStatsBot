@@ -62,9 +62,9 @@ class MarioKartCommands(commands.Cog):
                         updated_at = CURRENT_TIMESTAMP
                 """, (guild_id, guild_name, [team_name], [], True))
                 
-                # 2. Add first player to roster
+                # 2. Add first player to players table
                 cursor.execute("""
-                    INSERT INTO roster (player_name, added_by, guild_id, team, nicknames, is_active)
+                    INSERT INTO players (player_name, added_by, guild_id, team, nicknames, is_active)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (player_name, guild_id) DO UPDATE SET
                         is_active = TRUE,
@@ -1913,50 +1913,7 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error listing war history: {e}")
             await ctx.send("❌ Error retrieving war history")
     
-    # Guild Management Commands
-    @commands.command(name='mkguildsetup')
-    async def setup_guild(self, ctx, guild_name: str = None):
-        """Set up the bot for this guild."""
-        guild_id = self.get_guild_id(ctx)
-        
-        if not guild_name:
-            guild_name = ctx.guild.name if ctx.guild else "Unknown Guild"
-        
-        try:
-            # Check if guild config already exists
-            existing_config = self.bot.db.get_guild_config(guild_id)
-            if existing_config:
-                embed = discord.Embed(
-                    title="⚙️ Guild Already Configured",
-                    description=f"This guild is already set up as: **{existing_config['guild_name']}**",
-                    color=0xff9900
-                )
-                embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
-                embed.add_field(name="Teams", value=", ".join(existing_config['team_names']), inline=True)
-                embed.add_field(name="Active", value="Yes" if existing_config['is_active'] else "No", inline=True)
-                embed.set_footer(text="Use !mkguildconfig to modify settings")
-                await ctx.send(embed=embed)
-                return
-            
-            # Create new guild configuration
-            success = self.bot.db.create_guild_config(guild_id, guild_name)
-            
-            if success:
-                embed = discord.Embed(
-                    title="✅ Guild Setup Complete!",
-                    description=f"Successfully configured guild: **{guild_name}**",
-                    color=0x00ff00
-                )
-                embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
-                embed.add_field(name="Teams", value="Use `!mkaddteam` to create custom teams", inline=True)
-                embed.add_field(name="Next Steps", value="• Add players with `!mkadd <player>`\n• Configure teams with `!mkassignteam`\n• Start tracking wars with `/addwar`", inline=False)
-                await ctx.send(embed=embed)
-            else:
-                await ctx.send("❌ Failed to set up guild configuration. Check logs for details.")
-                
-        except Exception as e:
-            logging.error(f"Error setting up guild: {e}")
-            await ctx.send("❌ Error setting up guild")
+    # Guild Management Commands (Use /setup slash command for guild initialization)
     
     @commands.command(name='mkguildconfig')
     async def guild_config(self, ctx, action: str = None, *, value: str = None):
@@ -1968,7 +1925,7 @@ class MarioKartCommands(commands.Cog):
             try:
                 config = self.bot.db.get_guild_config(guild_id)
                 if not config:
-                    await ctx.send("❌ Guild not configured. Use `!mkguildsetup` first.")
+                    await ctx.send("❌ Guild not configured. Use `/setup` first.")
                     return
                 
                 embed = discord.Embed(
@@ -2080,7 +2037,7 @@ class MarioKartCommands(commands.Cog):
             # Get guild configuration
             config = self.bot.db.get_guild_config(guild_id)
             if not config:
-                await ctx.send("❌ Guild not configured. Use `!mkguildsetup` first.")
+                await ctx.send("❌ Guild not configured. Use `/setup` first.")
                 return
             
             # Get guild statistics

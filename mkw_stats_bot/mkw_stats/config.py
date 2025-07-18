@@ -24,34 +24,9 @@ if ALLOWED_CHANNELS:
 # For local development, prioritize PUBLIC_URL; for Railway deployment, use private DATABASE_URL
 DATABASE_URL = os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL') or os.getenv('RAILWAY_POSTGRES_URL')
 
-# Complete Player Roster - All clan members for validation
-# NOTE: Nicknames are managed in the database via management/setup_players.py
-CLAN_ROSTER = [
-    "Ami",
-    "Benjy", 
-    "Corbs",
-    "Cynical",
-    "Dave",
-    "DEMISE",
-    "Dicey",
-    "Hollow",
-    "Jacob",
-    "Jake",
-    "James",
-    "Juice",
-    "Klefki",
-    "Koopalings",
-    "Minty",
-    "Moon",
-    "Mook",
-    "Nick F",
-    "Quick",
-    "rx",
-    "sopt",
-    "Vortex",
-    "Wilbur",
-    "yukino"
-]
+# Player Roster - Now managed dynamically via /setup and manual commands
+# NOTE: Use /setup command to initialize guilds, then !mkadd to add players
+CLAN_ROSTER = []  # Empty - no hardcoded players
 
 # Table presets for different war result formats
 # Start with empty presets - load custom formats from data/formats/ folder
