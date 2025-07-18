@@ -1629,9 +1629,15 @@ class MarioKartCommands(commands.Cog):
                                 individual_races = int(race_count_str)
                                 name = base_name
                                 
-                                # Validate individual race count
-                                if individual_races < 1 or individual_races > races:
-                                    await interaction.response.send_message(f"❌ Invalid race count for {base_name}: {individual_races}. Must be between 1 and {races}.", ephemeral=True)
+                                # Validate individual race count  
+                                if individual_races < 1:
+                                    await interaction.response.send_message(f"❌ Invalid race count for {base_name}: {individual_races}. Must be at least 1.", ephemeral=True)
+                                    return
+                                elif individual_races >= races:
+                                    if individual_races == races:
+                                        await interaction.response.send_message(f"❌ {base_name}({individual_races}): If they played all {races} races, use `{base_name}: {score}` instead (no parentheses).", ephemeral=True)
+                                    else:
+                                        await interaction.response.send_message(f"❌ {base_name}({individual_races}): Cannot play {individual_races} races when war only has {races} races total.", ephemeral=True)
                                     return
                             except ValueError:
                                 await interaction.response.send_message(f"❌ Invalid race count format in: `{name}`. Use PlayerName(races): Score.", ephemeral=True)
