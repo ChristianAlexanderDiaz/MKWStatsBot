@@ -768,8 +768,8 @@ class DatabaseManager:
             return False
 
     # Player Statistics Management Methods
-    def update_player_stats(self, player_name: str, score: int, races: int, war_date: str, guild_id: int = 0) -> bool:
-        """Update player statistics when a war is added."""
+    def update_player_stats(self, player_name: str, score: int, races_played: int, war_participation: float, war_date: str, guild_id: int = 0) -> bool:
+        """Update player statistics when a war is added with fractional war support."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -784,9 +784,9 @@ class DatabaseManager:
                 if result:
                     # Player has existing stats - UPDATE
                     new_total_score = result[0] + score
-                    new_total_races = result[1] + races
-                    new_war_count = result[2] + 1
-                    # Correct average calculation: total_score / war_count
+                    new_total_races = result[1] + races_played
+                    new_war_count = float(result[2]) + war_participation  # Support fractional wars
+                    # Correct average calculation: total_score / war_count (preserves per-war average)
                     new_average = round(new_total_score / new_war_count, 2)
                     
                     cursor.execute("""
@@ -801,7 +801,7 @@ class DatabaseManager:
                     return False
                 
                 conn.commit()
-                logging.info(f"✅ Updated stats for {player_name}: +{score} points, +{races} races")
+                logging.info(f"✅ Updated stats for {player_name}: +{score} points, +{races_played} races, +{war_participation} wars")
                 return True
                 
         except Exception as e:

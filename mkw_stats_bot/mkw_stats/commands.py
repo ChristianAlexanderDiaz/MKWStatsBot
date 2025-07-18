@@ -1619,18 +1619,41 @@ class MarioKartCommands(commands.Cog):
                         name = name.strip()
                         score = int(score_str.strip())
                         
+                        # Check for individual race count in parentheses
+                        individual_races = races  # Default to war race count
+                        if '(' in name and ')' in name:
+                            # Extract: "Stickman(7)" -> name="Stickman", individual_races=7
+                            base_name = name[:name.index('(')].strip()
+                            race_count_str = name[name.index('(')+1:name.index(')')].strip()
+                            try:
+                                individual_races = int(race_count_str)
+                                name = base_name
+                                
+                                # Validate individual race count
+                                if individual_races < 1 or individual_races > races:
+                                    await interaction.response.send_message(f"❌ Invalid race count for {base_name}: {individual_races}. Must be between 1 and {races}.", ephemeral=True)
+                                    return
+                            except ValueError:
+                                await interaction.response.send_message(f"❌ Invalid race count format in: `{name}`. Use PlayerName(races): Score.", ephemeral=True)
+                                return
+                        
                         # Validate score range (12-180 inclusive)
                         if score < 12 or score > 180:
                             await interaction.response.send_message(f"❌ Invalid score: {score}. Scores must be between 12 and 180.", ephemeral=True)
                             return
                         
+                        # Calculate war participation (fractional wars)
+                        war_participation = individual_races / races
+                        
                         results.append({
                             'name': name,
                             'score': score,
+                            'races_played': individual_races,
+                            'war_participation': war_participation,
                             'raw_input': part
                         })
                     except ValueError:
-                        await interaction.response.send_message(f"❌ Invalid score format: `{part}`. Use PlayerName: Score.", ephemeral=True)
+                        await interaction.response.send_message(f"❌ Invalid score format: `{part}`. Use PlayerName: Score or PlayerName(races): Score.", ephemeral=True)
                         return
             
             if not results:
@@ -1648,6 +1671,8 @@ class MarioKartCommands(commands.Cog):
                     resolved_results.append({
                         'name': resolved_player,
                         'score': result['score'],
+                        'races_played': result['races_played'],
+                        'war_participation': result['war_participation'],
                         'raw_line': f"Manual: {result['raw_input']}"
                     })
                 else:
@@ -1674,7 +1699,8 @@ class MarioKartCommands(commands.Cog):
                 success = self.bot.db.update_player_stats(
                     result['name'], 
                     result['score'], 
-                    races, 
+                    result['races_played'],
+                    result['war_participation'],
                     current_date,
                     guild_id
                 )
