@@ -858,12 +858,11 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT ps.total_score, ps.total_races, ps.war_count, ps.average_score, 
-                           ps.last_war_date, ps.created_at, ps.updated_at,
-                           r.team, r.nicknames, r.added_by
-                    FROM player_stats ps
-                    JOIN roster r ON ps.player_name = r.player_name AND ps.guild_id = r.guild_id
-                    WHERE ps.player_name = %s AND ps.guild_id = %s AND r.is_active = TRUE
+                    SELECT total_score, total_races, war_count, average_score, 
+                           last_war_date, created_at, updated_at,
+                           team, nicknames, added_by
+                    FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
                 result = cursor.fetchone()
