@@ -357,7 +357,7 @@ class DatabaseManager:
                 for row in cursor.fetchall():
                     session_data = row[2] if row[2] else {}
                     results.append({
-                        'war_date': row[0].isoformat() if row[0] else None,
+                        'session_date': row[0].isoformat() if row[0] else None,
                         'race_count': row[1],
                         'results': session_data.get('results', []),
                         'created_at': row[3].isoformat() if row[3] else None

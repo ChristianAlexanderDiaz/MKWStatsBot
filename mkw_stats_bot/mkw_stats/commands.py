@@ -287,11 +287,13 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ An error occurred while retrieving stats.", ephemeral=True)
 
-    @commands.command(name='mkrecent')
-    async def view_recent_results(self, ctx, limit: int = 5):
+    @app_commands.command(name="mkrecent", description="View recent race sessions")
+    @app_commands.describe(limit="Number of recent sessions to show (default: 5)")
+    @require_guild_setup
+    async def view_recent_results(self, interaction: discord.Interaction, limit: int = 5):
         """View recent race sessions."""
         try:
-            guild_id = self.get_guild_id(ctx)
+            guild_id = self.get_guild_id(interaction)
             sessions = self.bot.db.get_recent_wars(limit, guild_id)
             
             if sessions:
@@ -320,13 +322,16 @@ class MarioKartCommands(commands.Cog):
                         inline=False
                     )
                 
-                await ctx.send(embed=embed)
+                await interaction.response.send_message(embed=embed)
             else:
-                await ctx.send("❌ No recent sessions found")
+                await interaction.response.send_message("❌ No recent sessions found")
                 
         except Exception as e:
             logging.error(f"Error viewing recent sessions: {e}")
-            await ctx.send("❌ Error retrieving recent sessions")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error retrieving recent sessions", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error retrieving recent sessions", ephemeral=True)
 
 
     @commands.command(name='mkpreset')
