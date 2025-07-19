@@ -288,64 +288,6 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ An error occurred while retrieving stats.", ephemeral=True)
 
-    @app_commands.command(name="mkrecent", description="View recent race sessions")
-    @app_commands.describe(limit="Number of recent sessions to show (default: 5)")
-    @require_guild_setup
-    async def view_recent_results(self, interaction: discord.Interaction, limit: int = 5):
-        """View recent race sessions."""
-        try:
-            guild_id = self.get_guild_id(interaction)
-            sessions = self.bot.db.get_recent_wars(limit, guild_id)
-            
-            if sessions:
-                embed = discord.Embed(
-                    title=f"🏁 Recent {len(sessions)} Race Sessions",
-                    color=0x00ff00
-                )
-                
-                for session in sessions:
-                    # Format session date: "2025-07-19" -> "July 19, 2025"
-                    session_date = datetime.fromisoformat(session['session_date']).strftime("%B %d, %Y")
-                    
-                    # Format created time: "2025-07-19T02:46:40.142347+00:00" -> "2:46AM"
-                    created_dt = datetime.fromisoformat(session['created_at'])
-                    hour = created_dt.hour % 12 or 12  # Convert to 12-hour format
-                    minute = created_dt.strftime("%M")
-                    ampm = created_dt.strftime("%p")
-                    created_time = f"{hour}:{minute}{ampm}"
-                    
-                    # Create clean field name
-                    field_name = f"{session_date} saved @ {created_time}"
-                    
-                    # Create compact summary line
-                    player_count = len(session['results'])
-                    race_count = session['race_count']
-                    summary = f"{race_count} races • {player_count} player{'s' if player_count != 1 else ''}\n\n"
-                    
-                    # Show player results
-                    results_text = ""
-                    for result in session['results'][:6]:  # Show first 6 players
-                        results_text += f"{result['name']}: {result['score']}\n"
-                    
-                    if len(session['results']) > 6:
-                        results_text += f"... and {len(session['results']) - 6} more"
-                    
-                    embed.add_field(
-                        name=field_name,
-                        value=summary + results_text,
-                        inline=False
-                    )
-                
-                await interaction.response.send_message(embed=embed)
-            else:
-                await interaction.response.send_message("❌ No recent sessions found")
-                
-        except Exception as e:
-            logging.error(f"Error viewing recent sessions: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving recent sessions", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving recent sessions", ephemeral=True)
 
 
     @commands.command(name='mkpreset')
