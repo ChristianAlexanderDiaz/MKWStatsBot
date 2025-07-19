@@ -384,7 +384,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 # Get roster count
-                cursor.execute("SELECT COUNT(*) FROM roster WHERE guild_id = %s AND is_active = TRUE", (guild_id,))
+                cursor.execute("SELECT COUNT(*) FROM players WHERE guild_id = %s AND is_active = TRUE", (guild_id,))
                 info['roster_count'] = cursor.fetchone()[0]
                 
                 # Get war count
@@ -422,7 +422,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT player_name FROM roster 
+                    SELECT player_name FROM players 
                     WHERE guild_id = %s AND is_active = TRUE 
                     ORDER BY player_name
                 """, (guild_id,))
@@ -441,7 +441,7 @@ class DatabaseManager:
                 
                 # Check if player already exists
                 cursor.execute("""
-                    SELECT id, is_active FROM roster WHERE player_name = %s AND guild_id = %s
+                    SELECT id, is_active FROM players WHERE player_name = %s AND guild_id = %s
                 """, (player_name, guild_id))
                 
                 existing = cursor.fetchone()
@@ -452,7 +452,7 @@ class DatabaseManager:
                     else:
                         # Reactivate player
                         cursor.execute("""
-                            UPDATE roster 
+                            UPDATE players 
                             SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP, added_by = %s
                             WHERE player_name = %s AND guild_id = %s
                         """, (added_by, player_name, guild_id))
@@ -460,7 +460,7 @@ class DatabaseManager:
                 else:
                     # Add new player
                     cursor.execute("""
-                        INSERT INTO roster (player_name, added_by, guild_id) 
+                        INSERT INTO players (player_name, added_by, guild_id) 
                         VALUES (%s, %s, %s)
                     """, (player_name, added_by, guild_id))
                     logging.info(f"✅ Added player {player_name} to roster")
@@ -480,7 +480,7 @@ class DatabaseManager:
                 
                 # Check if player exists and is active
                 cursor.execute("""
-                    SELECT id FROM roster WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                    SELECT id FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
                 if not cursor.fetchone():
@@ -489,7 +489,7 @@ class DatabaseManager:
                 
                 # Mark as inactive instead of deleting
                 cursor.execute("""
-                    UPDATE roster 
+                    UPDATE players 
                     SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
                     WHERE player_name = %s AND guild_id = %s
                 """, (player_name, guild_id))
@@ -509,7 +509,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 # Check if roster is already populated
-                cursor.execute("SELECT COUNT(*) FROM roster WHERE guild_id = %s AND is_active = TRUE", (guild_id,))
+                cursor.execute("SELECT COUNT(*) FROM players WHERE guild_id = %s AND is_active = TRUE", (guild_id,))
                 existing_count = cursor.fetchone()[0]
                 
                 if existing_count > 0:
@@ -519,7 +519,7 @@ class DatabaseManager:
                 # Add all config roster players
                 for player in config_roster:
                     cursor.execute("""
-                        INSERT INTO roster (player_name, added_by, guild_id) 
+                        INSERT INTO players (player_name, added_by, guild_id) 
                         VALUES (%s, %s, %s)
                         ON CONFLICT (player_name, guild_id) 
                         DO UPDATE SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP
@@ -550,7 +550,7 @@ class DatabaseManager:
                 
                 # Check if player exists and is active
                 cursor.execute("""
-                    SELECT id FROM roster WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                    SELECT id FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
                 if not cursor.fetchone():
@@ -559,7 +559,7 @@ class DatabaseManager:
                 
                 # Update player's team
                 cursor.execute("""
-                    UPDATE roster 
+                    UPDATE players 
                     SET team = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (team, player_name, guild_id))
@@ -581,7 +581,7 @@ class DatabaseManager:
                 if team:
                     # Get players from specific team
                     cursor.execute("""
-                        SELECT player_name FROM roster 
+                        SELECT player_name FROM players 
                         WHERE team = %s AND guild_id = %s AND is_active = TRUE
                         ORDER BY player_name
                     """, (team, guild_id))
@@ -590,7 +590,7 @@ class DatabaseManager:
                 else:
                     # Get all players organized by team
                     cursor.execute("""
-                        SELECT team, player_name FROM roster 
+                        SELECT team, player_name FROM players 
                         WHERE guild_id = %s AND is_active = TRUE
                         ORDER BY team, player_name
                     """, (guild_id,))
@@ -620,7 +620,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT team FROM roster 
+                    SELECT team FROM players 
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
@@ -640,7 +640,7 @@ class DatabaseManager:
                 
                 # Check if player exists and is active
                 cursor.execute("""
-                    SELECT nicknames FROM roster 
+                    SELECT nicknames FROM players 
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
@@ -660,7 +660,7 @@ class DatabaseManager:
                 updated_nicknames = current_nicknames + [nickname]
                 
                 cursor.execute("""
-                    UPDATE roster 
+                    UPDATE players 
                     SET nicknames = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (json.dumps(updated_nicknames), player_name, guild_id))
@@ -681,7 +681,7 @@ class DatabaseManager:
                 
                 # Check if player exists and is active
                 cursor.execute("""
-                    SELECT nicknames FROM roster 
+                    SELECT nicknames FROM players 
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
@@ -701,7 +701,7 @@ class DatabaseManager:
                 updated_nicknames = [n for n in current_nicknames if n != nickname]
                 
                 cursor.execute("""
-                    UPDATE roster 
+                    UPDATE players 
                     SET nicknames = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (json.dumps(updated_nicknames), player_name, guild_id))
@@ -721,7 +721,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT nicknames FROM roster 
+                    SELECT nicknames FROM players 
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
@@ -740,7 +740,7 @@ class DatabaseManager:
                 
                 # Check if player exists and is active
                 cursor.execute("""
-                    SELECT id FROM roster WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                    SELECT id FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
                 
                 if not cursor.fetchone():
@@ -754,7 +754,7 @@ class DatabaseManager:
                         unique_nicknames.append(nickname)
                 
                 cursor.execute("""
-                    UPDATE roster 
+                    UPDATE players 
                     SET nicknames = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (json.dumps(unique_nicknames), player_name, guild_id))
@@ -1159,7 +1159,7 @@ class DatabaseManager:
                 
                 # Move all players from this team to Unassigned
                 cursor.execute("""
-                    UPDATE roster 
+                    UPDATE players 
                     SET team = 'Unassigned', updated_at = CURRENT_TIMESTAMP
                     WHERE guild_id = %s AND team = %s
                 """, (guild_id, team_to_remove))
@@ -1213,7 +1213,7 @@ class DatabaseManager:
                 
                 # Update player assignments
                 cursor.execute("""
-                    UPDATE roster 
+                    UPDATE players 
                     SET team = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE guild_id = %s AND team = %s
                 """, (new_name, guild_id, team_to_rename))

@@ -467,82 +467,59 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
 
-    @commands.command(name='mkadd')
-    async def add_player_to_roster(self, ctx, player_name: str = None):
+    @app_commands.command(name="addplayer", description="Add a player to the clan roster")
+    @app_commands.describe(player_name="Name of the player to add to the roster")
+    @require_guild_setup
+    async def add_player_to_roster(self, interaction: discord.Interaction, player_name: str):
         """Add a player to the clan roster."""
-        if not player_name:
-            embed = discord.Embed(
-                title="➕ Add Player to Roster",
-                description="Add a new player to the active clan roster.",
-                color=0x00ff00
-            )
-            embed.add_field(
-                name="Usage",
-                value="`!mkadd <player_name>`",
-                inline=False
-            )
-            embed.add_field(
-                name="Example", 
-                value="`!mkadd NewPlayer`",
-                inline=False
-            )
-            await ctx.send(embed=embed)
-            return
-        
         try:
-            guild_id = self.get_guild_id(ctx)
+            guild_id = self.get_guild_id(interaction)
             # Add player to roster
-            success = self.bot.db.add_roster_player(player_name, str(ctx.author), guild_id)
+            success = self.bot.db.add_roster_player(player_name, str(interaction.user), guild_id)
             
             if success:
-                await ctx.send(f"✅ Added **{player_name}** to the clan roster!")
+                await interaction.response.send_message(f"✅ Added **{player_name}** to the clan roster!")
             else:
-                await ctx.send(f"❌ **{player_name}** is already in the roster or couldn't be added.")
+                await interaction.response.send_message(f"❌ **{player_name}** is already in the roster or couldn't be added.")
                 
         except Exception as e:
             logging.error(f"Error adding player to roster: {e}")
-            await ctx.send("❌ Error adding player to roster")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error adding player to roster", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error adding player to roster", ephemeral=True)
 
-    @commands.command(name='mkremove')
-    async def remove_player_from_roster(self, ctx, player_name: str = None):
+    @app_commands.command(name="removeplayer", description="Remove a player from the clan roster")
+    @app_commands.describe(player_name="Name of the player to remove from the roster")
+    @require_guild_setup
+    async def remove_player_from_roster(self, interaction: discord.Interaction, player_name: str):
         """Remove a player from the clan roster."""
-        if not player_name:
-            embed = discord.Embed(
-                title="➖ Remove Player from Roster",
-                description="Remove a player from the active clan roster.",
-                color=0xff4444
-            )
-            embed.add_field(
-                name="Usage",
-                value="`!mkremove <player_name>`",
-                inline=False
-            )
-            embed.add_field(
-                name="Example", 
-                value="`!mkremove OldPlayer`",
-                inline=False
-            )
-            embed.add_field(
-                name="Note",
-                value="This marks the player as inactive but keeps their stats.",
-                inline=False
-            )
-            await ctx.send(embed=embed)
-            return
-        
         try:
-            guild_id = self.get_guild_id(ctx)
+            guild_id = self.get_guild_id(interaction)
             # Remove player from roster
             success = self.bot.db.remove_roster_player(player_name, guild_id)
             
             if success:
-                await ctx.send(f"✅ Removed **{player_name}** from the active roster.")
+                embed = discord.Embed(
+                    title="✅ Player Removed",
+                    description=f"Removed **{player_name}** from the active roster.",
+                    color=0xff4444
+                )
+                embed.add_field(
+                    name="Note",
+                    value="This marks the player as inactive but keeps their stats.",
+                    inline=False
+                )
+                await interaction.response.send_message(embed=embed)
             else:
-                await ctx.send(f"❌ **{player_name}** is not in the active roster or couldn't be removed.")
+                await interaction.response.send_message(f"❌ **{player_name}** is not in the active roster or couldn't be removed.")
                 
         except Exception as e:
             logging.error(f"Error removing player from roster: {e}")
-            await ctx.send("❌ Error removing player from roster")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error removing player from roster", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error removing player from roster", ephemeral=True)
 
     @commands.command(name='mkhelp')
     async def help_command(self, ctx):
