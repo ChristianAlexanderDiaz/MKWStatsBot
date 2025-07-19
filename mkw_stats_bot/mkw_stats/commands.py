@@ -5,7 +5,6 @@ import logging
 import asyncio
 import json
 import functools
-from datetime import datetime, timezone
 from . import config
 
 def require_guild_setup(func):
