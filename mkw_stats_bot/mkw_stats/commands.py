@@ -5,6 +5,7 @@ import logging
 import asyncio
 import json
 import functools
+from datetime import datetime, timezone
 from . import config
 
 def require_guild_setup(func):
@@ -303,10 +304,23 @@ class MarioKartCommands(commands.Cog):
                 )
                 
                 for session in sessions:
-                    session_info = f"**Date:** {session['session_date']}\n"
-                    session_info += f"**Races:** {session['race_count']}\n"
-                    session_info += f"**Players:** {len(session['results'])}\n"
-                    session_info += f"**Saved:** {session['created_at']}\n\n"
+                    # Format session date: "2025-07-19" -> "July 19, 2025"
+                    session_date = datetime.fromisoformat(session['session_date']).strftime("%B %d, %Y")
+                    
+                    # Format created time: "2025-07-19T02:46:40.142347+00:00" -> "2:46AM"
+                    created_dt = datetime.fromisoformat(session['created_at'])
+                    hour = created_dt.hour % 12 or 12  # Convert to 12-hour format
+                    minute = created_dt.strftime("%M")
+                    ampm = created_dt.strftime("%p")
+                    created_time = f"{hour}:{minute}{ampm}"
+                    
+                    # Create clean field name
+                    field_name = f"{session_date} saved @ {created_time}"
+                    
+                    # Create compact summary line
+                    player_count = len(session['results'])
+                    race_count = session['race_count']
+                    summary = f"{race_count} races • {player_count} player{'s' if player_count != 1 else ''}\n\n"
                     
                     # Show player results
                     results_text = ""
@@ -317,8 +331,8 @@ class MarioKartCommands(commands.Cog):
                         results_text += f"... and {len(session['results']) - 6} more"
                     
                     embed.add_field(
-                        name=f"Session {session['session_date']}",
-                        value=session_info + results_text,
+                        name=field_name,
+                        value=summary + results_text,
                         inline=False
                     )
                 
