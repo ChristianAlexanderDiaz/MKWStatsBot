@@ -412,17 +412,18 @@ class MarioKartCommands(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Error parsing manual entry: {e}")
 
-    @commands.command(name='mkroster')
-    async def show_full_roster(self, ctx):
+    @app_commands.command(name="roster", description="Show complete guild roster organized by teams")
+    @require_guild_setup
+    async def show_full_roster(self, interaction: discord.Interaction):
         """Show the complete clan roster organized by teams."""
         try:
             # Get guild id 
-            guild_id = self.get_guild_id(ctx)
+            guild_id = self.get_guild_id(interaction)
             # Get all players with their team and nickname info
             all_players = self.bot.db.get_all_players_stats(guild_id)
             
             if not all_players:
-                await ctx.send("❌ No players found in roster. Use `!mkadd <player>` to add players.")
+                await interaction.response.send_message("❌ No players found in roster. Use `/mkadd <player>` to add players.")
                 return
             
             embed = discord.Embed(
@@ -455,13 +456,16 @@ class MarioKartCommands(commands.Cog):
                         inline=False
                     )
             
-            embed.set_footer(text="Use !mkteams for detailed team view | Only results for these players will be saved from war images.")
+            embed.set_footer(text="Use /mkteams for detailed team view | Only results for these players will be saved from war images.")
             
-            await ctx.send(embed=embed)
+            await interaction.response.send_message(embed=embed)
             
         except Exception as e:
             logging.error(f"Error showing roster: {e}")
-            await ctx.send("❌ Error retrieving roster")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error retrieving roster", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
 
     @commands.command(name='mkadd')
     async def add_player_to_roster(self, ctx, player_name: str = None):
