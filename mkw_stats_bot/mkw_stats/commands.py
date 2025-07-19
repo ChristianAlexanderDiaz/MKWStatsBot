@@ -1732,10 +1732,15 @@ class MarioKartCommands(commands.Cog):
             # Show war details
             player_list = []
             for result in resolved_results:
-                player_list.append(f"**{result['name']}**: {result['score']} points")
+                if result['races_played'] == races:
+                    # Full participation - no parentheses
+                    player_list.append(f"**{result['name']}**: {result['score']} points")
+                else:
+                    # Substitution - show race count
+                    player_list.append(f"**{result['name']}** ({result['races_played']}): {result['score']} points")
             
             embed.add_field(
-                name=f"🏁 War Results ({races} races)",
+                name="🏁 War Results",
                 value="\n".join(player_list),
                 inline=False
             )
