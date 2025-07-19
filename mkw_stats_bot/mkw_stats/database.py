@@ -289,7 +289,7 @@ class DatabaseManager:
                 
                 cursor.execute("""
                     SELECT player_name, added_by, created_at, updated_at, team, nicknames
-                    FROM roster WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                    FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (main_name, guild_id))
                 
                 row = cursor.fetchone()
@@ -317,7 +317,7 @@ class DatabaseManager:
                 
                 cursor.execute("""
                     SELECT player_name, added_by, created_at, updated_at, team, nicknames
-                    FROM roster 
+                    FROM players 
                     WHERE guild_id = %s AND is_active = TRUE
                     ORDER BY team, player_name
                 """, (guild_id,))
