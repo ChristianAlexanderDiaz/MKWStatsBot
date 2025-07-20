@@ -1040,6 +1040,19 @@ class MarioKartCommands(commands.Cog):
             embed.set_footer(text="Player statistics have been automatically updated")
             await interaction.response.send_message(embed=embed)
             
+            # Start countdown timer
+            countdown_seconds = 30
+            for remaining in range(countdown_seconds, 0, -1):
+                await asyncio.sleep(1)
+                if remaining <= 10:  # Only show countdown for last 10 seconds
+                    await interaction.edit_original_response(
+                        embed=embed, 
+                        content=f"Disappearing in {remaining} seconds..."
+                    )
+            
+            # Delete the message
+            await interaction.delete_original_response()
+            
         except Exception as e:
             logging.error(f"Error adding war: {e}")
             await interaction.response.send_message("❌ Error adding war. Check the command format and try again.", ephemeral=True)
@@ -1129,7 +1142,7 @@ class MarioKartCommands(commands.Cog):
                 return user == interaction.user and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
             
             try:
-                reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+                reaction, _ = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
                 
                 if str(reaction.emoji) == "✅":
                     success = self.bot.db.remove_guild_team(guild_id, actual_team_name)
