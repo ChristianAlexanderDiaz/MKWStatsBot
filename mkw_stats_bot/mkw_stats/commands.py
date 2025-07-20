@@ -263,8 +263,28 @@ class MarioKartCommands(commands.Cog):
                 for i, player in enumerate(display_players, 1):
                     if player.get('war_count', 0) > 0:
                         avg_score = player.get('average_score', 0.0)
-                        war_count = player.get('war_count', 0)
-                        leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({war_count} wars)")
+                        war_count = float(player.get('war_count', 0))
+                        total_races = player.get('total_races', 0)
+                        
+                        # Calculate full wars and extra races
+                        full_wars = int(war_count)
+                        extra_races = total_races - (full_wars * 12)  # Assuming 12 races per war
+                        
+                        # Format the war count display
+                        if war_count == full_wars:  # Whole number of wars
+                            if full_wars == 1:
+                                war_display = f"{full_wars} war"
+                            else:
+                                war_display = f"{full_wars} wars"
+                        else:  # Has extra races
+                            if full_wars == 0:
+                                war_display = f"{extra_races} extra races"
+                            elif full_wars == 1:
+                                war_display = f"{full_wars} war + {extra_races} extra races"
+                            else:
+                                war_display = f"{full_wars} wars + {extra_races} extra races"
+                        
+                        leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({war_display})")
                     else:
                         leaderboard_text.append(f"{i}. **{player['player_name']}** - No wars yet")
                 
@@ -275,7 +295,7 @@ class MarioKartCommands(commands.Cog):
                 )
                 
                 if len(all_players) > 10:
-                    embed.set_footer(text=f"Showing top 10 of {len(all_players)} players. Use !mkstats for full paginated view.")
+                    embed.set_footer(text=f"Showing top 10 of {len(all_players)} players.")
                 
                 await interaction.response.send_message(embed=embed)
                 
