@@ -208,7 +208,17 @@ class DatabaseManager:
                 if result:
                     return result[0]
                 
-                # Then check if it's a nickname (case-insensitive)
+                # Second, try case-insensitive match with player_name (e.g., "haku" -> "Haku")
+                cursor.execute("""
+                    SELECT player_name FROM players 
+                    WHERE LOWER(player_name) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
+                """, (name_or_nickname, guild_id))
+                
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+                
+                # Third, check if it's an exact nickname match
                 cursor.execute("""
                     SELECT player_name FROM players 
                     WHERE nicknames ? %s AND guild_id = %s AND is_active = TRUE
@@ -218,16 +228,15 @@ class DatabaseManager:
                 if result:
                     return result[0]
                 
-                # Finally, try case-insensitive search for both name and nicknames
+                # Finally, try case-insensitive search for nicknames
                 cursor.execute("""
                     SELECT player_name FROM players 
-                    WHERE (LOWER(player_name) = LOWER(%s) OR 
-                           EXISTS (
-                               SELECT 1 FROM jsonb_array_elements_text(nicknames) AS nickname
-                               WHERE LOWER(nickname) = LOWER(%s)
-                           ))
+                    WHERE EXISTS (
+                        SELECT 1 FROM jsonb_array_elements_text(nicknames) AS nickname
+                        WHERE LOWER(nickname) = LOWER(%s)
+                    )
                     AND guild_id = %s AND is_active = TRUE
-                """, (name_or_nickname, name_or_nickname, guild_id))
+                """, (name_or_nickname, guild_id))
                 
                 result = cursor.fetchone()
                 if result:

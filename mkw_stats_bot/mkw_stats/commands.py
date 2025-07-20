@@ -771,6 +771,11 @@ class MarioKartCommands(commands.Cog):
                 await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table. Use `/addplayer {player_name}` to add them first.")
                 return
             
+            # Check if nickname is just a case variation of the player name
+            if nickname.lower() == resolved_player.lower():
+                await interaction.response.send_message(f"❌ No need to add **{nickname}** as a nickname for **{resolved_player}** - name matching is case-insensitive!", ephemeral=True)
+                return
+            
             # Add single nickname
             success = self.bot.db.add_nickname(resolved_player, nickname, guild_id)
             
@@ -1063,7 +1068,7 @@ class MarioKartCommands(commands.Cog):
     
     # Team Management Commands
     @app_commands.command(name="addteam", description="Add a new team to the clan")
-    @app_commands.describe(team_name="Name of the team to create (1-50 characters, cannot be 'Unassigned')")
+    @app_commands.describe(team_name="Name of the team to create (1W-50 characters, cannot be 'Unassigned')")
     @require_guild_setup
     async def add_team(self, interaction: discord.Interaction, team_name: str):
         """Add a new team to the guild."""
