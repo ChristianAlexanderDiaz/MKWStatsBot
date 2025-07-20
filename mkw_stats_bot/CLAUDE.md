@@ -115,22 +115,25 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 
 ## Discord Bot Architecture
 
-### Command Structure (20+ slash commands total)
+### Command Structure (25+ slash commands total)
 
 #### Slash Commands (/) - Primary Interface
 - **Guild Setup**: `/setup` - Initialize guild configuration with team and players
-- **War Management**: `/addwar` - Add new war with OCR image processing
+- **War Management**: 
+  - `/addwar` - Add new war with OCR image processing
+  - `/showallwars [limit]` - List all wars with pagination  
+  - `/updatewar <war_id> <player_scores>` - Update/add players to existing war (smart merge)
+  - `/removewar <war_id>` - Delete war and revert player statistics
 - **Statistics**: `/stats [player]` - View player statistics or leaderboard
 - **Player Management**: 
   - `/roster` - Show complete guild roster organized by teams
-  - `/addplayer <player_name>` - Add player to roster
+  - `/addplayer <player_name> [member_status]` - Add player to roster with optional status (Member/Trial/Kicked)
   - `/removeplayer <player_name>` - Remove player from roster
 - **Team Management**: 
   - `/addteam <team_name>` - Create new team
   - `/removeteam <team_name>` - Remove existing team  
   - `/renameteam <old_name> <new_name>` - Rename team
-  - `/assignplayerstoteam <players> <team_name>` - Assign multiple players to team
-  - `/assignplayertoteam <player_name> <team_name>` - Assign single player to team
+  - `/assignplayerstoteam <players> <team_name>` - Assign players to team (1 or more)
   - `/unassignplayerfromteam <player_name>` - Set player to Unassigned
   - `/showallteams` - Show all teams and their players
   - `/showspecificteamroster <team_name>` - Show specific team roster
@@ -138,6 +141,10 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
   - `/addnickname <player_name> <nickname>` - Add nickname for OCR recognition
   - `/removenickname <player_name> <nickname>` - Remove nickname from player
   - `/nicknamesfor <player_name>` - Show all nicknames for player
+- **Member Status Management**:
+  - `/setmemberstatus <player_name> <status>` - Set player status (Member/Trial/Kicked)
+  - `/showtrials` - Show all trial members
+  - `/showkicked` - Show all kicked members
 - **Help**: `/help` - Show comprehensive bot help and command reference
 
 #### Legacy Commands Removed

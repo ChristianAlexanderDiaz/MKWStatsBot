@@ -453,8 +453,8 @@ class DatabaseManager:
             logging.error(f"❌ Error getting roster players: {e}")
             return []
     
-    def add_roster_player(self, player_name: str, added_by: str = None, guild_id: int = 0) -> bool:
-        """Add a player to the active roster."""
+    def add_roster_player(self, player_name: str, added_by: str = None, guild_id: int = 0, member_status: str = 'member') -> bool:
+        """Add a player to the active roster with optional member status."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -473,16 +473,16 @@ class DatabaseManager:
                         # Reactivate player
                         cursor.execute("""
                             UPDATE players 
-                            SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP, added_by = %s
+                            SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP, added_by = %s, member_status = %s
                             WHERE player_name = %s AND guild_id = %s
-                        """, (added_by, player_name, guild_id))
+                        """, (added_by, member_status, player_name, guild_id))
                         logging.info(f"✅ Reactivated player {player_name} in roster")
                 else:
                     # Add new player
                     cursor.execute("""
-                        INSERT INTO players (player_name, added_by, guild_id) 
-                        VALUES (%s, %s, %s)
-                    """, (player_name, added_by, guild_id))
+                        INSERT INTO players (player_name, added_by, guild_id, member_status) 
+                        VALUES (%s, %s, %s, %s)
+                    """, (player_name, added_by, guild_id, member_status))
                     logging.info(f"✅ Added player {player_name} to roster")
                 
                 conn.commit()
@@ -1283,6 +1283,114 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"❌ Error getting guild teams with counts: {e}")
             return {}
+
+    def set_player_member_status(self, player_name: str, member_status: str, guild_id: int = 0) -> bool:
+        """Set the member status for a player."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Resolve player name (handles nicknames)
+                resolved_player = self.resolve_player_name(player_name, guild_id)
+                if not resolved_player:
+                    logging.error(f"Player {player_name} not found in guild {guild_id}")
+                    return False
+                
+                # Update member status
+                cursor.execute("""
+                    UPDATE players 
+                    SET member_status = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (member_status, resolved_player, guild_id))
+                
+                if cursor.rowcount == 0:
+                    logging.error(f"No active player {resolved_player} found to update")
+                    return False
+                
+                conn.commit()
+                logging.info(f"✅ Updated {resolved_player} member status to {member_status}")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error setting member status: {e}")
+            return False
+
+    def get_players_by_member_status(self, member_status: str, guild_id: int = 0) -> List[Dict]:
+        """Get all players with a specific member status."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT player_name, team, nicknames, created_at, updated_at
+                    FROM players 
+                    WHERE member_status = %s AND guild_id = %s AND is_active = TRUE
+                    ORDER BY player_name
+                """, (member_status, guild_id))
+                
+                results = cursor.fetchall()
+                players = []
+                
+                for row in results:
+                    players.append({
+                        'player_name': row[0],
+                        'team': row[1] or 'Unassigned',
+                        'nicknames': row[2] or [],
+                        'created_at': row[3],
+                        'updated_at': row[4],
+                        'member_status': member_status
+                    })
+                
+                return players
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting players by member status: {e}")
+            return []
+
+    def get_member_status_counts(self, guild_id: int = 0) -> Dict[str, int]:
+        """Get count of players by member status."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT member_status, COUNT(*) 
+                    FROM players 
+                    WHERE guild_id = %s AND is_active = TRUE
+                    GROUP BY member_status
+                """, (guild_id,))
+                
+                results = cursor.fetchall()
+                return {status: count for status, count in results}
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting member status counts: {e}")
+            return {}
+
+    def update_war_by_id(self, war_id: int, results: List[Dict], race_count: int, guild_id: int = 0) -> bool:
+        """Update an existing war with new player data."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Update the war with new data
+                cursor.execute("""
+                    UPDATE wars 
+                    SET players_data = %s, race_count = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND guild_id = %s
+                """, (json.dumps(results), race_count, war_id, guild_id))
+                
+                if cursor.rowcount == 0:
+                    logging.error(f"No war found with ID {war_id} in guild {guild_id}")
+                    return False
+                
+                conn.commit()
+                logging.info(f"✅ Updated war {war_id} with {len(results)} players")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error updating war by ID: {e}")
+            return False
 
     def close(self):
         """Close all connections in the pool."""

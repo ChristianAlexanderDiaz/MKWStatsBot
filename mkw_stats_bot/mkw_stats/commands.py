@@ -370,17 +370,26 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
 
     @app_commands.command(name="addplayer", description="Add a player to the clan roster")
-    @app_commands.describe(player_name="Name of the player to add to the roster")
+    @app_commands.describe(
+        player_name="Name of the player to add to the roster",
+        member_status="Member status (default: Member)"
+    )
+    @app_commands.choices(member_status=[
+        app_commands.Choice(name="Member", value="member"),
+        app_commands.Choice(name="Trial", value="trial"),
+        app_commands.Choice(name="Kicked", value="kicked")
+    ])
     @require_guild_setup
-    async def add_player_to_roster(self, interaction: discord.Interaction, player_name: str):
+    async def add_player_to_roster(self, interaction: discord.Interaction, player_name: str, member_status: str = "member"):
         """Add a player to the clan roster."""
         try:
             guild_id = self.get_guild_id(interaction)
-            # Add player to players table
-            success = self.bot.db.add_roster_player(player_name, str(interaction.user), guild_id)
+            # Add player to players table with member status
+            success = self.bot.db.add_roster_player(player_name, str(interaction.user), guild_id, member_status)
             
             if success:
-                await interaction.response.send_message(f"✅ Added **{player_name}** to the clan roster!")
+                status_display = member_status.title()
+                await interaction.response.send_message(f"✅ Added **{player_name}** to the clan roster as **{status_display}**!")
             else:
                 await interaction.response.send_message(f"❌ **{player_name}** is already in the players table or couldn't be added.")
                 
@@ -447,8 +456,18 @@ class MarioKartCommands(commands.Cog):
             value=(
                 "`/stats [player]` - Show player stats or leaderboard\n"
                 "`/roster` - Show complete clan roster by teams\n"
-                "`/addplayer <player>` - Add player to roster\n"
+                "`/addplayer <player> [status]` - Add player to roster (Member/Trial/Kicked)\n"
                 "`/removeplayer <player>` - Remove player from roster"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="👤 Member Status Commands",
+            value=(
+                "`/setmemberstatus <player> <status>` - Set player status (Member/Trial/Kicked)\n"
+                "`/showtrials` - Show all trial members\n"
+                "`/showkicked` - Show all kicked members"
             ),
             inline=False
         )
@@ -457,6 +476,9 @@ class MarioKartCommands(commands.Cog):
             name="⚔️ War Management Commands",
             value=(
                 "`/addwar` - Add war with player scores\n"
+                "`/showallwars [limit]` - List all wars with pagination\n"
+                "`/updatewar <war_id> <player_scores>` - Update/add players to existing war\n"
+                "`/removewar <war_id>` - Delete war and revert statistics\n"
                 "📷 Upload images for automatic OCR processing"
             ),
             inline=False
@@ -469,8 +491,7 @@ class MarioKartCommands(commands.Cog):
                 "`/removeteam <team_name>` - Remove a team\n"
                 "`/renameteam <old_name> <new_name>` - Rename a team\n"
                 "`/showallteams` - Show all teams and their players\n"
-                "`/assignplayerstoteam <player1> <player2>... <team>` - Assign multiple players to team\n"
-                "`/assignplayertoteam <player> <team>` - Assign single player to team\n"
+                "`/assignplayerstoteam <player1> <player2>... <team>` - Assign players to team (1 or more)\n"
                 "`/unassignplayerfromteam <player>` - Set player to Unassigned\n"
                 "`/showspecificteamroster <team>` - Show specific team roster"
             ),
@@ -506,41 +527,6 @@ class MarioKartCommands(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
 
-    @app_commands.command(name="assignplayertoteam", description="Assign a single player to a team")
-    @app_commands.describe(player_name="Name of the player to assign", team_name="Team to assign the player to")
-    @require_guild_setup
-    async def assign_single_player_to_team(self, interaction: discord.Interaction, player_name: str, team_name: str):
-        """Assign a single player to a team."""
-        try:
-            guild_id = self.get_guild_id(interaction)
-            
-            # Validate team name
-            valid_teams = self.bot.db.get_guild_team_names(guild_id)
-            valid_teams.append('Unassigned')  # Always allow Unassigned
-            if team_name not in valid_teams:
-                await interaction.response.send_message(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}")
-                return
-            
-            # Resolve player name (handles nicknames)
-            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
-            if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table. Use `/addplayer {player_name}` to add them first.")
-                return
-            
-            # Assign team
-            success = self.bot.db.set_player_team(resolved_player, team_name, guild_id)
-            
-            if success:
-                await interaction.response.send_message(f"✅ Assigned **{resolved_player}** to team **{team_name}**!")
-            else:
-                await interaction.response.send_message(f"❌ Failed to assign **{resolved_player}** to team **{team_name}**.")
-                
-        except Exception as e:
-            logging.error(f"Error assigning player to team: {e}")
-            try:
-                await interaction.response.send_message("❌ Error assigning player to team", ephemeral=True)
-            except:
-                await interaction.followup.send("❌ Error assigning player to team", ephemeral=True)
 
     @app_commands.command(name="assignplayerstoteam", description="Assign multiple players to a team")
     @app_commands.describe(players="Space-separated list of player names (minimum 1 player)", team_name="Team to assign players to")
@@ -871,6 +857,133 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error retrieving nicknames", ephemeral=True)
 
+    @app_commands.command(name="setmemberstatus", description="Set the member status for a player")
+    @app_commands.describe(
+        player_name="Player to set status for",
+        member_status="New member status"
+    )
+    @app_commands.choices(member_status=[
+        app_commands.Choice(name="Member", value="member"),
+        app_commands.Choice(name="Trial", value="trial"),
+        app_commands.Choice(name="Kicked", value="kicked")
+    ])
+    @require_guild_setup
+    async def set_member_status(self, interaction: discord.Interaction, player_name: str, member_status: str):
+        """Set the member status for a player."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            
+            # Resolve player name (handles nicknames)
+            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
+            if not resolved_player:
+                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.")
+                return
+            
+            # Set member status
+            success = self.bot.db.set_player_member_status(resolved_player, member_status, guild_id)
+            
+            if success:
+                status_display = member_status.title()
+                embed = discord.Embed(
+                    title="✅ Member Status Updated!",
+                    description=f"Set **{resolved_player}** status to **{status_display}**",
+                    color=0x00ff00
+                )
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message(f"❌ Failed to update member status for **{resolved_player}**.")
+                
+        except Exception as e:
+            logging.error(f"Error setting member status: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error setting member status", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error setting member status", ephemeral=True)
+
+    @app_commands.command(name="showtrials", description="Show all trial members")
+    @require_guild_setup
+    async def show_trials(self, interaction: discord.Interaction):
+        """Show all trial members."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            
+            # Get trial members
+            trials = self.bot.db.get_players_by_member_status('trial', guild_id)
+            
+            embed = discord.Embed(
+                title="🔍 Trial Members",
+                color=0xffa500
+            )
+            
+            if trials:
+                trial_list = []
+                for player in trials:
+                    nickname_count = len(player.get('nicknames', []))
+                    nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
+                    team_text = f" - {player['team']}" if player['team'] != 'Unassigned' else ""
+                    trial_list.append(f"• **{player['player_name']}**{team_text}{nickname_text}")
+                
+                embed.description = "\n".join(trial_list)
+                embed.add_field(
+                    name="Total Trial Members",
+                    value=str(len(trials)),
+                    inline=True
+                )
+            else:
+                embed.description = "No trial members found."
+            
+            embed.set_footer(text="Use /setmemberstatus <player> Member to promote trial members")
+            await interaction.response.send_message(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error showing trials: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error retrieving trial members", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error retrieving trial members", ephemeral=True)
+
+    @app_commands.command(name="showkicked", description="Show all kicked members")
+    @require_guild_setup
+    async def show_kicked(self, interaction: discord.Interaction):
+        """Show all kicked members."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            
+            # Get kicked members
+            kicked = self.bot.db.get_players_by_member_status('kicked', guild_id)
+            
+            embed = discord.Embed(
+                title="🚫 Kicked Members",
+                color=0xff4444
+            )
+            
+            if kicked:
+                kicked_list = []
+                for player in kicked:
+                    nickname_count = len(player.get('nicknames', []))
+                    nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
+                    team_text = f" - {player['team']}" if player['team'] != 'Unassigned' else ""
+                    kicked_list.append(f"• **{player['player_name']}**{team_text}{nickname_text}")
+                
+                embed.description = "\n".join(kicked_list)
+                embed.add_field(
+                    name="Total Kicked Members",
+                    value=str(len(kicked)),
+                    inline=True
+                )
+            else:
+                embed.description = "No kicked members found."
+            
+            embed.set_footer(text="Use /setmemberstatus <player> Member to reinstate kicked members")
+            await interaction.response.send_message(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error showing kicked members: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error retrieving kicked members", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error retrieving kicked members", ephemeral=True)
+
     @app_commands.command(name="addwar", description="Add a war with player scores")
     @app_commands.describe(
         player_scores="Player scores in format: 'Player1: 104, Player2: 105, Player3: 50'",
@@ -1062,10 +1175,494 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error adding war: {e}")
             await interaction.response.send_message("❌ Error adding war. Check the command format and try again.", ephemeral=True)
 
+    @app_commands.command(name="showallwars", description="Show all wars with pagination")
+    @app_commands.describe(limit="Number of wars to show (default: 10, max: 50)")
+    @require_guild_setup
+    async def show_all_wars(self, interaction: discord.Interaction, limit: int = 10):
+        """Show all wars with pagination."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            
+            # Validate limit
+            if limit < 1 or limit > 50:
+                await interaction.response.send_message("❌ Limit must be between 1 and 50.", ephemeral=True)
+                return
+            
+            # Get wars from database
+            wars = self.bot.db.get_all_wars(limit, guild_id)
+            
+            if not wars:
+                await interaction.response.send_message("❌ No wars found in the database.")
+                return
+            
+            embed = discord.Embed(
+                title="⚔️ War History",
+                description=f"Showing {len(wars)} most recent wars:",
+                color=0x9932cc
+            )
+            
+            for war in wars:
+                war_id = war.get('id')
+                war_date = war.get('war_date')
+                race_count = war.get('race_count')
+                players_data = war.get('players_data', [])
+                
+                # Count unique players
+                player_count = len(players_data)
+                
+                # Create complete player list with scores
+                if players_data:
+                    player_entries = []
+                    for p in players_data:
+                        name = p.get('name', 'Unknown')
+                        score = p.get('score', 0)
+                        races = p.get('races_played', race_count)
+                        if races == race_count:
+                            player_entries.append(f"{name}: {score}")
+                        else:
+                            player_entries.append(f"{name}({races}): {score}")
+                    
+                    player_list = ", ".join(player_entries)
+                    
+                    # If the list is too long for Discord field limit, truncate
+                    if len(player_list) > 1000:
+                        # Find a good breaking point
+                        truncated = player_list[:900]
+                        last_comma = truncated.rfind(', ')
+                        if last_comma > 0:
+                            player_list = truncated[:last_comma] + f"... +{len(players_data) - truncated[:last_comma].count(',') - 1} more"
+                        else:
+                            player_list = truncated + "..."
+                else:
+                    player_list = "No players"
+                
+                embed.add_field(
+                    name=f"War #{war_id} - {war_date}",
+                    value=f"🏁 {race_count} races | 👥 {player_count} players\n📋 {player_list}",
+                    inline=False
+                )
+            
+            embed.set_footer(text=f"Use /updatewar <id> or /removewar <id> to modify wars | Showing latest {limit} wars")
+            await interaction.response.send_message(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error showing all wars: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error retrieving wars", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error retrieving wars", ephemeral=True)
 
-    
-    
-    
+    @app_commands.command(name="updatewar", description="Update or add players to an existing war")
+    @app_commands.describe(
+        war_id="ID of the war to update",
+        player_scores="Player scores to update/add in format: 'Player1: 104, Player2: 105'",
+        races="Updated number of races for the entire war (optional)"
+    )
+    @require_guild_setup
+    async def update_war(self, interaction: discord.Interaction, war_id: int, player_scores: str, races: int = None):
+        """Update or add players to an existing war (smart merge with existing data)."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            
+            # Get the existing war
+            existing_war = self.bot.db.get_war_by_id(war_id, guild_id)
+            if not existing_war:
+                await interaction.response.send_message(f"❌ War #{war_id} not found.", ephemeral=True)
+                return
+            
+            # Use existing race count if not provided
+            original_race_count = existing_war.get('race_count', 12)
+            if races is None:
+                races = original_race_count
+            
+            # Validate race count
+            if races < 1 or races > 12:
+                await interaction.response.send_message("❌ Race count must be between 1 and 12.", ephemeral=True)
+                return
+            
+            # Parse new/updated player scores
+            updates = []
+            parts = [p.strip() for p in player_scores.split(',')]
+            
+            for part in parts:
+                if ':' in part:
+                    try:
+                        name, score_str = part.split(':', 1)
+                        name = name.strip()
+                        score = int(score_str.strip())
+                        
+                        # Handle individual race count in parentheses
+                        individual_races = races
+                        if '(' in name and ')' in name:
+                            base_name = name[:name.index('(')].strip()
+                            race_count_str = name[name.index('(')+1:name.index(')')].strip()
+                            try:
+                                individual_races = int(race_count_str)
+                                name = base_name
+                                
+                                if individual_races < 1 or individual_races > races:
+                                    await interaction.response.send_message(f"❌ Invalid race count for {base_name}: {individual_races}", ephemeral=True)
+                                    return
+                            except ValueError:
+                                await interaction.response.send_message(f"❌ Invalid race count format in: `{name}`", ephemeral=True)
+                                return
+                        
+                        # Validate score
+                        min_score = individual_races * 1
+                        max_score = individual_races * 15
+                        if score < min_score or score > max_score:
+                            await interaction.response.send_message(f"❌ {name}: {score} points invalid for {individual_races} races.", ephemeral=True)
+                            return
+                        
+                        # Resolve player name
+                        resolved_player = self.bot.db.resolve_player_name(name, guild_id)
+                        if not resolved_player:
+                            await interaction.response.send_message(f"❌ Player **{name}** not found in players table.", ephemeral=True)
+                            return
+                        
+                        war_participation = individual_races / races
+                        
+                        updates.append({
+                            'name': resolved_player,
+                            'score': score,
+                            'races_played': individual_races,
+                            'war_participation': war_participation,
+                            'raw_line': f"Update: {part}"
+                        })
+                    except ValueError:
+                        await interaction.response.send_message(f"❌ Invalid score format: `{part}`", ephemeral=True)
+                        return
+            
+            if not updates:
+                await interaction.response.send_message("❌ No valid player scores provided.", ephemeral=True)
+                return
+            
+            # Merge with existing data
+            existing_players = existing_war.get('players_data', [])
+            existing_player_dict = {p.get('name'): p for p in existing_players}
+            
+            # Track changes for confirmation
+            players_to_add = []
+            players_to_update = []
+            players_unchanged = []
+            
+            # Process updates
+            for update in updates:
+                player_name = update['name']
+                if player_name in existing_player_dict:
+                    players_to_update.append({
+                        'name': player_name,
+                        'old_score': existing_player_dict[player_name].get('score', 0),
+                        'new_score': update['score'],
+                        'old_races': existing_player_dict[player_name].get('races_played', original_race_count),
+                        'new_races': update['races_played']
+                    })
+                else:
+                    players_to_add.append(update)
+            
+            # Keep unchanged players (adjust for race count changes if needed)
+            for existing_name, existing_data in existing_player_dict.items():
+                if existing_name not in [u['name'] for u in updates]:
+                    # If race count changed, adjust war participation
+                    if races != original_race_count:
+                        old_races = existing_data.get('races_played', original_race_count)
+                        new_participation = old_races / races
+                        updated_existing = existing_data.copy()
+                        updated_existing['war_participation'] = new_participation
+                        players_unchanged.append(updated_existing)
+                    else:
+                        players_unchanged.append(existing_data)
+            
+            # Show confirmation dialog
+            embed = discord.Embed(
+                title=f"⚠️ Update War #{war_id}",
+                description="The following changes will be made:",
+                color=0xff9900
+            )
+            
+            if players_to_add:
+                add_list = []
+                for p in players_to_add:
+                    if p['races_played'] == races:
+                        add_list.append(f"+ {p['name']}: {p['score']}")
+                    else:
+                        add_list.append(f"+ {p['name']}({p['races_played']}): {p['score']}")
+                embed.add_field(
+                    name=f"🆕 Adding {len(players_to_add)} players",
+                    value="\n".join(add_list[:10]) + (f"\n... +{len(add_list)-10} more" if len(add_list) > 10 else ""),
+                    inline=False
+                )
+            
+            if players_to_update:
+                update_list = []
+                for p in players_to_update:
+                    old_display = f"{p['old_score']}" if p['old_races'] == original_race_count else f"{p['old_score']}({p['old_races']})"
+                    new_display = f"{p['new_score']}" if p['new_races'] == races else f"{p['new_score']}({p['new_races']})"
+                    update_list.append(f"📝 {p['name']}: {old_display} → {new_display}")
+                embed.add_field(
+                    name=f"📝 Updating {len(players_to_update)} players",
+                    value="\n".join(update_list[:10]) + (f"\n... +{len(update_list)-10} more" if len(update_list) > 10 else ""),
+                    inline=False
+                )
+            
+            if players_unchanged:
+                embed.add_field(
+                    name=f"✅ Keeping {len(players_unchanged)} players unchanged",
+                    value=f"Existing players not mentioned will remain in the war",
+                    inline=False
+                )
+            
+            if races != original_race_count:
+                embed.add_field(
+                    name="🏁 Race Count Change",
+                    value=f"{original_race_count} → {races} races",
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="⚠️ This will:",
+                value="• Update player statistics for changed players\n• Keep unchanged players as-is\n• This action cannot be undone",
+                inline=False
+            )
+            
+            embed.set_footer(text="React with ✅ to confirm or ❌ to cancel")
+            
+            await interaction.response.send_message(embed=embed)
+            msg = await interaction.original_response()
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+            
+            def check(reaction, user):
+                return user == interaction.user and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+            
+            try:
+                reaction, _ = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+                
+                if str(reaction.emoji) == "✅":
+                    import datetime
+                    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+                    
+                    # Revert stats for players being updated
+                    for player_update in players_to_update:
+                        old_player = existing_player_dict[player_update['name']]
+                        self.bot.db.remove_player_stats(
+                            player_update['name'],
+                            old_player.get('score', 0),
+                            old_player.get('races_played', original_race_count),
+                            old_player.get('war_participation', 1.0),
+                            guild_id
+                        )
+                    
+                    # If race count changed, revert stats for unchanged players and reapply with new participation
+                    if races != original_race_count:
+                        for unchanged_player in players_unchanged:
+                            if 'war_participation' in unchanged_player:  # This was adjusted
+                                # Revert with old participation
+                                old_participation = unchanged_player.get('races_played', original_race_count) / original_race_count
+                                self.bot.db.remove_player_stats(
+                                    unchanged_player['name'],
+                                    unchanged_player.get('score', 0),
+                                    unchanged_player.get('races_played', original_race_count),
+                                    old_participation,
+                                    guild_id
+                                )
+                    
+                    # Build final player list
+                    final_players = []
+                    
+                    # Add updated players
+                    for update in updates:
+                        final_players.append(update)
+                    
+                    # Add unchanged players
+                    for unchanged in players_unchanged:
+                        final_players.append(unchanged)
+                    
+                    # Update the war in database
+                    success = self.bot.db.update_war_by_id(war_id, final_players, races, guild_id)
+                    
+                    if success:
+                        # Apply new/updated stats
+                        for update in updates:
+                            self.bot.db.update_player_stats(
+                                update['name'],
+                                update['score'],
+                                update['races_played'],
+                                update['war_participation'],
+                                current_date,
+                                guild_id
+                            )
+                        
+                        # Reapply stats for unchanged players if race count changed
+                        if races != original_race_count:
+                            for unchanged_player in players_unchanged:
+                                if 'war_participation' in unchanged_player:  # This was adjusted
+                                    self.bot.db.update_player_stats(
+                                        unchanged_player['name'],
+                                        unchanged_player.get('score', 0),
+                                        unchanged_player.get('races_played', original_race_count),
+                                        unchanged_player['war_participation'],
+                                        current_date,
+                                        guild_id
+                                    )
+                        
+                        embed = discord.Embed(
+                            title="✅ War Updated Successfully!",
+                            description=f"War #{war_id} has been updated with merged data.",
+                            color=0x00ff00
+                        )
+                        
+                        summary_parts = []
+                        if players_to_add:
+                            summary_parts.append(f"➕ {len(players_to_add)} added")
+                        if players_to_update:
+                            summary_parts.append(f"📝 {len(players_to_update)} updated")
+                        if players_unchanged:
+                            summary_parts.append(f"✅ {len(players_unchanged)} unchanged")
+                        
+                        embed.add_field(
+                            name="Changes Applied",
+                            value=f"🏁 {races} races\n👥 {len(final_players)} total players\n📊 {', '.join(summary_parts)}",
+                            inline=False
+                        )
+                        await interaction.edit_original_response(embed=embed)
+                    else:
+                        await interaction.edit_original_response(content="❌ Failed to update war. Check logs for details.")
+                else:
+                    await interaction.edit_original_response(content="❌ War update cancelled.")
+                
+                try:
+                    await msg.clear_reactions()
+                except:
+                    pass
+                    
+            except asyncio.TimeoutError:
+                await interaction.edit_original_response(content="❌ War update timed out.")
+                try:
+                    await msg.clear_reactions()
+                except:
+                    pass
+            
+        except Exception as e:
+            logging.error(f"Error updating war: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error updating war", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error updating war", ephemeral=True)
+
+    @app_commands.command(name="removewar", description="Remove a war and revert player statistics")
+    @app_commands.describe(war_id="ID of the war to remove")
+    @require_guild_setup
+    async def remove_war(self, interaction: discord.Interaction, war_id: int):
+        """Remove a war and revert player statistics."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            
+            # Get the war to be removed
+            war = self.bot.db.get_war_by_id(war_id, guild_id)
+            if not war:
+                await interaction.response.send_message(f"❌ War #{war_id} not found.", ephemeral=True)
+                return
+            
+            war_date = war.get('war_date')
+            race_count = war.get('race_count')
+            players_data = war.get('players_data', [])
+            
+            # Show confirmation dialog
+            embed = discord.Embed(
+                title=f"⚠️ Remove War #{war_id}",
+                description=f"Are you sure you want to remove this war from **{war_date}**?",
+                color=0xff4444
+            )
+            
+            # Show war details - all players
+            if players_data:
+                player_entries = []
+                for player in players_data:
+                    name = player.get('name', 'Unknown')
+                    score = player.get('score', 0)
+                    races = player.get('races_played', race_count)
+                    if races == race_count:
+                        player_entries.append(f"{name}: {score}")
+                    else:
+                        player_entries.append(f"{name}({races}): {score}")
+                
+                player_list = ", ".join(player_entries)
+                
+                # Handle Discord field limit
+                if len(player_list) > 1000:
+                    truncated = player_list[:900]
+                    last_comma = truncated.rfind(', ')
+                    if last_comma > 0:
+                        player_list = truncated[:last_comma] + f"... +{len(players_data) - truncated[:last_comma].count(',') - 1} more"
+                    else:
+                        player_list = truncated + "..."
+                
+                embed.add_field(
+                    name=f"War Details ({race_count} races, {len(players_data)} players)",
+                    value=player_list,
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="⚠️ This will:",
+                value="• Delete the war from database\n• Subtract war contributions from player statistics\n• This action cannot be undone",
+                inline=False
+            )
+            
+            embed.set_footer(text="React with ✅ to confirm or ❌ to cancel")
+            
+            await interaction.response.send_message(embed=embed)
+            msg = await interaction.original_response()
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+            
+            def check(reaction, user):
+                return user == interaction.user and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+            
+            try:
+                reaction, _ = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+                
+                if str(reaction.emoji) == "✅":
+                    # Remove the war and revert player stats
+                    success = self.bot.db.remove_war_by_id(war_id, guild_id)
+                    
+                    if success:
+                        embed = discord.Embed(
+                            title="✅ War Removed Successfully!",
+                            description=f"War #{war_id} from {war_date} has been removed.",
+                            color=0x00ff00
+                        )
+                        embed.add_field(
+                            name="Statistics Updated",
+                            value=f"Reverted stats for {len(players_data)} players",
+                            inline=False
+                        )
+                        await interaction.edit_original_response(embed=embed)
+                    else:
+                        await interaction.edit_original_response(content="❌ Failed to remove war. Check logs for details.")
+                else:
+                    await interaction.edit_original_response(content="❌ War removal cancelled.")
+                
+                try:
+                    await msg.clear_reactions()
+                except:
+                    pass
+                    
+            except asyncio.TimeoutError:
+                await interaction.edit_original_response(content="❌ War removal timed out.")
+                try:
+                    await msg.clear_reactions()
+                except:
+                    pass
+                
+        except Exception as e:
+            logging.error(f"Error removing war: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error removing war", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error removing war", ephemeral=True)
+
     # Team Management Commands
     @app_commands.command(name="addteam", description="Add a new team to the clan")
     @app_commands.describe(team_name="Name of the team to create (1W-50 characters, cannot be 'Unassigned')")
