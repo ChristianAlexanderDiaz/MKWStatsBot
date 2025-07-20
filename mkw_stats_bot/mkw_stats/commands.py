@@ -183,29 +183,41 @@ class MarioKartCommands(commands.Cog):
                         color=0x00ff00
                     )
                     
-                    # Display team information
+                    # Player info section
                     team_name = stats.get('team', 'Unassigned')
                     embed.add_field(name="Team", value=team_name, inline=True)
                     
-                    # Display the players' nicknames if they exist
+                    # Optional nicknames - only show if they exist
                     if stats.get('nicknames'):
                         embed.add_field(name="Nicknames", value=", ".join(stats['nicknames']), inline=True)
-                    else:
-                        embed.add_field(name="Nicknames", value="None", inline=True)
                     
-                    # Display war statistics
-                    embed.add_field(name="Wars Played", value=str(stats.get('war_count', 0)), inline=True)
+                    # Average score (most important stat first)
+                    embed.add_field(name="Average Score", value=f"{stats.get('average_score', 0.0):.1f} points", inline=True)
+                    
+                    # War statistics
+                    war_count = float(stats.get('war_count', 0))
+                    if war_count == 1.0:
+                        wars_text = f"{war_count:.1f} war"
+                    else:
+                        wars_text = f"{war_count:.1f} wars"
+                    
+                    embed.add_field(name="Wars Played", value=wars_text, inline=True)
                     embed.add_field(name="Total Score", value=f"{stats.get('total_score', 0):,} points", inline=True)
-                    embed.add_field(name="Average per War", value=f"{stats.get('average_score', 0.0):.1f} points", inline=True)
                     embed.add_field(name="Total Races", value=str(stats.get('total_races', 0)), inline=True)
                     
-                    # Display dates
+                    # Format date to human readable format
                     if stats.get('last_war_date'):
-                        embed.add_field(name="Last War", value=stats['last_war_date'], inline=True)
+                        from datetime import datetime
+                        try:
+                            # Parse the date and format it nicely
+                            date_obj = datetime.strptime(stats['last_war_date'], '%Y-%m-%d')
+                            formatted_date = date_obj.strftime('%b %d, %Y')
+                            embed.add_field(name="Last War", value=formatted_date, inline=True)
+                        except:
+                            # Fallback to original format if parsing fails
+                            embed.add_field(name="Last War", value=stats['last_war_date'], inline=True)
                     else:
                         embed.add_field(name="Last War", value="No wars yet", inline=True)
-                    
-                    embed.add_field(name="Added By", value=stats.get('added_by', 'Unknown'), inline=True)
                     
                     await interaction.response.send_message(embed=embed)
                 else:
