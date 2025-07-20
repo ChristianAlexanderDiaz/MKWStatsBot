@@ -848,22 +848,13 @@ class MarioKartCommands(commands.Cog):
             
             embed = discord.Embed(
                 title=f"🏷️ Nicknames for {resolved_player}",
-                description=f"All nicknames for **{resolved_player}**:",
                 color=0x9932cc
             )
             
             if nicknames:
-                embed.add_field(
-                    name=f"Nicknames ({len(nicknames)})",
-                    value="\n".join([f"• {nickname}" for nickname in nicknames]),
-                    inline=False
-                )
+                embed.description = "\n".join([f"• {nickname}" for nickname in nicknames])
             else:
-                embed.add_field(
-                    name="Nicknames",
-                    value="No nicknames set for this player.",
-                    inline=False
-                )
+                embed.description = "No nicknames set for this player."
             
             embed.set_footer(text=f"Use /addnickname {resolved_player} <nickname> to add more nicknames")
             await interaction.response.send_message(embed=embed)
@@ -1058,7 +1049,7 @@ class MarioKartCommands(commands.Cog):
     
     
     # Team Management Commands
-    @app_commands.command(name="addteam", description="Add a new team to the guild")
+    @app_commands.command(name="addteam", description="Add a new team to the clan")
     @app_commands.describe(team_name="Name of the team to create (1-50 characters, cannot be 'Unassigned')")
     @require_guild_setup
     async def add_team(self, interaction: discord.Interaction, team_name: str):
