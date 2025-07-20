@@ -469,7 +469,7 @@ class MarioKartCommands(commands.Cog):
                 "`/removeteam <team_name>` - Remove a team\n"
                 "`/renameteam <old_name> <new_name>` - Rename a team\n"
                 "`/showallteams` - Show all teams and their players\n"
-                "`/assignplayerstoteam <team> <player1> <player2>...` - Assign multiple players to team\n"
+                "`/assignplayerstoteam <player1> <player2>... <team>` - Assign multiple players to team\n"
                 "`/assignplayertoteam <player> <team>` - Assign single player to team\n"
                 "`/unassignplayerfromteam <player>` - Set player to Unassigned\n"
                 "`/showspecificteamroster <team>` - Show specific team roster"
@@ -543,9 +543,9 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send("❌ Error assigning player to team", ephemeral=True)
 
     @app_commands.command(name="assignplayerstoteam", description="Assign multiple players to a team")
-    @app_commands.describe(team_name="Team to assign players to", players="Space-separated list of player names (minimum 1 player)")
+    @app_commands.describe(players="Space-separated list of player names (minimum 1 player)", team_name="Team to assign players to")
     @require_guild_setup
-    async def assign_players_to_team(self, interaction: discord.Interaction, team_name: str, players: str):
+    async def assign_players_to_team(self, interaction: discord.Interaction, players: str, team_name: str):
         """Assign multiple players to a team."""
         try:
             guild_id = self.get_guild_id(interaction)
@@ -748,7 +748,7 @@ class MarioKartCommands(commands.Cog):
                     inline=False
                 )
             
-            embed.set_footer(text=f"Use /assignplayerstoteam {team_name} <players> to assign players to this team")
+            embed.set_footer(text=f"Use /assignplayerstoteam <players> {team_name} to assign players to this team")
             await interaction.response.send_message(embed=embed)
             
         except Exception as e:
@@ -1049,7 +1049,7 @@ class MarioKartCommands(commands.Cog):
             countdown_seconds = 30
             for remaining in range(countdown_seconds, 0, -1):
                 await asyncio.sleep(1)
-                if remaining <= 10:  # Only show countdown for last 10 seconds
+                if remaining <= 5:  # Only show countdown for last 5 seconds
                     await interaction.edit_original_response(
                         embed=embed, 
                         content=f"Disappearing in {remaining} seconds..."
@@ -1084,7 +1084,7 @@ class MarioKartCommands(commands.Cog):
                 )
                 embed.add_field(
                     name="Next Steps",
-                    value=f"• Assign players with `/assignplayerstoteam {team_name} <players>`\n• View team roster with `/showspecificteamroster {team_name}`\n• List all teams with `/showallteams`",
+                    value=f"• Assign players with `/assignplayerstoteam <players> {team_name}`\n• View team roster with `/showspecificteamroster {team_name}`\n• List all teams with `/showallteams`",
                     inline=False
                 )
                 embed.add_field(

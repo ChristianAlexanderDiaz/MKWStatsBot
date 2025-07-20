@@ -129,7 +129,7 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
   - `/addteam <team_name>` - Create new team
   - `/removeteam <team_name>` - Remove existing team  
   - `/renameteam <old_name> <new_name>` - Rename team
-  - `/assignplayerstoteam <team_name> <players>` - Assign multiple players to team
+  - `/assignplayerstoteam <players> <team_name>` - Assign multiple players to team
   - `/assignplayertoteam <player_name> <team_name>` - Assign single player to team
   - `/unassignplayerfromteam <player_name>` - Set player to Unassigned
   - `/showallteams` - Show all teams and their players
