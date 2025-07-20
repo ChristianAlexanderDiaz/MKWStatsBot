@@ -142,7 +142,7 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 
 #### Legacy Commands Removed
 All prefix commands (!mk*) have been converted to modern slash commands or removed to streamline the interface.
-
+W
 ### OCR Image Processing Workflow
 1. **Upload**: User uploads race result image to Discord
 2. **Process**: Bot automatically detects and processes with OCR

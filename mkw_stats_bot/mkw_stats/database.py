@@ -16,7 +16,7 @@ import psycopg2.pool
 import json
 import logging
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import os
 from contextlib import contextmanager
 from urllib.parse import urlparse
@@ -256,11 +256,22 @@ class DatabaseManager:
                     'timestamp': datetime.now().isoformat()
                 }
                 
+                # Use Eastern Time instead of UTC (automatically handles EST/EDT)
+                import zoneinfo
+                try:
+                    eastern_tz = zoneinfo.ZoneInfo('America/New_York')
+                    eastern_now = datetime.now(eastern_tz)
+                except ImportError:
+                    # Fallback for Python < 3.9 or if zoneinfo not available
+                    # Use a simple EST offset (this won't handle DST automatically)
+                    eastern_tz = timezone(timedelta(hours=-5))  # EST
+                    eastern_now = datetime.now(eastern_tz)
+                
                 cursor.execute("""
                     INSERT INTO wars (war_date, race_count, players_data, guild_id)
                     VALUES (%s, %s, %s, %s)
                 """, (
-                    datetime.now().date(),
+                    eastern_now.date(),
                     race_count,
                     json.dumps(session_data),
                     guild_id
