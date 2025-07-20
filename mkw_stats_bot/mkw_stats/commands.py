@@ -256,8 +256,8 @@ class MarioKartCommands(commands.Cog):
                     color=0x00ff00
                 )
                 
-                # Show top 10 players
-                display_players = all_players[:10]
+                # Show all players
+                display_players = all_players
                 leaderboard_text = []
                 
                 for i, player in enumerate(display_players, 1):
@@ -267,9 +267,9 @@ class MarioKartCommands(commands.Cog):
                         
                         # Format war count with 1 decimal place and proper singular/plural
                         if war_count == 1.0:
-                            war_display = f"*{war_count:.1f} war*"
+                            war_display = f"{war_count:.1f} war"
                         else:
-                            war_display = f"*{war_count:.1f} wars*"
+                            war_display = f"{war_count:.1f} wars"
                         
                         leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({war_display})")
                     else:
@@ -281,8 +281,7 @@ class MarioKartCommands(commands.Cog):
                     inline=False
                 )
                 
-                if len(all_players) > 10:
-                    embed.set_footer(text=f"Showing top 10 of {len(all_players)} players.")
+                embed.set_footer(text=f"Showing all {len(all_players)} players.")
                 
                 await interaction.response.send_message(embed=embed)
                 
