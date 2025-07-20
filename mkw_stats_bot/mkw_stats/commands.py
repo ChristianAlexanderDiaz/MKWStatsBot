@@ -1205,7 +1205,7 @@ class MarioKartCommands(commands.Cog):
                 war_id = war.get('id')
                 war_date = war.get('war_date')
                 race_count = war.get('race_count')
-                players_data = war.get('players_data', [])
+                players_data = war.get('results', [])  # Fix: use 'results' instead of 'players_data'
                 
                 # Count unique players
                 player_count = len(players_data)
