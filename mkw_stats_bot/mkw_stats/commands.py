@@ -264,25 +264,12 @@ class MarioKartCommands(commands.Cog):
                     if player.get('war_count', 0) > 0:
                         avg_score = player.get('average_score', 0.0)
                         war_count = float(player.get('war_count', 0))
-                        total_races = player.get('total_races', 0)
                         
-                        # Calculate full wars and extra races
-                        full_wars = int(war_count)
-                        extra_races = total_races - (full_wars * 12)  # Assuming 12 races per war
-                        
-                        # Format the war count display
-                        if war_count == full_wars:  # Whole number of wars
-                            if full_wars == 1:
-                                war_display = f"{full_wars} war"
-                            else:
-                                war_display = f"{full_wars} wars"
-                        else:  # Has extra races
-                            if full_wars == 0:
-                                war_display = f"{extra_races} extra races"
-                            elif full_wars == 1:
-                                war_display = f"{full_wars} war + {extra_races} extra races"
-                            else:
-                                war_display = f"{full_wars} wars + {extra_races} extra races"
+                        # Format war count with 1 decimal place and proper singular/plural
+                        if war_count == 1.0:
+                            war_display = f"*{war_count:.1f} war*"
+                        else:
+                            war_display = f"*{war_count:.1f} wars*"
                         
                         leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({war_display})")
                     else:
