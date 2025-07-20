@@ -168,8 +168,14 @@ class MarioKartCommands(commands.Cog):
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
             if player:
-                # Get specific player stats from players table
-                stats = self.bot.db.get_player_statistics(player, guild_id)
+                # Resolve nickname to actual player name first
+                resolved_player = self.bot.db.resolve_player_name(player, guild_id)
+                if not resolved_player:
+                    await interaction.response.send_message(f"❌ No player found with name or nickname: {player}", ephemeral=True)
+                    return
+                
+                # Get specific player stats from players table using resolved name
+                stats = self.bot.db.get_player_statistics(resolved_player, guild_id)
                 if stats:
                     # Create an embed for the player's stats
                     embed = discord.Embed(
@@ -204,7 +210,7 @@ class MarioKartCommands(commands.Cog):
                     await interaction.response.send_message(embed=embed)
                 else:
                     # Check if player exists in players table but has no stats yet
-                    roster_stats = self.bot.db.get_player_stats(player, guild_id)
+                    roster_stats = self.bot.db.get_player_stats(resolved_player, guild_id)
                     if roster_stats:
                         embed = discord.Embed(
                             title=f"📊 Stats for {roster_stats['player_name']}",
