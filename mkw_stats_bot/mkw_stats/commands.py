@@ -1056,78 +1056,43 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error retrieving team roster", ephemeral=True)
 
-    @commands.command(name='mkaddnickname')
-    async def add_nickname(self, ctx, player_name: str = None, *, raw_nicknames: str = None):
-        """Add a single nickname to a player (supports quotes for nicknames with spaces)."""
-        if not player_name or not raw_nicknames:
-            embed = discord.Embed(
-                title="🏷️ Add Nickname",
-                description="Add a nickname to a player for OCR recognition.",
-                color=0x9932cc
-            )
-            embed.add_field(
-                name="Usage",
-                value="`!mkaddnickname <player_name> <nickname>`",
-                inline=False
-            )
-            embed.add_field(
-                name="Examples", 
-                value="`!mkaddnickname Cynical cyn`\n`!mkaddnickname Vortex \"MK Vortex\"`",
-                inline=False
-            )
-            embed.add_field(
-                name="Purpose",
-                value="Nicknames help OCR recognize players when their names appear differently in race results.",
-                inline=False
-            )
-            embed.add_field(
-                name="💡 Tips",
-                value="• Use quotes for nicknames with spaces: `\"MK Vortex\"`\n• For multiple nicknames, use `!mkaddnicknames`",
-                inline=False
-            )
-            await ctx.send(embed=embed)
-            return
-        
+    @app_commands.command(name="addnickname", description="Add a nickname to a player for OCR recognition")
+    @app_commands.describe(player_name="Player to add nickname for", nickname="Nickname to add")
+    @require_guild_setup
+    async def add_nickname(self, interaction: discord.Interaction, player_name: str, nickname: str):
+        """Add a single nickname to a player."""
         try:
-            # Parse nicknames using quote-aware parser
-            nicknames = self.parse_quoted_nicknames(raw_nicknames)
-            
-            # Check if multiple nicknames were provided
-            if len(nicknames) > 1:
-                # Reconstruct the suggested command with proper quoting
-                suggested_nicknames = []
-                for nick in nicknames:
-                    if ' ' in nick:
-                        suggested_nicknames.append(f'"{nick}"')
-                    else:
-                        suggested_nicknames.append(nick)
-                
-                await ctx.send(f"❌ You provided multiple nicknames. Did you mean to use `!mkaddnicknames {player_name} {' '.join(suggested_nicknames)}`?")
-                return
-            
-            if len(nicknames) == 0:
-                await ctx.send("❌ No nickname provided.")
-                return
-            
-            guild_id = self.get_guild_id(ctx)
+            guild_id = self.get_guild_id(interaction)
             # Resolve player name (handles nicknames)
             resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await ctx.send(f"❌ Player **{player_name}** not found in roster. Use `!mkadd {player_name}` to add them first.")
+                await interaction.response.send_message(f"❌ Player **{player_name}** not found in roster. Use `/addplayer {player_name}` to add them first.")
                 return
             
             # Add single nickname
-            nickname = nicknames[0]
             success = self.bot.db.add_nickname(resolved_player, nickname, guild_id)
             
             if success:
-                await ctx.send(f"✅ Added nickname **{nickname}** to **{resolved_player}**!")
+                embed = discord.Embed(
+                    title="✅ Nickname Added!",
+                    description=f"Added nickname **{nickname}** to **{resolved_player}**",
+                    color=0x00ff00
+                )
+                embed.add_field(
+                    name="Purpose",
+                    value="Nicknames help OCR recognize players when their names appear differently in race results.",
+                    inline=False
+                )
+                await interaction.response.send_message(embed=embed)
             else:
-                await ctx.send(f"❌ Nickname **{nickname}** already exists for **{resolved_player}** or couldn't be added.")
+                await interaction.response.send_message(f"❌ Nickname **{nickname}** already exists for **{resolved_player}** or couldn't be added.")
                 
         except Exception as e:
             logging.error(f"Error adding nickname: {e}")
-            await ctx.send("❌ Error adding nickname")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error adding nickname", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error adding nickname", ephemeral=True)
 
     @commands.command(name='mkaddnicknames')
     async def add_nicknames(self, ctx, player_name: str = None, *, raw_nicknames: str = None):
@@ -1219,93 +1184,50 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error adding nicknames: {e}")
             await ctx.send("❌ Error adding nicknames")
 
-    @commands.command(name='mkremovenickname')
-    async def remove_nickname(self, ctx, player_name: str = None, *, raw_nickname: str = None):
-        """Remove a nickname from a player (supports quotes for nicknames with spaces)."""
-        if not player_name or not raw_nickname:
-            embed = discord.Embed(
-                title="🏷️ Remove Nickname",
-                description="Remove a nickname from a player.",
-                color=0xff4444
-            )
-            embed.add_field(
-                name="Usage",
-                value="`!mkremovenickname <player_name> <nickname>`",
-                inline=False
-            )
-            embed.add_field(
-                name="Examples", 
-                value="`!mkremovenickname Cynical cyn`\n`!mkremovenickname Vortex \"MK Vortex\"`",
-                inline=False
-            )
-            embed.add_field(
-                name="💡 Tip",
-                value="Use quotes for nicknames with spaces: `\"MK Vortex\"`",
-                inline=False
-            )
-            await ctx.send(embed=embed)
-            return
-        
+    @app_commands.command(name="removenickname", description="Remove a nickname from a player")
+    @app_commands.describe(player_name="Player to remove nickname from", nickname="Nickname to remove")
+    @require_guild_setup
+    async def remove_nickname(self, interaction: discord.Interaction, player_name: str, nickname: str):
+        """Remove a nickname from a player."""
         try:
-            # Parse nicknames using quote-aware parser
-            nicknames = self.parse_quoted_nicknames(raw_nickname)
-            
-            if len(nicknames) == 0:
-                await ctx.send("❌ No nickname provided.")
-                return
-            
-            if len(nicknames) > 1:
-                await ctx.send("❌ You can only remove one nickname at a time. Please specify a single nickname.")
-                return
-            
-            guild_id = self.get_guild_id(ctx)
+            guild_id = self.get_guild_id(interaction)
             # Resolve player name (handles nicknames)
             resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await ctx.send(f"❌ Player **{player_name}** not found in roster.")
+                await interaction.response.send_message(f"❌ Player **{player_name}** not found in roster.")
                 return
             
             # Remove nickname
-            nickname = nicknames[0]
             success = self.bot.db.remove_nickname(resolved_player, nickname, guild_id)
             
             if success:
-                await ctx.send(f"✅ Removed nickname **{nickname}** from **{resolved_player}**!")
+                embed = discord.Embed(
+                    title="✅ Nickname Removed!",
+                    description=f"Removed nickname **{nickname}** from **{resolved_player}**",
+                    color=0xff4444
+                )
+                await interaction.response.send_message(embed=embed)
             else:
-                await ctx.send(f"❌ Nickname **{nickname}** not found for **{resolved_player}** or couldn't be removed.")
+                await interaction.response.send_message(f"❌ Nickname **{nickname}** not found for **{resolved_player}** or couldn't be removed.")
                 
         except Exception as e:
             logging.error(f"Error removing nickname: {e}")
-            await ctx.send("❌ Error removing nickname")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error removing nickname", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error removing nickname", ephemeral=True)
 
-    @commands.command(name='mknicknames')
-    async def show_nicknames(self, ctx, player_name: str = None):
+    @app_commands.command(name="nicknamesfor", description="Show all nicknames for a player")
+    @app_commands.describe(player_name="Player to show nicknames for")
+    @require_guild_setup
+    async def show_nicknames(self, interaction: discord.Interaction, player_name: str):
         """Show all nicknames for a player."""
-        if not player_name:
-            embed = discord.Embed(
-                title="🏷️ Show Player Nicknames",
-                description="Display all nicknames for a player.",
-                color=0x9932cc
-            )
-            embed.add_field(
-                name="Usage",
-                value="`!mknicknames <player_name>`",
-                inline=False
-            )
-            embed.add_field(
-                name="Example", 
-                value="`!mknicknames Cynical`",
-                inline=False
-            )
-            await ctx.send(embed=embed)
-            return
-        
         try:
-            guild_id = self.get_guild_id(ctx)
+            guild_id = self.get_guild_id(interaction)
             # Resolve player name (handles nicknames)
             resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await ctx.send(f"❌ Player **{player_name}** not found in roster.")
+                await interaction.response.send_message(f"❌ Player **{player_name}** not found in roster.")
                 return
             
             # Get nicknames
@@ -1330,12 +1252,15 @@ class MarioKartCommands(commands.Cog):
                     inline=False
                 )
             
-            embed.set_footer(text=f"Use !mkaddnickname {resolved_player} <nickname> to add more nicknames")
-            await ctx.send(embed=embed)
+            embed.set_footer(text=f"Use /addnickname {resolved_player} <nickname> to add more nicknames")
+            await interaction.response.send_message(embed=embed)
             
         except Exception as e:
             logging.error(f"Error showing nicknames: {e}")
-            await ctx.send("❌ Error retrieving nicknames")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error retrieving nicknames", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error retrieving nicknames", ephemeral=True)
 
     @app_commands.command(name="addwar", description="Add a war with player scores")
     @app_commands.describe(
