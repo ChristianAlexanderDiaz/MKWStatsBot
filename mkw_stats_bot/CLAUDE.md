@@ -3,7 +3,7 @@
 ## Project Overview
 - **Purpose**: Discord bot for Mario Kart clan statistics with OCR image processing
 - **Architecture**: Python Discord bot + PostgreSQL database + Tesseract OCR
-- **Version**: 0.1.0-alpha (in active development/testing)
+- **Version**: 0.11.0 (active development)
 - **Deployment**: Railway with PostgreSQL, Docker support
 - **Multi-Guild Support**: Full data isolation between Discord servers
 
@@ -82,10 +82,11 @@ The MKW Stats Bot supports multiple Discord guilds (servers) with complete data 
 
 ### Database Schema
 The multi-guild architecture uses `guild_id` columns across all core tables:
-- **roster**: Players are scoped to their guild_id
+- **players**: Players are scoped to their guild_id (replaced old 'roster' table)
 - **wars**: War sessions are isolated per guild_id
-- **player_stats**: Statistics are calculated per guild_id
 - **guild_configs**: Per-guild settings and configurations
+
+**Note**: The database schema has been updated to use a single `players` table instead of separate `roster` and `player_stats` tables for improved data consistency and performance.
 
 ### Guild Management Commands
 - **Setup**: `/setup` - Initialize guild configuration (slash command)
@@ -114,15 +115,33 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 
 ## Discord Bot Architecture
 
-### Command Structure (45+ commands total)
-- **Prefix**: All commands use `!mk` prefix
-- **Statistics**: `!mkstats [player]`, `!mkrecent`
-- **Roster Management**: `!mkroster`, `!mkadd`, `!mkremove`
-- **Team Management**: `!mkassignteam`, `!mkteams`, `!mkteamroster`
-- **Nickname Management**: `!mkaddnickname`, `!mkaddnicknames`, `!mkremovenickname`
-- **War Management**: `/addwar`, `!mkremovewar`, `!mklistwarhistory`
-- **Edit Mode**: `!mkeditadd`, `!mkupdate`, `!mksave`
-- **Utility**: `!mkhelp`, `!mkpreset`
+### Command Structure (20+ slash commands total)
+
+#### Slash Commands (/) - Primary Interface
+- **Guild Setup**: `/setup` - Initialize guild configuration with team and players
+- **War Management**: `/addwar` - Add new war with OCR image processing
+- **Statistics**: `/stats [player]` - View player statistics or leaderboard
+- **Player Management**: 
+  - `/roster` - Show complete guild roster organized by teams
+  - `/addplayer <player_name>` - Add player to roster
+  - `/removeplayer <player_name>` - Remove player from roster
+- **Team Management**: 
+  - `/addteam <team_name>` - Create new team
+  - `/removeteam <team_name>` - Remove existing team  
+  - `/renameteam <old_name> <new_name>` - Rename team
+  - `/assignplayerstoteam <team_name> <players>` - Assign multiple players to team
+  - `/assignplayertoteam <player_name> <team_name>` - Assign single player to team
+  - `/unassignplayerfromteam <player_name>` - Set player to Unassigned
+  - `/showallteams` - Show all teams and their players
+  - `/showspecificteamroster <team_name>` - Show specific team roster
+- **Nickname Management**: 
+  - `/addnickname <player_name> <nickname>` - Add nickname for OCR recognition
+  - `/removenickname <player_name> <nickname>` - Remove nickname from player
+  - `/nicknamesfor <player_name>` - Show all nicknames for player
+- **Help**: `/help` - Show comprehensive bot help and command reference
+
+#### Legacy Commands Removed
+All prefix commands (!mk*) have been converted to modern slash commands or removed to streamline the interface.
 
 ### OCR Image Processing Workflow
 1. **Upload**: User uploads race result image to Discord
@@ -132,10 +151,11 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 5. **Save**: Update database with war results and player statistics
 
 ### Database Schema
-- **roster**: Player roster with guild_id, nicknames (JSONB), team assignments
+- **players**: Player roster with guild_id, nicknames (JSONB), team assignments (replaced old 'roster' table)
 - **wars**: Race session data with guild_id and player results
-- **player_stats**: Calculated statistics (averages, war counts) per guild
 - **guild_configs**: Per-guild settings, team names, allowed channels
+
+**Note**: The database has been updated to use the `players` table instead of the old `roster` and `player_stats` tables for better data consistency.
 
 ## Development Guidelines
 
