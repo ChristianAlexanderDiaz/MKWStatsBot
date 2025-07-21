@@ -493,7 +493,7 @@ class MarioKartCommands(commands.Cog):
                 "`/showallteams` - Show all teams and their players\n"
                 "`/assignplayerstoteam <player1> <player2>... <team>` - Assign players to team (1 or more)\n"
                 "`/unassignplayerfromteam <player>` - Set player to Unassigned\n"
-                "`/showspecificteamroster <team>` - Show specific team roster"
+WaB                "`/showspecificteamroster <team>` - Show specific team roster"
             ),
             inline=False
         )
@@ -1375,7 +1375,7 @@ class MarioKartCommands(commands.Cog):
             
             # Show confirmation dialog
             embed = discord.Embed(
-                title=f"⚠️ Update War #{war_id}",
+                title=f"⚠️ Update War ID: {war_id}",
                 description="The following changes will be made:",
                 color=0xff9900
             )
@@ -1508,7 +1508,7 @@ class MarioKartCommands(commands.Cog):
                         
                         embed = discord.Embed(
                             title="✅ War Updated Successfully!",
-                            description=f"War #{war_id} has been updated with merged data.",
+                            description=f"War ID: {war_id} has been updated with merged data.",
                             color=0x00ff00
                         )
                         
@@ -1634,7 +1634,7 @@ class MarioKartCommands(commands.Cog):
                     if success:
                         embed = discord.Embed(
                             title="✅ War Removed Successfully!",
-                            description=f"War #{war_id} from {war_date} has been removed.",
+                            description=f"War ID: {war_id} from {war_date} has been removed.",
                             color=0x00ff00
                         )
                         embed.add_field(

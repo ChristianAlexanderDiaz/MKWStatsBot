@@ -1375,12 +1375,19 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Format data in the expected dict structure
+                war_data = {
+                    "results": results,
+                    "timestamp": datetime.now().isoformat(),
+                    "race_count": race_count
+                }
+                
                 # Update the war with new data
                 cursor.execute("""
                     UPDATE wars 
                     SET players_data = %s, race_count = %s
                     WHERE id = %s AND guild_id = %s
-                """, (json.dumps(results), race_count, war_id, guild_id))
+                """, (json.dumps(war_data), race_count, war_id, guild_id))
                 
                 if cursor.rowcount == 0:
                     logging.error(f"No war found with ID {war_id} in guild {guild_id}")
