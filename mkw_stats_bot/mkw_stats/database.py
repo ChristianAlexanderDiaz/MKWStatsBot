@@ -870,6 +870,49 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"❌ Error removing player stats: {e}")
             return False
+
+    def remove_player_stats_with_participation(self, player_name: str, score: int, races_played: int, war_participation: float, guild_id: int = 0) -> bool:
+        """Remove player statistics when a war is removed, accounting for war participation."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get current stats
+                cursor.execute("""
+                    SELECT total_score, total_races, war_count 
+                    FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+                
+                result = cursor.fetchone()
+                if not result:
+                    logging.warning(f"No stats found for {player_name} to remove")
+                    return False
+                
+                # Calculate new stats with safety checks
+                new_total_score = max(0, result[0] - score)
+                new_total_races = max(0, result[1] - races_played)
+                new_war_count = max(0.0, result[2] - war_participation)
+                
+                # Safe average calculation - avoid division by zero
+                if new_war_count > 0:
+                    new_average = round(new_total_score / new_war_count, 2)
+                else:
+                    new_average = 0.0
+                
+                cursor.execute("""
+                    UPDATE players 
+                    SET total_score = %s, total_races = %s, war_count = %s, 
+                        average_score = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND guild_id = %s
+                """, (new_total_score, new_total_races, new_war_count, new_average, player_name, guild_id))
+                
+                conn.commit()
+                logging.info(f"✅ Removed stats for {player_name}: -{score} points, -{races_played} races, -{war_participation} war participation")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error removing player stats with participation: {e}")
+            return False
     
     def get_player_statistics(self, player_name: str, guild_id: int = 0) -> Optional[Dict]:
         """Get comprehensive player statistics."""
@@ -988,22 +1031,40 @@ class DatabaseManager:
                     logging.warning(f"War ID {war_id} not found")
                     return False
                 
+                # Handle data format - results should be in war['results']
+                players_data = war.get('results', [])
+                
                 # Update player stats by removing this war's contribution
-                for result in war['results']:
-                    player_name = result['name']
-                    score = result['score']
-                    races = war['race_count']
+                stats_reverted = 0
+                for result in players_data:
+                    player_name = result.get('name')
+                    score = result.get('score', 0)
+                    races_played = result.get('races_played', war.get('race_count', 12))
+                    war_participation = result.get('war_participation', 1.0)
+                    
+                    if not player_name:
+                        continue
                     
                     # Resolve player name in case the war used a nickname
                     resolved_player = self.resolve_player_name(player_name, guild_id)
                     if resolved_player:
-                        self.remove_player_stats(resolved_player, score, races, guild_id)
+                        # Remove stats using war participation
+                        success = self.remove_player_stats_with_participation(
+                            resolved_player, score, races_played, war_participation, guild_id
+                        )
+                        if success:
+                            stats_reverted += 1
+                            logging.info(f"✅ Reverted stats for {resolved_player}: -{score} points, -{races_played} races, -{war_participation} participation")
+                        else:
+                            logging.warning(f"❌ Failed to revert stats for {resolved_player}")
+                    else:
+                        logging.warning(f"❌ Could not resolve player name: {player_name}")
                 
                 # Delete the war
                 cursor.execute("DELETE FROM wars WHERE id = %s AND guild_id = %s", (war_id, guild_id))
                 
                 conn.commit()
-                logging.info(f"✅ Removed war ID {war_id} and updated player stats")
+                logging.info(f"✅ Removed war ID {war_id} and reverted stats for {stats_reverted} players")
                 return True
                 
         except Exception as e:
