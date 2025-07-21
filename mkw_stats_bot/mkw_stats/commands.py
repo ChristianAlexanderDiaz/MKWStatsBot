@@ -477,7 +477,7 @@ class MarioKartCommands(commands.Cog):
             value=(
                 "`/addwar` - Add war with player scores\n"
                 "`/showallwars [limit]` - List all wars with pagination\n"
-                "`/updatewar <war_id> <player_scores>` - Update/add players to existing war\n"
+                "`/appendplayertowar <war_id> <player_scores>` - Add new players to existing war\n"
                 "`/removewar <war_id>` - Delete war and revert statistics\n"
                 "📷 Upload images for automatic OCR processing"
             ),
@@ -1252,15 +1252,14 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error retrieving wars", ephemeral=True)
 
-    @app_commands.command(name="updatewar", description="Update or add players to an existing war")
+    @app_commands.command(name="appendplayertowar", description="Add new players to an existing war")
     @app_commands.describe(
-        war_id="ID of the war to update",
-        player_scores="Player scores to update/add in format: 'Player1: 104, Player2: 105'",
-        races="Updated number of races for the entire war (optional)"
+        war_id="ID of the war to add players to",
+        player_scores="Player scores to add in format: 'Player1: 104, Player2: 105'"
     )
     @require_guild_setup
-    async def update_war(self, interaction: discord.Interaction, war_id: int, player_scores: str, races: int = None):
-        """Update or add players to an existing war (smart merge with existing data)."""
+    async def append_player_to_war(self, interaction: discord.Interaction, war_id: int, player_scores: str):
+        """Add new players to an existing war (append-only, no updates to existing players)."""
         try:
             guild_id = self.get_guild_id(interaction)
             
@@ -1270,18 +1269,11 @@ class MarioKartCommands(commands.Cog):
                 await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return
             
-            # Use existing race count if not provided
-            original_race_count = existing_war.get('race_count', 12)
-            if races is None:
-                races = original_race_count
+            # Use existing race count
+            races = existing_war.get('race_count', 12)
             
-            # Validate race count
-            if races < 1 or races > 12:
-                await interaction.response.send_message("❌ Race count must be between 1 and 12.", ephemeral=True)
-                return
-            
-            # Parse new/updated player scores
-            updates = []
+            # Parse new player scores
+            new_players = []
             parts = [p.strip() for p in player_scores.split(',')]
             
             for part in parts:
@@ -1322,106 +1314,62 @@ class MarioKartCommands(commands.Cog):
                         
                         war_participation = individual_races / races
                         
-                        updates.append({
+                        new_players.append({
                             'name': resolved_player,
                             'score': score,
                             'races_played': individual_races,
                             'war_participation': war_participation,
-                            'raw_line': f"Update: {part}"
+                            'raw_line': f"Append: {part}"
                         })
                     except ValueError:
                         await interaction.response.send_message(f"❌ Invalid score format: `{part}`", ephemeral=True)
                         return
             
-            if not updates:
+            if not new_players:
                 await interaction.response.send_message("❌ No valid player scores provided.", ephemeral=True)
                 return
             
-            # Merge with existing data
-            existing_players = existing_war.get('players_data', [])
-            existing_player_dict = {p.get('name'): p for p in existing_players}
+            # Check if any players already exist in the war (this will fail in database method)
+            existing_results = existing_war.get('results', [])
+            existing_names = {player.get('name', '').lower() for player in existing_results}
+            conflicts = []
+            for new_player in new_players:
+                if new_player.get('name', '').lower() in existing_names:
+                    conflicts.append(new_player.get('name', 'Unknown'))
             
-            # Track changes for confirmation
-            players_to_add = []
-            players_to_update = []
-            players_unchanged = []
-            
-            # Process updates
-            for update in updates:
-                player_name = update['name']
-                if player_name in existing_player_dict:
-                    players_to_update.append({
-                        'name': player_name,
-                        'old_score': existing_player_dict[player_name].get('score', 0),
-                        'new_score': update['score'],
-                        'old_races': existing_player_dict[player_name].get('races_played', original_race_count),
-                        'new_races': update['races_played']
-                    })
-                else:
-                    players_to_add.append(update)
-            
-            # Keep unchanged players (adjust for race count changes if needed)
-            for existing_name, existing_data in existing_player_dict.items():
-                if existing_name not in [u['name'] for u in updates]:
-                    # If race count changed, adjust war participation
-                    if races != original_race_count:
-                        old_races = existing_data.get('races_played', original_race_count)
-                        new_participation = old_races / races
-                        updated_existing = existing_data.copy()
-                        updated_existing['war_participation'] = new_participation
-                        players_unchanged.append(updated_existing)
-                    else:
-                        players_unchanged.append(existing_data)
+            if conflicts:
+                await interaction.response.send_message(f"❌ These players already exist in war {war_id}: {', '.join(conflicts)}\nUse a different command to update existing player scores.", ephemeral=True)
+                return
             
             # Show confirmation dialog
             embed = discord.Embed(
-                title=f"⚠️ Update War ID: {war_id}",
-                description="The following changes will be made:",
+                title=f"⚠️ Add Players to War ID: {war_id}",
+                description=f"Adding {len(new_players)} new players to the war:",
                 color=0xff9900
             )
             
-            if players_to_add:
-                add_list = []
-                for p in players_to_add:
-                    if p['races_played'] == races:
-                        add_list.append(f"+ {p['name']}: {p['score']}")
-                    else:
-                        add_list.append(f"+ {p['name']}({p['races_played']}): {p['score']}")
-                embed.add_field(
-                    name=f"🆕 Adding {len(players_to_add)} players",
-                    value="\n".join(add_list[:10]) + (f"\n... +{len(add_list)-10} more" if len(add_list) > 10 else ""),
-                    inline=False
-                )
+            add_list = []
+            for p in new_players:
+                if p['races_played'] == races:
+                    add_list.append(f"+ {p['name']}: {p['score']}")
+                else:
+                    add_list.append(f"+ {p['name']}({p['races_played']}): {p['score']}")
             
-            if players_to_update:
-                update_list = []
-                for p in players_to_update:
-                    old_display = f"{p['old_score']}" if p['old_races'] == original_race_count else f"{p['old_score']}({p['old_races']})"
-                    new_display = f"{p['new_score']}" if p['new_races'] == races else f"{p['new_score']}({p['new_races']})"
-                    update_list.append(f"📝 {p['name']}: {old_display} → {new_display}")
-                embed.add_field(
-                    name=f"📝 Updating {len(players_to_update)} players",
-                    value="\n".join(update_list[:10]) + (f"\n... +{len(update_list)-10} more" if len(update_list) > 10 else ""),
-                    inline=False
-                )
+            embed.add_field(
+                name=f"🆕 Adding {len(new_players)} players",
+                value="\n".join(add_list[:10]) + (f"\n... +{len(add_list)-10} more" if len(add_list) > 10 else ""),
+                inline=False
+            )
             
-            if players_unchanged:
-                embed.add_field(
-                    name=f"✅ Keeping {len(players_unchanged)} players unchanged",
-                    value=f"Existing players not mentioned will remain in the war",
-                    inline=False
-                )
-            
-            if races != original_race_count:
-                embed.add_field(
-                    name="🏁 Race Count Change",
-                    value=f"{original_race_count} → {races} races",
-                    inline=False
-                )
+            embed.add_field(
+                name=f"✅ Keeping {len(existing_results)} existing players unchanged",
+                value="All existing players will remain exactly as they are",
+                inline=False
+            )
             
             embed.add_field(
                 name="⚠️ This will:",
-                value="• Update player statistics for changed players\n• Keep unchanged players as-is\n• This action cannot be undone",
+                value="• Add new players to the war\n• Add statistics for new players only\n• This action cannot be undone",
                 inline=False
             )
             
@@ -1442,94 +1390,59 @@ class MarioKartCommands(commands.Cog):
                     import datetime
                     current_date = datetime.datetime.now().strftime('%Y-%m-%d')
                     
-                    # Revert stats for players being updated
-                    for player_update in players_to_update:
-                        old_player = existing_player_dict[player_update['name']]
-                        self.bot.db.remove_player_stats(
-                            player_update['name'],
-                            old_player.get('score', 0),
-                            old_player.get('races_played', original_race_count),
-                            old_player.get('war_participation', 1.0),
-                            guild_id
-                        )
-                    
-                    # If race count changed, revert stats for unchanged players and reapply with new participation
-                    if races != original_race_count:
-                        for unchanged_player in players_unchanged:
-                            if 'war_participation' in unchanged_player:  # This was adjusted
-                                # Revert with old participation
-                                old_participation = unchanged_player.get('races_played', original_race_count) / original_race_count
-                                self.bot.db.remove_player_stats(
-                                    unchanged_player['name'],
-                                    unchanged_player.get('score', 0),
-                                    unchanged_player.get('races_played', original_race_count),
-                                    old_participation,
-                                    guild_id
-                                )
-                    
-                    # Build final player list
-                    final_players = []
-                    
-                    # Add updated players
-                    for update in updates:
-                        final_players.append(update)
-                    
-                    # Add unchanged players
-                    for unchanged in players_unchanged:
-                        final_players.append(unchanged)
-                    
-                    # Update the war in database
-                    success = self.bot.db.update_war_by_id(war_id, final_players, races, guild_id)
+                    # Append players to war using new database method
+                    success = self.bot.db.append_players_to_war_by_id(war_id, new_players, guild_id)
                     
                     if success:
-                        # Apply new/updated stats
-                        for update in updates:
-                            self.bot.db.update_player_stats(
-                                update['name'],
-                                update['score'],
-                                update['races_played'],
-                                update['war_participation'],
+                        # Add statistics for new players only
+                        stats_added = []
+                        stats_failed = []
+                        
+                        for new_player in new_players:
+                            stats_success = self.bot.db.update_player_stats(
+                                new_player['name'],
+                                new_player['score'],
+                                new_player['races_played'],
+                                new_player['war_participation'],
                                 current_date,
                                 guild_id
                             )
-                        
-                        # Reapply stats for unchanged players if race count changed
-                        if races != original_race_count:
-                            for unchanged_player in players_unchanged:
-                                if 'war_participation' in unchanged_player:  # This was adjusted
-                                    self.bot.db.update_player_stats(
-                                        unchanged_player['name'],
-                                        unchanged_player.get('score', 0),
-                                        unchanged_player.get('races_played', original_race_count),
-                                        unchanged_player['war_participation'],
-                                        current_date,
-                                        guild_id
-                                    )
+                            if stats_success:
+                                stats_added.append(new_player['name'])
+                            else:
+                                stats_failed.append(new_player['name'])
                         
                         embed = discord.Embed(
-                            title="✅ War Updated Successfully!",
-                            description=f"War ID: {war_id} has been updated with merged data.",
+                            title="✅ Players Added Successfully!",
+                            description=f"War ID: {war_id} has been updated with {len(new_players)} new players.",
                             color=0x00ff00
                         )
                         
-                        summary_parts = []
-                        if players_to_add:
-                            summary_parts.append(f"➕ {len(players_to_add)} added")
-                        if players_to_update:
-                            summary_parts.append(f"📝 {len(players_to_update)} updated")
-                        if players_unchanged:
-                            summary_parts.append(f"✅ {len(players_unchanged)} unchanged")
-                        
                         embed.add_field(
-                            name="Changes Applied",
-                            value=f"🏁 {races} races\n👥 {len(final_players)} total players\n📊 {', '.join(summary_parts)}",
+                            name="Players Added",
+                            value=f"🏁 {races} races\n👥 {len(new_players)} new players\n📊 {len(stats_added)} stats updated" + (f", {len(stats_failed)} failed" if stats_failed else ""),
                             inline=False
                         )
+                        
+                        # Show added players
+                        player_list = []
+                        for p in new_players:
+                            if p['races_played'] == races:
+                                player_list.append(f"**{p['name']}**: {p['score']} points")
+                            else:
+                                player_list.append(f"**{p['name']}** ({p['races_played']}): {p['score']} points")
+                        
+                        embed.add_field(
+                            name="🏁 New Players Added",
+                            value="\n".join(player_list[:10]) + (f"\n... +{len(player_list)-10} more" if len(player_list) > 10 else ""),
+                            inline=False
+                        )
+                        
                         await interaction.edit_original_response(embed=embed)
                     else:
-                        await interaction.edit_original_response(content="❌ Failed to update war. Check logs for details.")
+                        await interaction.edit_original_response(content="❌ Failed to add players to war. Check logs for details.")
                 else:
-                    await interaction.edit_original_response(content="❌ War update cancelled.")
+                    await interaction.edit_original_response(content="❌ Player addition cancelled.")
                 
                 try:
                     await msg.clear_reactions()
@@ -1537,18 +1450,18 @@ class MarioKartCommands(commands.Cog):
                     pass
                     
             except asyncio.TimeoutError:
-                await interaction.edit_original_response(content="❌ War update timed out.")
+                await interaction.edit_original_response(content="❌ Player addition timed out.")
                 try:
                     await msg.clear_reactions()
                 except:
                     pass
             
         except Exception as e:
-            logging.error(f"Error updating war: {e}")
+            logging.error(f"Error appending players to war: {e}")
             if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error updating war", ephemeral=True)
+                await interaction.response.send_message("❌ Error adding players to war", ephemeral=True)
             else:
-                await interaction.followup.send("❌ Error updating war", ephemeral=True)
+                await interaction.followup.send("❌ Error adding players to war", ephemeral=True)
 
     @app_commands.command(name="removewar", description="Remove a war and revert player statistics")
     @app_commands.describe(war_id="ID of the war to remove")

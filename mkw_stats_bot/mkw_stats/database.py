@@ -1369,6 +1369,60 @@ class DatabaseManager:
             logging.error(f"❌ Error getting member status counts: {e}")
             return {}
 
+    def append_players_to_war_by_id(self, war_id: int, new_players: List[Dict], guild_id: int = 0) -> bool:
+        """Append new players to an existing war without modifying existing players."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get existing war data
+                existing_war = self.get_war_by_id(war_id, guild_id)
+                if not existing_war:
+                    logging.error(f"No war found with ID {war_id} in guild {guild_id}")
+                    return False
+                
+                existing_results = existing_war.get('results', [])
+                existing_names = {player.get('name', '').lower() for player in existing_results}
+                
+                # Check for duplicate players
+                conflicts = []
+                for new_player in new_players:
+                    if new_player.get('name', '').lower() in existing_names:
+                        conflicts.append(new_player.get('name', 'Unknown'))
+                
+                if conflicts:
+                    logging.error(f"Players already exist in war {war_id}: {', '.join(conflicts)}")
+                    return False
+                
+                # Append new players to existing results
+                combined_results = existing_results + new_players
+                
+                # Format data in the expected dict structure
+                war_data = {
+                    "results": combined_results,
+                    "timestamp": datetime.now().isoformat(),
+                    "race_count": existing_war.get('race_count', 12)
+                }
+                
+                # Update the war with combined data
+                cursor.execute("""
+                    UPDATE wars 
+                    SET players_data = %s
+                    WHERE id = %s AND guild_id = %s
+                """, (json.dumps(war_data), war_id, guild_id))
+                
+                if cursor.rowcount == 0:
+                    logging.error(f"No war found with ID {war_id} in guild {guild_id}")
+                    return False
+                
+                conn.commit()
+                logging.info(f"✅ Appended {len(new_players)} players to war {war_id}")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error appending players to war by ID: {e}")
+            return False
+
     def update_war_by_id(self, war_id: int, results: List[Dict], race_count: int, guild_id: int = 0) -> bool:
         """Update an existing war with new player data."""
         try:
