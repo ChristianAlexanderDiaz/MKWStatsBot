@@ -493,7 +493,7 @@ class MarioKartCommands(commands.Cog):
                 "`/showallteams` - Show all teams and their players\n"
                 "`/assignplayerstoteam <player1> <player2>... <team>` - Assign players to team (1 or more)\n"
                 "`/unassignplayerfromteam <player>` - Set player to Unassigned\n"
-WaB                "`/showspecificteamroster <team>` - Show specific team roster"
+                "`/showspecificteamroster <team>` - Show specific team roster"
             ),
             inline=False
         )
