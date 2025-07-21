@@ -1237,12 +1237,12 @@ class MarioKartCommands(commands.Cog):
                     player_list = "No players"
                 
                 embed.add_field(
-                    name=f"War #{war_id} - {war_date}",
+                    name=f"War ID: {war_id} - {war_date}",
                     value=f"🏁 {race_count} races | 👥 {player_count} players\n📋 {player_list}",
                     inline=False
                 )
             
-            embed.set_footer(text=f"Use /updatewar <id> or /removewar <id> to modify wars | Showing latest {limit} wars")
+            embed.set_footer(text=f"Use /updatewar <id> or /removewar <id> to modify wars | Showing {limit} most recent wars (oldest first)")
             await interaction.response.send_message(embed=embed)
             
         except Exception as e:
@@ -1267,7 +1267,7 @@ class MarioKartCommands(commands.Cog):
             # Get the existing war
             existing_war = self.bot.db.get_war_by_id(war_id, guild_id)
             if not existing_war:
-                await interaction.response.send_message(f"❌ War #{war_id} not found.", ephemeral=True)
+                await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return
             
             # Use existing race count if not provided
@@ -1561,16 +1561,20 @@ class MarioKartCommands(commands.Cog):
             # Get the war to be removed
             war = self.bot.db.get_war_by_id(war_id, guild_id)
             if not war:
-                await interaction.response.send_message(f"❌ War #{war_id} not found.", ephemeral=True)
+                await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return
             
             war_date = war.get('war_date')
             race_count = war.get('race_count')
+            
+            # Handle data format - check if we get it from get_war_by_id or need to extract from database format
             players_data = war.get('players_data', [])
+            if isinstance(players_data, dict) and 'results' in players_data:
+                players_data = players_data['results']
             
             # Show confirmation dialog
             embed = discord.Embed(
-                title=f"⚠️ Remove War #{war_id}",
+                title=f"⚠️ Remove War ID: {war_id}",
                 description=f"Are you sure you want to remove this war from **{war_date}**?",
                 color=0xff4444
             )

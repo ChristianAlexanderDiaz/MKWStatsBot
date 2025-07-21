@@ -941,6 +941,7 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Get recent wars in DESC order, then we'll reverse them for display
                 query = """
                     SELECT id, war_date, race_count, players_data, created_at
                     FROM wars
@@ -968,7 +969,8 @@ class DatabaseManager:
                         'created_at': row[4].isoformat() if row[4] else None
                     })
                 
-                return results
+                # Reverse the results so oldest wars appear first
+                return list(reversed(results))
                 
         except Exception as e:
             logging.error(f"❌ Error getting all wars: {e}")
@@ -1376,7 +1378,7 @@ class DatabaseManager:
                 # Update the war with new data
                 cursor.execute("""
                     UPDATE wars 
-                    SET players_data = %s, race_count = %s, updated_at = CURRENT_TIMESTAMP
+                    SET players_data = %s, race_count = %s
                     WHERE id = %s AND guild_id = %s
                 """, (json.dumps(results), race_count, war_id, guild_id))
                 
