@@ -175,7 +175,7 @@ class MarioKartCommands(commands.Cog):
                     return
                 
                 # Get specific player stats from players table using resolved name
-                stats = self.bot.db.get_player_statistics(resolved_player, guild_id)
+                stats = self.bot.db.get_player_stats(resolved_player, guild_id)
                 if stats:
                     # Create an embed for the player's stats
                     embed = discord.Embed(
@@ -222,7 +222,7 @@ class MarioKartCommands(commands.Cog):
                     await interaction.response.send_message(embed=embed)
                 else:
                     # Check if player exists in players table but has no stats yet
-                    roster_stats = self.bot.db.get_player_stats(resolved_player, guild_id)
+                    roster_stats = self.bot.db.get_player_info(resolved_player, guild_id)
                     if roster_stats:
                         embed = discord.Embed(
                             title=f"📊 Stats for {roster_stats['player_name']}",
@@ -256,7 +256,7 @@ class MarioKartCommands(commands.Cog):
                 players_without_stats = []
                 
                 for roster_player in roster_stats:
-                    war_stats = self.bot.db.get_player_statistics(roster_player['player_name'], guild_id)
+                    war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
                     if war_stats:
                         players_with_stats.append(war_stats)
                     else:
@@ -714,7 +714,7 @@ class MarioKartCommands(commands.Cog):
                 # Get detailed stats for team members
                 detailed_players = []
                 for player in team_players:
-                    player_stats = self.bot.db.get_player_stats(player, guild_id)
+                    player_stats = self.bot.db.get_player_info(player, guild_id)
                     if player_stats:
                         nicknames = player_stats.get('nicknames', [])
                         nickname_text = f" ({', '.join(nicknames)})" if nicknames else ""

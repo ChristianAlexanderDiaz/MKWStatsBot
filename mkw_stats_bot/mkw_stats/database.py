@@ -188,10 +188,6 @@ class DatabaseManager:
             logging.error(f"❌ Error initializing PostgreSQL database: {e}")
             raise
     
-    def add_or_update_player(self, main_name: str, nicknames: List[str] = None, guild_id: int = 0) -> bool:
-        """Add a new player to roster (simplified version)."""
-        return self.add_roster_player(main_name, "system", guild_id)
-    
     def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0) -> Optional[str]:
         """Resolve a name or nickname to players table player name."""
         try:
@@ -301,7 +297,7 @@ class DatabaseManager:
             logging.error(f"❌ Error adding race results: {e}")
             return None
     
-    def get_player_stats(self, name_or_nickname: str, guild_id: int = 0) -> Optional[Dict]:
+    def get_player_info(self, name_or_nickname: str, guild_id: int = 0) -> Optional[Dict]:
         """Get basic roster info for a player."""
         main_name = self.resolve_player_name(name_or_nickname, guild_id)
         if not main_name:
@@ -330,7 +326,7 @@ class DatabaseManager:
                 }
                 
         except Exception as e:
-            logging.error(f"❌ Error getting player stats: {e}")
+            logging.error(f"❌ Error getting player info: {e}")
             return None
     
     def get_all_players_stats(self, guild_id: int = 0) -> List[Dict]:
@@ -361,36 +357,6 @@ class DatabaseManager:
                 
         except Exception as e:
             logging.error(f"❌ Error getting all player stats: {e}")
-            return []
-    
-    def get_recent_wars(self, limit: int = 5, guild_id: int = 0) -> List[Dict]:
-        """Get recent war sessions."""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT war_date, race_count, players_data, created_at
-                    FROM wars
-                    WHERE guild_id = %s
-                    ORDER BY created_at DESC
-                    LIMIT %s
-                """, (guild_id, limit))
-                
-                results = []
-                for row in cursor.fetchall():
-                    session_data = row[2] if row[2] else {}
-                    results.append({
-                        'session_date': row[0].isoformat() if row[0] else None,
-                        'race_count': row[1],
-                        'results': session_data.get('results', []),
-                        'created_at': row[3].isoformat() if row[3] else None
-                    })
-                
-                return results
-                
-        except Exception as e:
-            logging.error(f"❌ Error getting recent wars: {e}")
             return []
     
     def get_database_info(self, guild_id: int = 0) -> Dict:
@@ -526,36 +492,6 @@ class DatabaseManager:
             logging.error(f"❌ Error removing player from roster: {e}")
             return False
     
-    def initialize_roster_from_config(self, config_roster: List[str], guild_id: int = 0) -> bool:
-        """Initialize roster table from config.CLAN_ROSTER (migration helper)."""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Check if roster is already populated
-                cursor.execute("SELECT COUNT(*) FROM players WHERE guild_id = %s AND is_active = TRUE", (guild_id,))
-                existing_count = cursor.fetchone()[0]
-                
-                if existing_count > 0:
-                    logging.info(f"Roster already has {existing_count} players, skipping initialization")
-                    return True
-                
-                # Add all config roster players
-                for player in config_roster:
-                    cursor.execute("""
-                        INSERT INTO players (player_name, added_by, guild_id) 
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (player_name, guild_id) 
-                        DO UPDATE SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP
-                    """, (player, "system_migration", guild_id))
-                
-                conn.commit()
-                logging.info(f"✅ Initialized roster with {len(config_roster)} players from config")
-                return True
-                
-        except Exception as e:
-            logging.error(f"❌ Error initializing roster from config: {e}")
-            return False
 
     # Team Management Methods
     def set_player_team(self, player_name: str, team: str, guild_id: int = 0) -> bool:
@@ -911,7 +847,7 @@ class DatabaseManager:
             logging.error(f"❌ Full traceback: {traceback.format_exc()}")
             return False
     
-    def get_player_statistics(self, player_name: str, guild_id: int = 0) -> Optional[Dict]:
+    def get_player_stats(self, player_name: str, guild_id: int = 0) -> Optional[Dict]:
         """Get comprehensive player statistics."""
         try:
             with self.get_connection() as conn:
@@ -944,7 +880,7 @@ class DatabaseManager:
                 }
                 
         except Exception as e:
-            logging.error(f"❌ Error getting player statistics: {e}")
+            logging.error(f"❌ Error getting player stats: {e}")
             return None
     
     def get_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[Dict]:

@@ -81,7 +81,7 @@ def simulate_race_results():
         for result in test_results:
             stats = db.get_player_stats(result['name'])
             if stats:
-                print(f"  {stats['main_name']}: {stats['war_count']} wars, {stats['total_scores']} total, {stats['average_score']:.1f} avg")
+                print(f"  {stats['player_name']}: {stats['war_count']} wars, {stats['total_score']} total, {stats['average_score']:.1f} avg")
     else:
         print("❌ Failed to add results")
 
@@ -94,7 +94,7 @@ def test_nickname_management():
     
     # Test adding a nickname
     print("Adding test nickname 'TestNick' to Cynical...")
-    success = db.add_or_update_player("Cynical", ["Cyn", "Christian", "Cynicl", "TestNick"])
+    success = db.add_nickname("Cynical", "TestNick")
     
     if success:
         print("✅ Nickname added successfully!")
@@ -105,7 +105,7 @@ def test_nickname_management():
         
         # Remove test nickname
         print("Removing test nickname...")
-        db.add_or_update_player("Cynical", ["Cyn", "Christian", "Cynicl"])
+        db.remove_nickname("Cynical", "TestNick")
         print("✅ Test nickname removed")
     else:
         print("❌ Failed to add nickname")
