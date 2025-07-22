@@ -862,6 +862,9 @@ class DatabaseManager:
                 current_total_score, current_total_races, current_war_count = result
                 logging.info(f"✅ Found player {player_name}: current stats = {current_total_score} points, {current_total_races} races, {current_war_count} wars")
                 
+                # Convert Decimal to float for calculations (PostgreSQL NUMERIC returns Decimal)
+                current_war_count = float(current_war_count)
+                
                 # Calculate new stats with safety checks
                 new_total_score = max(0, current_total_score - score)
                 new_total_races = max(0, current_total_races - races_played)
