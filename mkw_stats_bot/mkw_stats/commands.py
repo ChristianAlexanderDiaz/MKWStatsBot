@@ -1093,9 +1093,9 @@ class MarioKartCommands(commands.Cog):
                 return
             
             # Store war in database
-            success = self.bot.db.add_race_results(resolved_results, races, guild_id)
+            war_id = self.bot.db.add_race_results(resolved_results, races, guild_id)
             
-            if not success:
+            if war_id is None:
                 await interaction.response.send_message("❌ Failed to add war to database. Check logs for details.", ephemeral=True)
                 return
             
@@ -1123,7 +1123,7 @@ class MarioKartCommands(commands.Cog):
             
             # Create success response
             embed = discord.Embed(
-                title="⚔️ War Added Successfully!",
+                title=f"⚔️ War Added Successfully! (ID: {war_id})",
                 color=0x00ff00
             )
             
@@ -1542,9 +1542,9 @@ class MarioKartCommands(commands.Cog):
                 
                 if str(reaction.emoji) == "✅":
                     # Remove the war and revert player stats
-                    success = self.bot.db.remove_war_by_id(war_id, guild_id)
+                    stats_reverted = self.bot.db.remove_war_by_id(war_id, guild_id)
                     
-                    if success:
+                    if stats_reverted is not None:
                         embed = discord.Embed(
                             title="✅ War Removed Successfully!",
                             description=f"War ID: {war_id} from {war_date} has been removed.",
@@ -1552,7 +1552,7 @@ class MarioKartCommands(commands.Cog):
                         )
                         embed.add_field(
                             name="Statistics Updated",
-                            value=f"Reverted stats for {len(players_data)} players",
+                            value=f"Reverted stats for {stats_reverted} players",
                             inline=False
                         )
                         await interaction.edit_original_response(embed=embed)

@@ -248,11 +248,12 @@ class DatabaseManager:
             logging.error(f"❌ Error resolving player name {name_or_nickname}: {e}")
             return None
     
-    def add_race_results(self, results: List[Dict], race_count: int = 12, guild_id: int = 0) -> bool:
+    def add_race_results(self, results: List[Dict], race_count: int = 12, guild_id: int = 0) -> Optional[int]:
         """
         Add race results for multiple players.
         results: [{'name': 'PlayerName', 'score': 85}, ...]
         race_count: number of races in this session (default 12)
+        Returns: war_id if successful, None if failed
         """
         try:
             with self.get_connection() as conn:
@@ -279,6 +280,7 @@ class DatabaseManager:
                 cursor.execute("""
                     INSERT INTO wars (war_date, race_count, players_data, guild_id)
                     VALUES (%s, %s, %s, %s)
+                    RETURNING id
                 """, (
                     eastern_now.date(),
                     race_count,
@@ -286,16 +288,18 @@ class DatabaseManager:
                     guild_id
                 ))
                 
+                war_id = cursor.fetchone()[0]
+                
                 # Just store the war data - no individual player tracking
                 logging.info(f"War data stored with {len(results)} player results")
                 
                 conn.commit()
-                logging.info(f"✅ Added war results for {len(results)} players")
-                return True
+                logging.info(f"✅ Added war results for {len(results)} players, war ID: {war_id}")
+                return war_id
                 
         except Exception as e:
             logging.error(f"❌ Error adding race results: {e}")
-            return False
+            return None
     
     def get_player_stats(self, name_or_nickname: str, guild_id: int = 0) -> Optional[Dict]:
         """Get basic roster info for a player."""
@@ -1012,7 +1016,7 @@ class DatabaseManager:
             logging.error(f"❌ Error getting all wars: {e}")
             return []
     
-    def remove_war_by_id(self, war_id: int, guild_id: int = 0) -> bool:
+    def remove_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[int]:
         """Remove a war by ID and update player statistics."""
         try:
             with self.get_connection() as conn:
@@ -1062,11 +1066,11 @@ class DatabaseManager:
                 
                 conn.commit()
                 logging.info(f"✅ Removed war ID {war_id} and reverted stats for {stats_reverted} players")
-                return True
+                return stats_reverted
                 
         except Exception as e:
             logging.error(f"❌ Error removing war: {e}")
-            return False
+            return None
 
     # Guild Configuration Management Methods
     def get_guild_config(self, guild_id: int) -> Optional[Dict]:
