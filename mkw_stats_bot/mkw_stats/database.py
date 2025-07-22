@@ -828,56 +828,18 @@ class DatabaseManager:
             logging.error(f"❌ Error updating player stats: {e}")
             return False
     
-    def remove_player_stats(self, player_name: str, score: int, races: int, guild_id: int = 0) -> bool:
-        """Remove player statistics when a war is removed."""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get current stats
-                cursor.execute("""
-                    SELECT total_score, total_races, war_count 
-                    FROM player_stats WHERE player_name = %s AND guild_id = %s
-                """, (player_name, guild_id))
-                
-                result = cursor.fetchone()
-                if not result:
-                    logging.warning(f"No stats found for {player_name} to remove")
-                    return False
-                
-                # Calculate new stats with safety checks
-                new_total_score = max(0, result[0] - score)
-                new_total_races = max(0, result[1] - races)
-                new_war_count = max(0, result[2] - 1)
-                
-                # Safe average calculation - avoid division by zero
-                if new_war_count > 0:
-                    new_average = round(new_total_score / new_war_count, 2)
-                else:
-                    new_average = 0.0
-                
-                cursor.execute("""
-                    UPDATE player_stats 
-                    SET total_score = %s, total_races = %s, war_count = %s, 
-                        average_score = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE player_name = %s AND guild_id = %s
-                """, (new_total_score, new_total_races, new_war_count, new_average, player_name, guild_id))
-                
-                conn.commit()
-                logging.info(f"✅ Removed stats for {player_name}: -{score} points, -{races} races")
-                return True
-                
-        except Exception as e:
-            logging.error(f"❌ Error removing player stats: {e}")
-            return False
 
     def remove_player_stats_with_participation(self, player_name: str, score: int, races_played: int, war_participation: float, guild_id: int = 0) -> bool:
         """Remove player statistics when a war is removed, accounting for war participation."""
+        logging.info(f"🔍 Attempting to remove stats for player: {player_name}, guild_id: {guild_id}")
+        logging.info(f"    Score to remove: {score}, Races: {races_played}, War participation: {war_participation}")
+        
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Get current stats
+                # Get current stats with debug logging
+                logging.info(f"🔍 Querying for player: {player_name} in guild {guild_id}")
                 cursor.execute("""
                     SELECT total_score, total_races, war_count 
                     FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
@@ -885,13 +847,27 @@ class DatabaseManager:
                 
                 result = cursor.fetchone()
                 if not result:
-                    logging.warning(f"No stats found for {player_name} to remove")
+                    logging.warning(f"❌ No stats found for {player_name} in guild {guild_id} (or player inactive)")
+                    
+                    # Additional debug: check if player exists at all
+                    cursor.execute("SELECT player_name, guild_id, is_active FROM players WHERE player_name = %s", (player_name,))
+                    all_matches = cursor.fetchall()
+                    if all_matches:
+                        logging.warning(f"🔍 Player '{player_name}' exists but in different states: {all_matches}")
+                    else:
+                        logging.warning(f"🔍 Player '{player_name}' does not exist in players table at all")
                     return False
                 
+                # Log current stats
+                current_total_score, current_total_races, current_war_count = result
+                logging.info(f"✅ Found player {player_name}: current stats = {current_total_score} points, {current_total_races} races, {current_war_count} wars")
+                
                 # Calculate new stats with safety checks
-                new_total_score = max(0, result[0] - score)
-                new_total_races = max(0, result[1] - races_played)
-                new_war_count = max(0.0, result[2] - war_participation)
+                new_total_score = max(0, current_total_score - score)
+                new_total_races = max(0, current_total_races - races_played)
+                new_war_count = max(0.0, current_war_count - war_participation)
+                
+                logging.info(f"🔍 Calculated new stats: {new_total_score} points, {new_total_races} races, {new_war_count} wars")
                 
                 # Safe average calculation - avoid division by zero
                 if new_war_count > 0:
@@ -899,6 +875,10 @@ class DatabaseManager:
                 else:
                     new_average = 0.0
                 
+                logging.info(f"🔍 New average score: {new_average}")
+                
+                # Execute UPDATE with debug logging
+                logging.info(f"🔍 Executing UPDATE for player {player_name}")
                 cursor.execute("""
                     UPDATE players 
                     SET total_score = %s, total_races = %s, war_count = %s, 
@@ -906,12 +886,22 @@ class DatabaseManager:
                     WHERE player_name = %s AND guild_id = %s
                 """, (new_total_score, new_total_races, new_war_count, new_average, player_name, guild_id))
                 
+                # Check if UPDATE affected any rows
+                rows_affected = cursor.rowcount
+                logging.info(f"🔍 UPDATE affected {rows_affected} rows")
+                
+                if rows_affected == 0:
+                    logging.warning(f"❌ UPDATE statement affected 0 rows for player {player_name}")
+                    return False
+                
                 conn.commit()
-                logging.info(f"✅ Removed stats for {player_name}: -{score} points, -{races_played} races, -{war_participation} war participation")
+                logging.info(f"✅ Successfully removed stats for {player_name}: -{score} points, -{races_played} races, -{war_participation} war participation")
                 return True
                 
         except Exception as e:
-            logging.error(f"❌ Error removing player stats with participation: {e}")
+            logging.error(f"❌ Error removing player stats with participation for {player_name}: {e}")
+            import traceback
+            logging.error(f"❌ Full traceback: {traceback.format_exc()}")
             return False
     
     def get_player_statistics(self, player_name: str, guild_id: int = 0) -> Optional[Dict]:
@@ -1033,10 +1023,14 @@ class DatabaseManager:
                 
                 # Handle data format - results should be in war['results']
                 players_data = war.get('results', [])
+                logging.info(f"🔍 War data retrieved: {war}")
+                logging.info(f"🔍 Players data from war: {players_data}")
+                logging.info(f"🔍 Number of players to process: {len(players_data)}")
                 
                 # Update player stats by removing this war's contribution
                 stats_reverted = 0
-                for result in players_data:
+                for i, result in enumerate(players_data):
+                    logging.info(f"🔍 Processing player {i+1}/{len(players_data)}: {result}")
                     player_name = result.get('name')
                     score = result.get('score', 0)
                     races_played = result.get('races_played', war.get('race_count', 12))
