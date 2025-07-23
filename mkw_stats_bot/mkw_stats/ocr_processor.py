@@ -345,11 +345,11 @@ class OCRProcessor:
         processed_images = self.preprocess_image(image_path)
         texts = []
         
-        # OCR config for game font - multiple configs for better accuracy
+        # OCR config for game font - include parentheses for race counts like "Cynical(5)"
         configs = [
-            r'--oem 3 --psm 6 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ΣΩ"',
-            r'--oem 3 --psm 7 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ΣΩ"',
-            r'--oem 3 --psm 8 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ΣΩ"'
+            r'--oem 3 --psm 6 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789() "',
+            r'--oem 3 --psm 7 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789() "',
+            r'--oem 3 --psm 8 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789() "'
         ]
         
         for img in processed_images:
@@ -382,11 +382,10 @@ class OCRProcessor:
             words = line.split()
             for i, word in enumerate(words):
                 # Check if this could be a player name
-                # Filter out obvious artifacts but allow single meaningful letters (H, J, etc.)
+                # Allow letters, numbers, and parentheses for race counts like "Cynical(5)"
                 is_valid_name = (
-                    re.match(r'^[A-Za-z0-9ΣΩ]+$', word) and 
-                    len(word) >= 1 and
-                    not word.lower() in ['a', 'i', 'o', 'e', 'u', 'oo', 'aa', 'ii']  # Filter common OCR artifacts
+                    re.match(r'^[A-Za-z0-9()]+$', word) and 
+                    len(word) >= 2  # Excludes single characters like "C", "I", "1"
                 )
                 
                 if is_valid_name:
@@ -593,24 +592,19 @@ class OCRProcessor:
             return {'success': False, 'error': str(e)}
     
     def classify_text_type(self, text: str) -> str:
-        """Classify text as letters, numbers, or symbols."""
+        """Classify text as letters or numbers only."""
         if not text:
-            return 'unknown'
+            return 'letter'  # Default fallback
             
         # Count character types
         letters = sum(1 for c in text if c.isalpha())
         numbers = sum(1 for c in text if c.isdigit())
-        symbols = len(text) - letters - numbers
         
-        # Determine primary type
-        if numbers > 0 and letters == 0 and symbols <= 1:
-            return 'number'
-        elif letters > 0 and numbers <= letters:
-            return 'letter'
-        elif symbols > 0:
-            return 'symbol'
+        # Simple classification: numbers or letters only
+        if numbers > 0 and letters == 0:
+            return 'number'  # Pure numbers (scores)
         else:
-            return 'mixed'
+            return 'letter'  # Everything else treated as letters (names)
     
     def create_debug_overlay(self, image_path: str) -> str:
         """Create color-coded overlay showing all detected text with bounding boxes."""
@@ -628,13 +622,10 @@ class OCRProcessor:
             text_elements = detection_result['text_elements']
             logging.info(f"🎨 Creating debug overlay with {len(text_elements)} text elements")
             
-            # Color scheme: Red=letters, Green=numbers, Blue=symbols
+            # Color scheme: Red=letters, Green=numbers only
             colors = {
                 'letter': (0, 0, 255),      # Red (BGR format)
-                'number': (0, 255, 0),      # Green
-                'symbol': (255, 0, 0),      # Blue
-                'mixed': (0, 255, 255),     # Yellow
-                'unknown': (128, 128, 128)   # Gray
+                'number': (0, 255, 0)       # Green
             }
             
             # Draw bounding boxes and labels
@@ -645,7 +636,7 @@ class OCRProcessor:
                 text_type = element['type']
                 
                 # Get color for this text type
-                color = colors.get(text_type, colors['unknown'])
+                color = colors.get(text_type, colors['letter'])  # Default to letter (red) if unknown
                 
                 # Draw rectangle
                 cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
@@ -659,11 +650,10 @@ class OCRProcessor:
             # Add legend
             legend_y = 30
             for text_type, color in colors.items():
-                if text_type != 'unknown':  # Skip unknown in legend
-                    legend_text = f"{text_type.title()}"
-                    cv2.putText(img, legend_text, (10, legend_y), cv2.FONT_HERSHEY_SIMPLEX,
-                               0.6, color, 2, cv2.LINE_AA)
-                    legend_y += 25
+                legend_text = f"{text_type.title()}"
+                cv2.putText(img, legend_text, (10, legend_y), cv2.FONT_HERSHEY_SIMPLEX,
+                           0.6, color, 2, cv2.LINE_AA)
+                legend_y += 25
             
             # Save overlay image
             import time
@@ -755,13 +745,10 @@ class OCRProcessor:
             if detection_result['success']:
                 text_elements = detection_result['text_elements']
                 
-                # Color scheme for text types
+                # Color scheme for text types - letters and numbers only
                 colors = {
                     'letter': (0, 0, 255),      # Red
-                    'number': (0, 255, 0),      # Green  
-                    'symbol': (255, 0, 0),      # Blue
-                    'mixed': (0, 255, 255),     # Yellow
-                    'unknown': (128, 128, 128)   # Gray
+                    'number': (0, 255, 0)       # Green
                 }
                 
                 # Draw detected text boxes (offset to original image coordinates)
@@ -772,7 +759,7 @@ class OCRProcessor:
                     orig_y = start_y + roi_y
                     
                     text_type = element['type']
-                    color = colors.get(text_type, colors['unknown'])
+                    color = colors.get(text_type, colors['letter'])  # Default to red if unknown
                     
                     # Draw rectangle on original image
                     cv2.rectangle(img, (orig_x, orig_y), (orig_x + roi_w, orig_y + roi_h), color, 2)
@@ -789,8 +776,7 @@ class OCRProcessor:
                 ("Selected Region", (0, 255, 255)),
                 ("Extended Region", (0, 165, 255)),
                 ("Letters", (0, 0, 255)),
-                ("Numbers", (0, 255, 0)),
-                ("Symbols", (255, 0, 0))
+                ("Numbers", (0, 255, 0))
             ]
             
             for i, (text, color) in enumerate(legend_items):
