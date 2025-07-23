@@ -1801,19 +1801,19 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send(f"❌ Error initializing OCR: {str(e)}")
                 return
             
-            # Process the image with OCR (full image debug mode)
-            logging.info("🔍 Starting full-image OCR debug processing...")
+            # Process the image with OCR (custom region debug mode)
+            logging.info("🔍 Starting custom region OCR debug processing...")
             try:
-                result = ocr.process_full_image_debug(temp_image_path, guild_id)
-                logging.info(f"📊 OCR debug processing completed. Success: {result.get('success', False)}")
+                result = ocr.process_custom_region_debug(temp_image_path, guild_id)
+                logging.info(f"📊 Custom region OCR debug processing completed. Success: {result.get('success', False)}")
                 
                 if 'debug_overlay' in result:
                     overlay_path = result['debug_overlay']
-                    logging.info(f"🎨 Debug overlay image created: {overlay_path}")
+                    logging.info(f"🎨 Custom region debug overlay image created: {overlay_path}")
                 
             except Exception as e:
-                logging.error(f"❌ Exception during OCR processing: {e}")
-                await interaction.followup.send(f"❌ OCR processing error: {str(e)}")
+                logging.error(f"❌ Exception during custom region OCR processing: {e}")
+                await interaction.followup.send(f"❌ Custom region OCR processing error: {str(e)}")
                 return
             
             if not result.get('success', False):
@@ -1823,17 +1823,19 @@ class MarioKartCommands(commands.Cog):
                 return
             
             # Format the results
-            logging.info("📝 Formatting OCR debug results...")
-            results_text = "🔍 **OCR Debug Results** (Full Image Analysis)\n\n"
+            logging.info("📝 Formatting custom region OCR debug results...")
+            results_text = "🔍 **Custom Region OCR Debug Results**\n\n"
             
             results = result.get('results', [])
             debug_info = result.get('debug_info', {})
+            region_used = debug_info.get('region_used', {})
             logging.info(f"👥 Found {len(results)} player results")
             
-            # Show debug statistics
+            # Show debug statistics and region info
             total_elements = debug_info.get('total_elements', 0)
             results_text += f"**Debug Stats:**\n"
-            results_text += f"🔤 Total text elements detected: {total_elements}\n"
+            results_text += f"📍 Region: ({region_used.get('start', [0,0])[0]}, {region_used.get('start', [0,0])[1]}) to ({region_used.get('end', [0,0])[0]}, {region_used.get('end', [0,0])[1]})\n"
+            results_text += f"🔤 Text elements in region: {total_elements}\n"
             results_text += f"👥 Player results found: {len(results)}\n\n"
             
             if results:
@@ -1867,8 +1869,8 @@ class MarioKartCommands(commands.Cog):
                 results_text += "No players found in the image."
                 logging.warning("❌ No player results found")
                 
-            # Add note about color coding
-            results_text += f"\n\n**Legend for overlay image:**\n🔴 Red: Letters/Names\n🟢 Green: Numbers/Scores\n🔵 Blue: Symbols"
+            # Add note about color coding and region
+            results_text += f"\n\n**Legend for overlay image:**\n🟡 Yellow: Selected Region\n🟠 Orange: Extended Region\n🔴 Red: Letters/Names\n🟢 Green: Numbers/Scores\n🔵 Blue: Symbols"
             
             # Create embed for results
             embed = discord.Embed(

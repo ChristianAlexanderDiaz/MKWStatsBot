@@ -75,71 +75,73 @@ class OCRProcessor:
         # Store database manager for name resolution
         self.db_manager = db_manager
         
-        # Load preset regions first (this populates TABLE_PRESETS)
-        self.presets_file = 'table_presets.json'
-        self.load_presets()
+        # Custom region processing mode - no longer using legacy presets
+        self.presets_file = 'table_presets.json'  # Keep for legacy compatibility
         
-        # Set table preset configuration
-        self.table_preset = table_preset or config.DEFAULT_TABLE_PRESET
-        if self.table_preset and self.table_preset in config.TABLE_PRESETS:
-            self.preset_config = config.TABLE_PRESETS[self.table_preset]
-        else:
-            # Use default config if preset not found
-            self.preset_config = {
-                'score_pattern': r'\b\d{1,3}\b',
-                'player_name_pattern': r'[A-Za-z0-9ΣΩ]+',
-                'ocr_confidence_threshold': 0.6
-            }
+        # Use simple config for custom region processing
+        self.preset_config = {
+            'score_pattern': r'\b\d{1,3}\b',
+            'player_name_pattern': r'[A-Za-z0-9ΣΩ]+',
+            'ocr_confidence_threshold': 0.6
+        }
     
-    def load_presets(self):
-        """Load saved table format presets from formats/ folder."""
+    def load_custom_regions(self):
+        """Load custom region selection from selected_regions.json."""
         try:
-            # Load custom formats from data/formats/ folder
-            formats_dir = 'data/formats'
-            if os.path.exists(formats_dir):
-                for filename in os.listdir(formats_dir):
-                    if filename.endswith('.json') and filename != 'README.md':
-                        filepath = os.path.join(formats_dir, filename)
-                        try:
-                            with open(filepath, 'r') as f:
-                                format_data = json.load(f)
-                                format_name = format_data.get('format_name', filename.replace('.json', ''))
-                                
-                                # Convert to TABLE_PRESETS format
-                                preset = {
-                                    'name': format_data.get('description', format_name),
-                                    'description': format_data.get('description', f'Custom format: {format_name}'),
-                                    'regions': format_data.get('regions', []),
-                                    'created_date': format_data.get('created_date'),
-                                    'image_path': format_data.get('image_path'),
-                                    'team_columns': 2,
-                                    'player_name_pattern': r'[A-Za-z0-9ΣΩ]+',
-                                    'score_pattern': r'\b\d{1,3}\b',
-                                    'table_structure': 'custom',
-                                    'expected_players': 12,
-                                    'ocr_confidence_threshold': 0.6,
-                                }
-                                
-                                config.TABLE_PRESETS[format_name] = preset
-                                
-                                # Set first custom format as default
-                                if not config.DEFAULT_TABLE_PRESET:
-                                    config.DEFAULT_TABLE_PRESET = format_name
-                                    
-                        except Exception as e:
-                            logging.error(f"Error loading format {filename}: {e}")
-                            
-                logging.info(f"Loaded {len(config.TABLE_PRESETS)} custom table presets from formats/")
-                
-            # Fallback to old presets file if no custom formats found
-            if not config.TABLE_PRESETS and os.path.exists(self.presets_file):
-                with open(self.presets_file, 'r') as f:
-                    loaded_presets = json.load(f)
-                    config.TABLE_PRESETS.update(loaded_presets)
-                    logging.info(f"Loaded {len(loaded_presets)} table presets from {self.presets_file}")
-                    
+            regions_file = 'data/formats/selected_regions.json'
+            if not os.path.exists(regions_file):
+                raise FileNotFoundError(f"Custom regions file not found: {regions_file}")
+            
+            with open(regions_file, 'r') as f:
+                regions_data = json.load(f)
+            
+            regions = regions_data.get('regions', [])
+            if not regions:
+                raise ValueError("No regions found in selected_regions.json")
+            
+            # Use the first (main) region
+            main_region = regions[0]
+            
+            # Extract coordinates
+            start_x, start_y = main_region['start']
+            end_x, end_y = main_region['end']
+            
+            logging.info(f"✅ Loaded custom region: ({start_x}, {start_y}) to ({end_x}, {end_y})")
+            logging.info(f"📏 Region size: {main_region['width']} x {main_region['height']}")
+            
+            return {
+                'start': [start_x, start_y],
+                'end': [end_x, end_y],
+                'original_end': [end_x, end_y],  # Store original for overlay
+                'width': main_region['width'],
+                'height': main_region['height'],
+                'source': 'selected_regions.json'
+            }
+            
         except Exception as e:
-            logging.error(f"Error loading presets: {e}")
+            logging.error(f"❌ Error loading custom regions: {e}")
+            raise
+    
+    def extend_region_to_bottom(self, region_data: dict, image_height: int) -> dict:
+        """Extend the custom region to the bottom of the image."""
+        try:
+            # Create extended region
+            extended_region = region_data.copy()
+            start_x, start_y = region_data['start']
+            end_x, _ = region_data['end']
+            
+            # Extend to image bottom
+            extended_region['end'] = [end_x, image_height]
+            extended_region['height'] = image_height - start_y
+            
+            logging.info(f"🔽 Extended region to bottom: ({start_x}, {start_y}) to ({end_x}, {image_height})")
+            logging.info(f"📐 Extended height: {extended_region['height']} pixels")
+            
+            return extended_region
+            
+        except Exception as e:
+            logging.error(f"❌ Error extending region: {e}")
+            return region_data
     
     def save_preset(self, preset_name: str, regions: List[Dict], description: str = ""):
         """Save a new table format preset."""
@@ -423,7 +425,7 @@ class OCRProcessor:
                                 'raw_name': word,  # Original detected name
                                 'score': score,
                                 'raw_line': line,
-                                'preset_used': self.table_preset,
+                                'preset_used': 'custom_region',
                                 'confidence': 0.9 if is_roster_member else 0.7,
                                 'is_roster_member': is_roster_member
                             })
@@ -724,66 +726,189 @@ class OCRProcessor:
             logging.error(f"Error creating visual overlay: {e}")
             return None
     
-    def process_full_image_debug(self, image_path: str, guild_id: int = 0) -> Dict:
-        """Process entire image for debugging with color-coded text detection overlay."""
+    def create_custom_region_debug_overlay(self, image_path: str, region_data: dict, roi_path: str) -> str:
+        """Create debug overlay showing custom region boundaries and detected text."""
         try:
-            logging.info(f"🔍 Processing full image for debugging: {image_path}")
+            # Load original image
+            img = cv2.imread(image_path)
+            if img is None:
+                return None
             
-            # Extract text from full image
-            texts = self.extract_text_from_image(image_path)
+            # Get region coordinates
+            start_x, start_y = region_data['start']
+            end_x, end_y = region_data['end']
+            original_end_x, original_end_y = region_data['original_end']
             
-            # Get detailed text detection with bounding boxes
-            detection_result = self.detect_all_text_with_boxes(image_path)
+            # Draw original selected region in yellow
+            cv2.rectangle(img, (start_x, start_y), (original_end_x, original_end_y), (0, 255, 255), 3)
+            cv2.putText(img, "Selected Region", (start_x, start_y - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             
-            if not texts or not any(text.strip() for text in texts):
-                return {
-                    'success': False,
-                    'error': 'No text could be extracted from the image',
-                    'results': [],
-                    'debug_info': {
-                        'raw_text': '',
-                        'detected_elements': []
-                    }
+            # Draw extended region in orange (if different)
+            if end_y != original_end_y:
+                cv2.rectangle(img, (start_x, original_end_y), (end_x, end_y), (0, 165, 255), 2)
+                cv2.putText(img, "Extended to Bottom", (start_x, original_end_y + 20), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+            
+            # Get text detection results from the ROI
+            detection_result = self.detect_all_text_with_boxes(roi_path)
+            if detection_result['success']:
+                text_elements = detection_result['text_elements']
+                
+                # Color scheme for text types
+                colors = {
+                    'letter': (0, 0, 255),      # Red
+                    'number': (0, 255, 0),      # Green  
+                    'symbol': (255, 0, 0),      # Blue
+                    'mixed': (0, 255, 255),     # Yellow
+                    'unknown': (128, 128, 128)   # Gray
                 }
+                
+                # Draw detected text boxes (offset to original image coordinates)
+                for element in text_elements:
+                    # Adjust coordinates back to original image
+                    roi_x, roi_y, roi_w, roi_h = element['bbox']
+                    orig_x = start_x + roi_x
+                    orig_y = start_y + roi_y
+                    
+                    text_type = element['type']
+                    color = colors.get(text_type, colors['unknown'])
+                    
+                    # Draw rectangle on original image
+                    cv2.rectangle(img, (orig_x, orig_y), (orig_x + roi_w, orig_y + roi_h), color, 2)
+                    
+                    # Add text label
+                    label = f"{element['text']} ({element['confidence']}%)"
+                    label_pos = (orig_x, orig_y - 5 if orig_y > 20 else orig_y + roi_h + 15)
+                    cv2.putText(img, label, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 
+                               0.4, color, 1, cv2.LINE_AA)
             
-            # Parse results from extracted text
-            parsed_data = self.parse_mario_kart_results(texts, guild_id)
+            # Add legend
+            legend_y = 30
+            legend_items = [
+                ("Selected Region", (0, 255, 255)),
+                ("Extended Region", (0, 165, 255)),
+                ("Letters", (0, 0, 255)),
+                ("Numbers", (0, 255, 0)),
+                ("Symbols", (255, 0, 0))
+            ]
             
-            # Create debug overlay showing all detected text
-            debug_overlay_path = self.create_debug_overlay(image_path)
+            for i, (text, color) in enumerate(legend_items):
+                cv2.putText(img, text, (10, legend_y + i * 25), cv2.FONT_HERSHEY_SIMPLEX,
+                           0.6, color, 2, cv2.LINE_AA)
             
-            # Prepare debug information
-            debug_info = {
-                'raw_text': '\n'.join(texts)[:2000],  # Limit to 2000 chars
-                'detected_elements': detection_result.get('text_elements', [])[:50],  # Limit to 50 elements
-                'total_elements': len(detection_result.get('text_elements', [])) if detection_result['success'] else 0,
-                'processing_mode': 'full_image_debug'
-            }
+            # Save overlay image
+            import time
+            timestamp = int(time.time())
+            overlay_path = f"temp_custom_debug_overlay_{timestamp}.png"
             
-            # Validate results
-            validation_result = self.validate_results(parsed_data['results'], guild_id)
+            success = cv2.imwrite(overlay_path, img)
+            if success:
+                logging.info(f"Created custom region debug overlay: {overlay_path}")
+                return overlay_path
+            else:
+                logging.error("Failed to save custom region debug overlay")
+                return None
+                
+        except Exception as e:
+            logging.error(f"Error creating custom region debug overlay: {e}")
+            return None
+    
+    def process_custom_region_debug(self, image_path: str, guild_id: int = 0) -> Dict:
+        """Process custom region for debugging with color-coded text detection overlay."""
+        try:
+            logging.info(f"🔍 Processing custom region for debugging: {image_path}")
             
-            result = {
-                'success': parsed_data['total_extracted'] > 0,
-                'results': parsed_data['results'],
-                'total_found': parsed_data['total_extracted'],
-                'validation': validation_result,
-                'debug_info': debug_info
-            }
+            # Load custom region coordinates
+            region_data = self.load_custom_regions()
             
-            if debug_overlay_path:
-                result['debug_overlay'] = debug_overlay_path
+            # Load image to get dimensions
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Could not load image: {image_path}")
             
-            if parsed_data['total_extracted'] == 0:
-                result['error'] = 'No valid player results found in the image'
+            image_height = img.shape[0]
             
-            return result
+            # Extend region to bottom of image
+            extended_region = self.extend_region_to_bottom(region_data, image_height)
+            
+            # Extract region from image
+            start_x, start_y = extended_region['start']
+            end_x, end_y = extended_region['end']
+            
+            # Crop the region
+            roi = img[start_y:end_y, start_x:end_x]
+            
+            # Save ROI temporarily for processing
+            import time
+            timestamp = int(time.time())
+            roi_path = f"temp_custom_roi_{timestamp}.png"
+            cv2.imwrite(roi_path, roi)
+            
+            try:
+                # Extract text from region only
+                texts = self.extract_text_from_image(roi_path)
+                
+                # Get detailed text detection with bounding boxes from region
+                detection_result = self.detect_all_text_with_boxes(roi_path)
+                
+                if not texts or not any(text.strip() for text in texts):
+                    return {
+                        'success': False,
+                        'error': 'No text could be extracted from the custom region',
+                        'results': [],
+                        'debug_info': {
+                            'raw_text': '',
+                            'detected_elements': [],
+                            'region_used': extended_region
+                        }
+                    }
+                
+                # Parse results from extracted text
+                parsed_data = self.parse_mario_kart_results(texts, guild_id)
+                
+                # Create debug overlay showing region boundaries and detected text
+                debug_overlay_path = self.create_custom_region_debug_overlay(image_path, extended_region, roi_path)
+                
+                # Prepare debug information
+                debug_info = {
+                    'raw_text': '\n'.join(texts)[:2000],  # Limit to 2000 chars
+                    'detected_elements': detection_result.get('text_elements', [])[:50],  # Limit to 50 elements
+                    'total_elements': len(detection_result.get('text_elements', [])) if detection_result['success'] else 0,
+                    'processing_mode': 'custom_region_debug',
+                    'region_used': extended_region,
+                    'region_source': region_data['source']
+                }
+                
+                # Validate results
+                validation_result = self.validate_results(parsed_data['results'], guild_id)
+                
+                result = {
+                    'success': parsed_data['total_extracted'] > 0,
+                    'results': parsed_data['results'],
+                    'total_found': parsed_data['total_extracted'],
+                    'validation': validation_result,
+                    'debug_info': debug_info
+                }
+                
+                if debug_overlay_path:
+                    result['debug_overlay'] = debug_overlay_path
+                
+                if parsed_data['total_extracted'] == 0:
+                    result['error'] = 'No valid player results found in the custom region'
+                
+                return result
+                
+            finally:
+                # Clean up ROI temp file
+                if os.path.exists(roi_path):
+                    os.unlink(roi_path)
             
         except Exception as e:
-            logging.error(f"Error processing full image for debug: {e}")
+            logging.error(f"Error processing custom region for debug: {e}")
             return {
                 'success': False,
-                'error': f'Debug processing failed: {str(e)}',
+                'error': f'Custom region debug processing failed: {str(e)}',
                 'results': [],
                 'debug_info': {'raw_text': '', 'detected_elements': [], 'total_elements': 0}
             }

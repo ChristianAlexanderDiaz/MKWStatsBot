@@ -1,0 +1,24 @@
+{
+  "regions": [
+    {
+      "name": "main_region",
+      "start": [
+        571,
+        104
+      ],
+      "end": [
+        1070,
+        1016
+      ],
+      "width": 499,
+      "height": 912
+    }
+  ],
+  "image_source": "Table6v6.png",
+  "image_size": {
+    "width": 1720,
+    "height": 1040
+  },
+  "created_date": "2025-07-23T00:57:44.304878",
+  "description": "OCR region selection for Ice Mario table format"
+}
