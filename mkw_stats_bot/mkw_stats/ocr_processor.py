@@ -1083,10 +1083,13 @@ class OCRProcessor:
                 for line in lines:
                     words = line.split()
                     for word in words:
-                        if re.match(r'^\d+$', word):  # Pure numbers only
-                            score = int(word)
+                        # Extract numbers from mixed text like "77," or "77, (63%)"
+                        number_matches = re.findall(r'\d+', word)
+                        for number_str in number_matches:
+                            score = int(number_str)
                             if 12 <= score <= 180:  # Valid score range
                                 score_candidates.append(score)
+                                break  # Only take first valid score from each word
             
             # For now, simple pairing: match by index (assuming they're in same order)
             # TODO: Could enhance with spatial Y-coordinate matching later
