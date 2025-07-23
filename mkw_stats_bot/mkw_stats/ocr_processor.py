@@ -382,57 +382,66 @@ class OCRProcessor:
             if not line:
                 continue
                 
-            # Extract potential player names and scores from each line
+            # Look for complete player names that may include spaces and parentheses
+            # Pattern matches: "Name (number)" or just "Name" followed by a score
+            # This regex finds potential player names (allowing spaces and parentheses)
+            name_pattern = r'([A-Za-z0-9][A-Za-z0-9\s()]*[A-Za-z0-9()]|[A-Za-z0-9]{2,})'
+            potential_names = re.findall(name_pattern, line)
+            
+            # Find all valid scores in the line
+            all_scores_in_line = []
             words = line.split()
-            for i, word in enumerate(words):
-                # Check if this could be a player name
-                # Allow letters, numbers, and parentheses for race counts like "Cynical(5)"
-                is_valid_name = (
-                    re.match(r'^[A-Za-z0-9()]+$', word) and 
-                    len(word) >= 2  # Excludes single characters like "C", "I", "1"
-                )
+            for word in words:
+                if re.match(score_pattern, word):
+                    score = int(word)
+                    if 12 <= score <= 180:
+                        all_scores_in_line.append(score)
+            
+            # If we found scores, try to match with names
+            if all_scores_in_line and potential_names:
+                # Use the last score as the player's total score
+                score = all_scores_in_line[-1]
                 
-                if is_valid_name:
-                    # Look for valid scores in the line
-                    all_scores_in_line = []
-                    for j, check_word in enumerate(words):
-                        if re.match(score_pattern, check_word):
-                            score = int(check_word)
-                            if 12 <= score <= 180:
-                                all_scores_in_line.append(score)
-                    
-                    # If we found scores, use the last one (most likely the player's total)
-                    if all_scores_in_line:
-                        score = all_scores_in_line[-1]  # Take the last score in the line
+                # Find the best matching name (longest valid name that's not just numbers)
+                best_name = None
+                for potential_name in potential_names:
+                    potential_name = potential_name.strip()
+                    # Validate name: at least 2 chars, contains letters, not pure numbers
+                    if (len(potential_name) >= 2 and 
+                        re.search(r'[A-Za-z]', potential_name) and 
+                        not re.match(r'^\d+$', potential_name)):
+                        if best_name is None or len(potential_name) > len(best_name):
+                            best_name = potential_name
+                
+                if best_name:
+                    # Score validation 
+                    if 12 <= score <= 180:
+                        # Try to resolve nickname to roster name using database
+                        resolved_name = best_name  # Default to detected name
+                        is_roster_member = False
                         
-                        # Score validation 
-                        if 12 <= score <= 180:
-                            # Try to resolve nickname to roster name using database
-                            resolved_name = word  # Default to detected name
-                            is_roster_member = False
-                            
-                            if self.db_manager:
-                                try:
-                                    db_resolved = self.db_manager.resolve_player_name(word, guild_id)
-                                    if db_resolved and db_resolved in roster_players:
-                                        resolved_name = db_resolved
-                                        is_roster_member = True
-                                except Exception as e:
-                                    # If resolution fails, just use the original name
-                                    logging.debug(f"Name resolution failed for '{word}': {e}")
-                                    pass
-                            
-                            # Add ALL detected players (no filtering)
-                            results.append({
-                                'name': resolved_name,
-                                'raw_name': word,  # Original detected name
-                                'score': score,
-                                'raw_line': line,
-                                'preset_used': 'custom_region',
-                                'confidence': 0.9 if is_roster_member else 0.7,
-                                'is_roster_member': is_roster_member
-                            })
-                            break  # Only take first valid name per line
+                        if self.db_manager:
+                            try:
+                                db_resolved = self.db_manager.resolve_player_name(best_name, guild_id)
+                                if db_resolved and db_resolved in roster_players:
+                                    resolved_name = db_resolved
+                                    is_roster_member = True
+                            except Exception as e:
+                                # If resolution fails, just use the original name
+                                logging.debug(f"Name resolution failed for '{best_name}': {e}")
+                                pass
+                        
+                        # Add ALL detected players (no filtering)
+                        results.append({
+                            'name': resolved_name,
+                            'raw_name': best_name,  # Original detected name
+                            'score': score,
+                            'raw_line': line,
+                            'preset_used': 'custom_region',
+                            'confidence': 0.9 if is_roster_member else 0.7,
+                            'is_roster_member': is_roster_member
+                        })
+                        break  # Only take first valid name per line
         
         return results
     
@@ -1053,11 +1062,19 @@ class OCRProcessor:
                     if not line:
                         continue
                     
-                    words = line.split()
-                    for word in words:
-                        # Apply name validation (2+ chars, alphanumeric + parentheses)
-                        if (re.match(r'^[A-Za-z0-9()]+$', word) and len(word) >= 2):
-                            name_candidates.append(word)
+                    # Look for complete player names that may include spaces and parentheses
+                    # Pattern matches: "Name (number)" or just "Name"
+                    name_pattern = r'([A-Za-z0-9][A-Za-z0-9\s()]*[A-Za-z0-9()]|[A-Za-z0-9]{2,})'
+                    potential_names = re.findall(name_pattern, line)
+                    
+                    # Find the best matching name (longest valid name that's not just numbers)
+                    for potential_name in potential_names:
+                        potential_name = potential_name.strip()
+                        # Validate name: at least 2 chars, contains letters, not pure numbers
+                        if (len(potential_name) >= 2 and 
+                            re.search(r'[A-Za-z]', potential_name) and 
+                            not re.match(r'^\d+$', potential_name)):
+                            name_candidates.append(potential_name)
             
             # Extract score candidates from score region
             score_candidates = []
