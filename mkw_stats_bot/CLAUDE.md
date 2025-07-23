@@ -3,7 +3,7 @@
 ## Project Overview
 - **Purpose**: Discord bot for Mario Kart clan statistics with OCR image processing
 - **Architecture**: Python Discord bot + PostgreSQL database + Tesseract OCR
-- **Version**: 0.11.0 (active development)
+- **Version**: 0.17.0 (stable release)
 - **Deployment**: Railway with PostgreSQL, Docker support
 - **Multi-Guild Support**: Full data isolation between Discord servers
 
@@ -115,15 +115,15 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 
 ## Discord Bot Architecture
 
-### Command Structure (25+ slash commands total)
+### Command Structure (20+ slash commands total)
 
 #### Slash Commands (/) - Primary Interface
-- **Guild Setup**: `/setup` - Initialize guild configuration with team and players
+- **Guild Setup**: `/setup <teamname> <players>` - Initialize guild configuration with team and players
 - **War Management**: 
-  - `/addwar` - Add new war with OCR image processing
+  - `/addwar <player_scores> [races]` - Add new war with player scores (OCR optional)
   - `/showallwars [limit]` - List all wars with pagination  
-  - `/updatewar <war_id> <player_scores>` - Update/add players to existing war (smart merge)
-  - `/removewar <war_id>` - Delete war and revert player statistics
+  - `/appendplayertowar <war_id> <player_scores>` - Add/update players to existing war (smart merge)
+  - `/removewar <war_id>` - Delete war and revert player statistics (returns count of reverted players)
 - **Statistics**: `/stats [player]` - View player statistics or leaderboard
 - **Player Management**: 
   - `/roster` - Show complete guild roster organized by teams
@@ -149,7 +149,6 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 
 #### Legacy Commands Removed
 All prefix commands (!mk*) have been converted to modern slash commands or removed to streamline the interface.
-W
 ### OCR Image Processing Workflow
 1. **Upload**: User uploads race result image to Discord
 2. **Process**: Bot automatically detects and processes with OCR
