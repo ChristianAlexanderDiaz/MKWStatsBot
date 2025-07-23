@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """
-Region Selection Tool for Mario Kart OCR
+Enhanced Region Selection Tool for Mario Kart OCR
 
-Interactive tool to select regions on Table6v6.png and save coordinates to JSON.
+Interactive tool to select regions on Table6v6.png with name/score separator.
 
 Usage:
     python region_selector.py
 
+Two-Step Process:
+    1. Click and drag to select main region (yellow box)
+    2. Click inside region to place vertical separator line (red line)
+
 Controls:
-    - Click and drag to select rectangle
-    - Press 's' to save coordinates
-    - Press 'r' to reset selection
+    - Step 1: Click and drag for main region
+    - Step 2: Single click for separator placement
+    - Press 's' to save region + separator
+    - Press 'r' to reset everything
     - Press 'q' to quit
 """
 
@@ -29,6 +34,10 @@ class RegionSelector:
         self.end_point = None
         self.drawing = False
         self.selected_regions = []
+        # New: Separator line support
+        self.separator_x = None
+        self.region_selected = False
+        self.separator_placed = False
         
     def load_image(self):
         """Load the Table6v6.png image."""
@@ -48,27 +57,47 @@ class RegionSelector:
         return True
     
     def mouse_callback(self, event, x, y, flags, param):
-        """Handle mouse events for region selection."""
+        """Handle mouse events for region selection and separator placement."""
         
         if event == cv2.EVENT_LBUTTONDOWN:
-            # Start drawing rectangle
-            self.drawing = True
-            self.start_point = (x, y)
-            self.end_point = (x, y)
-            print(f"🖱️  Start selection at: ({x}, {y})")
+            if not self.region_selected:
+                # Phase 1: Start drawing rectangle
+                self.drawing = True
+                self.start_point = (x, y)
+                self.end_point = (x, y)
+                print(f"🖱️  Start region selection at: ({x}, {y})")
+            else:
+                # Phase 2: Place separator line (single click)
+                if self.selected_regions:
+                    region = self.selected_regions[0]
+                    start_x, start_y = region['start']
+                    end_x, end_y = region['end']
+                    
+                    # Validate separator is within region bounds
+                    if start_x <= x <= end_x and start_y <= y <= end_y:
+                        self.separator_x = x
+                        self.separator_placed = True
+                        print(f"📏 Separator placed at X={x}")
+                        
+                        # Draw separator line on the clone (persistent display)
+                        cv2.line(self.clone, (x, start_y), (x, end_y), (0, 0, 255), 2)  # Red line
+                        cv2.putText(self.clone, "Names | Scores", 
+                                   (start_x, end_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                        cv2.imshow("Region Selector", self.clone)
+                    else:
+                        print(f"❌ Separator must be within the selected region!")
             
         elif event == cv2.EVENT_MOUSEMOVE:
-            # Update rectangle while dragging
-            if self.drawing:
+            # Update rectangle while dragging (only in phase 1)
+            if self.drawing and not self.region_selected:
                 self.end_point = (x, y)
-                # Create fresh copy and draw current rectangle
                 temp_image = self.clone.copy()
-                cv2.rectangle(temp_image, self.start_point, self.end_point, (0, 255, 0), 2)
+                cv2.rectangle(temp_image, self.start_point, self.end_point, (0, 255, 255), 2)  # Yellow
                 cv2.imshow("Region Selector", temp_image)
                 
         elif event == cv2.EVENT_LBUTTONUP:
-            # Finish drawing rectangle
-            if self.drawing:
+            # Finish drawing rectangle (only in phase 1)
+            if self.drawing and not self.region_selected:
                 self.drawing = False
                 self.end_point = (x, y)
                 
@@ -85,11 +114,11 @@ class RegionSelector:
                 width = end_x - start_x
                 height = end_y - start_y
                 
-                print(f"🖱️  End selection at: ({x}, {y})")
-                print(f"📐 Selected region: ({start_x}, {start_y}) to ({end_x}, {end_y})")
+                print(f"🖱️  Region selected: ({start_x}, {start_y}) to ({end_x}, {end_y})")
                 print(f"📏 Size: {width} x {height}")
+                print(f"👆 Now click inside the region to place the separator line")
                 
-                # Store the selection (replace previous if exists)
+                # Store the selection
                 self.selected_regions = [{
                     "name": "main_region",
                     "start": [start_x, start_y],
@@ -98,31 +127,41 @@ class RegionSelector:
                     "height": height
                 }]
                 
-                # Draw final rectangle
-                cv2.rectangle(self.clone, (start_x, start_y), (end_x, end_y), (0, 255, 0), 2)
+                self.region_selected = True
+                
+                # Draw the selected region on clone (persistent display)
+                cv2.rectangle(self.clone, (start_x, start_y), (end_x, end_y), (0, 255, 255), 2)  # Yellow
                 cv2.putText(self.clone, f"Region: {width}x{height}", 
-                           (start_x, start_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                           (start_x, start_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 cv2.imshow("Region Selector", self.clone)
     
     def save_regions(self):
-        """Save selected regions to JSON file."""
+        """Save selected regions with separator to JSON file."""
         if not self.selected_regions:
             print("❌ No regions selected! Please select a region first.")
+            return False
+            
+        if not self.separator_placed:
+            print("❌ No separator placed! Please click within the region to place separator line.")
             return False
             
         # Create output directory if it doesn't exist
         os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
         
+        # Add separator_x to the region data
+        region_with_separator = self.selected_regions[0].copy()
+        region_with_separator["separator_x"] = self.separator_x
+        
         # Prepare output data
         output_data = {
-            "regions": self.selected_regions,
+            "regions": [region_with_separator],
             "image_source": "Table6v6.png",
             "image_size": {
                 "width": self.image.shape[1],
                 "height": self.image.shape[0]
             },
             "created_date": datetime.now().isoformat(),
-            "description": "OCR region selection for Ice Mario table format"
+            "description": "OCR region selection with name/score separator for Ice Mario table format"
         }
         
         try:
@@ -143,9 +182,13 @@ class RegionSelector:
         self.start_point = None
         self.end_point = None
         self.drawing = False
+        # Reset separator variables
+        self.separator_x = None
+        self.region_selected = False
+        self.separator_placed = False
         self.clone = self.image.copy()
         cv2.imshow("Region Selector", self.clone)
-        print("🔄 Selection reset")
+        print("🔄 Selection and separator reset")
     
     def run(self):
         """Run the region selector interface."""
@@ -161,11 +204,12 @@ class RegionSelector:
         cv2.imshow("Region Selector", self.image)
         
         print("\n🎮 Controls:")
-        print("  - Click and drag to select region")
-        print("  - Press 's' to save coordinates")
-        print("  - Press 'r' to reset selection")  
+        print("  - Step 1: Click and drag to select main region (yellow box)")
+        print("  - Step 2: Click inside region to place separator line (red line)")
+        print("  - Press 's' to save region + separator")
+        print("  - Press 'r' to reset everything")  
         print("  - Press 'q' to quit")
-        print("\n⌨️  Waiting for input...")
+        print("\n⌨️  Waiting for region selection...")
         
         while True:
             key = cv2.waitKey(1) & 0xFF

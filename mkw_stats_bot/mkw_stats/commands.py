@@ -1801,15 +1801,15 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send(f"❌ Error initializing OCR: {str(e)}")
                 return
             
-            # Process the image with OCR (custom region debug mode)
-            logging.info("🔍 Starting custom region OCR debug processing...")
+            # Process the image with OCR (split region debug mode)
+            logging.info("🔍 Starting split region OCR debug processing...")
             try:
-                result = ocr.process_custom_region_debug(temp_image_path, guild_id)
-                logging.info(f"📊 Custom region OCR debug processing completed. Success: {result.get('success', False)}")
+                result = ocr.process_split_regions_debug(temp_image_path, guild_id)
+                logging.info(f"📊 Split region OCR debug processing completed. Success: {result.get('success', False)}")
                 
                 if 'debug_overlay' in result:
                     overlay_path = result['debug_overlay']
-                    logging.info(f"🎨 Custom region debug overlay image created: {overlay_path}")
+                    logging.info(f"🎨 Split region debug overlay image created: {overlay_path}")
                 
             except Exception as e:
                 logging.error(f"❌ Exception during custom region OCR processing: {e}")

@@ -105,9 +105,12 @@ class OCRProcessor:
             # Extract coordinates
             start_x, start_y = main_region['start']
             end_x, end_y = main_region['end']
+            separator_x = main_region.get('separator_x')
             
             logging.info(f"✅ Loaded custom region: ({start_x}, {start_y}) to ({end_x}, {end_y})")
             logging.info(f"📏 Region size: {main_region['width']} x {main_region['height']}")
+            if separator_x:
+                logging.info(f"📏 Separator at X={separator_x}")
             
             return {
                 'start': [start_x, start_y],
@@ -115,6 +118,7 @@ class OCRProcessor:
                 'original_end': [end_x, end_y],  # Store original for overlay
                 'width': main_region['width'],
                 'height': main_region['height'],
+                'separator_x': separator_x,
                 'source': 'selected_regions.json'
             }
             
@@ -898,6 +902,281 @@ class OCRProcessor:
                 'results': [],
                 'debug_info': {'raw_text': '', 'detected_elements': [], 'total_elements': 0}
             }
+    
+    def process_split_regions_debug(self, image_path: str, guild_id: int = 0) -> Dict:
+        """Process custom region split into name and score regions with different OCR configs."""
+        try:
+            logging.info(f"🔍 Processing split regions for debugging: {image_path}")
+            
+            # Load custom region coordinates with separator
+            region_data = self.load_custom_regions()
+            separator_x = region_data.get('separator_x')
+            
+            if not separator_x:
+                # Fall back to original method if no separator
+                logging.warning("⚠️ No separator found, falling back to single region processing")
+                return self.process_custom_region_debug(image_path, guild_id)
+            
+            # Load image to get dimensions
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Could not load image: {image_path}")
+            
+            image_height = img.shape[0]
+            
+            # Extend region to bottom of image
+            extended_region = self.extend_region_to_bottom(region_data, image_height)
+            
+            # Split into name and score regions
+            start_x, start_y = extended_region['start']
+            end_x, end_y = extended_region['end']
+            
+            # Name region (left): start_x to separator_x
+            name_region = img[start_y:end_y, start_x:separator_x]
+            # Score region (right): separator_x to end_x  
+            score_region = img[start_y:end_y, separator_x:end_x]
+            
+            # Save regions temporarily for processing
+            import time
+            timestamp = int(time.time())
+            name_roi_path = f"temp_name_roi_{timestamp}.png"
+            score_roi_path = f"temp_score_roi_{timestamp}.png"
+            cv2.imwrite(name_roi_path, name_region)
+            cv2.imwrite(score_roi_path, score_region)
+            
+            try:
+                # Process name region with mixed character set
+                name_texts = self.extract_text_from_region_with_config(name_roi_path, "names")
+                # Process score region with numbers only
+                score_texts = self.extract_text_from_region_with_config(score_roi_path, "scores")
+                
+                # Get detailed text detection from both regions
+                name_detection = self.detect_all_text_with_boxes(name_roi_path)
+                score_detection = self.detect_all_text_with_boxes(score_roi_path)
+                
+                # Match names with scores spatially and parse results
+                results = self.match_names_with_scores(name_texts, score_texts, name_detection, score_detection, guild_id)
+                
+                # Create debug overlay showing both regions and separator
+                debug_overlay_path = self.create_split_region_debug_overlay(
+                    image_path, extended_region, separator_x, name_roi_path, score_roi_path
+                )
+                
+                # Prepare debug information
+                debug_info = {
+                    'raw_name_text': '\n'.join(name_texts)[:1000],
+                    'raw_score_text': '\n'.join(score_texts)[:1000],
+                    'name_elements': name_detection.get('text_elements', [])[:25],
+                    'score_elements': score_detection.get('text_elements', [])[:25],
+                    'processing_mode': 'split_region_debug',
+                    'region_used': extended_region,
+                    'separator_x': separator_x
+                }
+                
+                # Validate results
+                validation_result = self.validate_results(results, guild_id)
+                
+                result = {
+                    'success': len(results) > 0,
+                    'results': results,
+                    'total_found': len(results),
+                    'validation': validation_result,
+                    'debug_info': debug_info
+                }
+                
+                if debug_overlay_path:
+                    result['debug_overlay'] = debug_overlay_path
+                
+                if len(results) == 0:
+                    result['error'] = 'No valid player results found in the split regions'
+                
+                return result
+                
+            finally:
+                # Clean up temp files
+                for temp_file in [name_roi_path, score_roi_path]:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+            
+        except Exception as e:
+            logging.error(f"Error processing split regions for debug: {e}")
+            return {
+                'success': False,
+                'error': f'Split region debug processing failed: {str(e)}',
+                'results': [],
+                'debug_info': {'raw_name_text': '', 'raw_score_text': '', 'name_elements': [], 'score_elements': []}
+            }
+    
+    def extract_text_from_region_with_config(self, image_path: str, region_type: str) -> List[str]:
+        """Extract text using specialized OCR config for names or scores."""
+        processed_images = self.preprocess_image(image_path)
+        texts = []
+        
+        # Different configs for names vs scores
+        if region_type == "names":
+            # Mixed character set for names like "Cynical(5)"
+            configs = [
+                r'--oem 3 --psm 6 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789() "',
+                r'--oem 3 --psm 7 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789() "'
+            ]
+        else:  # scores
+            # Numbers only for pure score detection
+            configs = [
+                r'--oem 3 --psm 6 -c tessedit_char_whitelist="0123456789"',
+                r'--oem 3 --psm 7 -c tessedit_char_whitelist="0123456789"',
+                r'--oem 3 --psm 8 -c tessedit_char_whitelist="0123456789"'
+            ]
+        
+        for img in processed_images:
+            for config in configs:
+                try:
+                    text = pytesseract.image_to_string(img, config=config)
+                    texts.append(text)
+                except Exception as e:
+                    logging.error(f"OCR extraction error for {region_type}: {e}")
+        
+        return texts
+    
+    def match_names_with_scores(self, name_texts: List[str], score_texts: List[str], 
+                               name_detection: Dict, score_detection: Dict, guild_id: int = 0) -> List[Dict]:
+        """Match detected names with scores using spatial positioning."""
+        try:
+            # Extract name candidates from name region
+            name_candidates = []
+            for text in name_texts:
+                lines = text.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    words = line.split()
+                    for word in words:
+                        # Apply name validation (2+ chars, alphanumeric + parentheses)
+                        if (re.match(r'^[A-Za-z0-9()]+$', word) and len(word) >= 2):
+                            name_candidates.append(word)
+            
+            # Extract score candidates from score region
+            score_candidates = []
+            for text in score_texts:
+                lines = text.split('\n')
+                for line in lines:
+                    words = line.split()
+                    for word in words:
+                        if re.match(r'^\d+$', word):  # Pure numbers only
+                            score = int(word)
+                            if 12 <= score <= 180:  # Valid score range
+                                score_candidates.append(score)
+            
+            # For now, simple pairing: match by index (assuming they're in same order)
+            # TODO: Could enhance with spatial Y-coordinate matching later
+            results = []
+            max_pairs = min(len(name_candidates), len(score_candidates))
+            
+            for i in range(max_pairs):
+                name = name_candidates[i]
+                score = score_candidates[i]
+                
+                # Try to resolve nickname to roster name using database
+                resolved_name = name
+                is_roster_member = False
+                
+                if self.db_manager:
+                    try:
+                        db_resolved = self.db_manager.resolve_player_name(name, guild_id)
+                        roster_players = self.db_manager.get_roster_players(guild_id)
+                        if db_resolved and db_resolved in roster_players:
+                            resolved_name = db_resolved
+                            is_roster_member = True
+                    except Exception as e:
+                        logging.debug(f"Name resolution failed for '{name}': {e}")
+                
+                results.append({
+                    'name': resolved_name,
+                    'raw_name': name,
+                    'score': score,
+                    'raw_line': f"{name} {score}",  # Reconstructed line
+                    'preset_used': 'split_region',
+                    'confidence': 0.9 if is_roster_member else 0.7,
+                    'is_roster_member': is_roster_member
+                })
+            
+            return results
+            
+        except Exception as e:
+            logging.error(f"Error matching names with scores: {e}")
+            return []
+    
+    def create_split_region_debug_overlay(self, image_path: str, extended_region: dict, 
+                                        separator_x: int, name_roi_path: str, score_roi_path: str) -> str:
+        """Create debug overlay showing split regions and detected text."""
+        try:
+            # Load original image
+            img = cv2.imread(image_path)
+            if img is None:
+                return None
+            
+            # Get region coordinates
+            start_x, start_y = extended_region['start']
+            end_x, end_y = extended_region['end']
+            original_end_x, original_end_y = extended_region['original_end']
+            
+            # Draw original selected region in yellow
+            cv2.rectangle(img, (start_x, start_y), (original_end_x, original_end_y), (0, 255, 255), 3)
+            cv2.putText(img, "Selected Region", (start_x, start_y - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            
+            # Draw extended region in orange (if different)
+            if end_y != original_end_y:
+                cv2.rectangle(img, (start_x, original_end_y), (end_x, end_y), (0, 165, 255), 2)
+                cv2.putText(img, "Extended to Bottom", (start_x, original_end_y + 20), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+            
+            # Draw separator line in red
+            cv2.line(img, (separator_x, start_y), (separator_x, end_y), (0, 0, 255), 3)
+            cv2.putText(img, "Names | Scores", (start_x, end_y + 40), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            
+            # Draw name region outline in blue
+            cv2.rectangle(img, (start_x, start_y), (separator_x, end_y), (255, 0, 0), 2)
+            cv2.putText(img, "Names", (start_x + 10, start_y + 25), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+            
+            # Draw score region outline in green
+            cv2.rectangle(img, (separator_x, start_y), (end_x, end_y), (0, 255, 0), 2)
+            cv2.putText(img, "Scores", (separator_x + 10, start_y + 25), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            
+            # Add legend
+            legend_y = 30
+            legend_items = [
+                ("Selected Region", (0, 255, 255)),
+                ("Extended Region", (0, 165, 255)),
+                ("Separator", (0, 0, 255)),
+                ("Names Region", (255, 0, 0)),
+                ("Scores Region", (0, 255, 0))
+            ]
+            
+            for i, (text, color) in enumerate(legend_items):
+                cv2.putText(img, text, (10, legend_y + i * 25), cv2.FONT_HERSHEY_SIMPLEX,
+                           0.6, color, 2, cv2.LINE_AA)
+            
+            # Save overlay image
+            import time
+            timestamp = int(time.time())
+            overlay_path = f"temp_split_debug_overlay_{timestamp}.png"
+            
+            success = cv2.imwrite(overlay_path, img)
+            if success:
+                logging.info(f"Created split region debug overlay: {overlay_path}")
+                return overlay_path
+            else:
+                logging.error("Failed to save split region debug overlay")
+                return None
+                
+        except Exception as e:
+            logging.error(f"Error creating split region debug overlay: {e}")
+            return None
     
     def process_image_with_overlay(self, image_path: str, guild_id: int = 0) -> Dict:
         """Process image using the ice_mario preset and create visual overlay."""
