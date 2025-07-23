@@ -3,15 +3,16 @@
     {
       "name": "main_region",
       "start": [
-        571,
-      104
+        576,
+        100
       ],
       "end": [
-        1070,
-        1016
+        1068,
+        1017
       ],
-      "width": 499,
-      "height": 912
+      "width": 492,
+      "height": 917,
+      "separator_x": 960
     }
   ],
   "image_source": "Table6v6.png",
@@ -19,6 +20,6 @@
     "width": 1720,
     "height": 1040
   },
-  "created_date": "2025-07-23T00:57:44.304878",
-  "description": "OCR region selection for Ice Mario table format"
+  "created_date": "2025-07-23T18:50:26.786326",
+  "description": "OCR region selection with name/score separator for Ice Mario table format"
 }
