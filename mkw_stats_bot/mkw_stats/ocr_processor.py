@@ -166,7 +166,7 @@ class OCRProcessor:
             logging.error(f"Error saving preset: {e}")
             return False
     
-    def process_image_with_preset(self, image_path: str, preset_name: str) -> Dict:
+    def process_image_with_preset(self, image_path: str, preset_name: str, guild_id: int = 0) -> Dict:
         """Process image using a saved preset for region targeting."""
         try:
             if preset_name not in config.TABLE_PRESETS:
@@ -181,7 +181,7 @@ class OCRProcessor:
             
             if not regions:
                 # Fall back to full image processing if no regions saved
-                return self.process_image(image_path)
+                return self.process_image(image_path, guild_id=guild_id)
             
             # Process each region separately
             all_results = []
@@ -209,7 +209,7 @@ class OCRProcessor:
                 cv2.imwrite(roi_path, roi)
                 
                 try:
-                    roi_results = self.process_image(roi_path)
+                    roi_results = self.process_image(roi_path, guild_id=guild_id)
                     if roi_results['success']:
                         all_results.extend(roi_results['results'])
                 finally:
@@ -218,7 +218,7 @@ class OCRProcessor:
                         os.unlink(roi_path)
             
             # Validate results
-            validation_result = self.validate_results(all_results)
+            validation_result = self.validate_results(all_results, guild_id)
             
             return {
                 'success': len(all_results) > 0,
@@ -236,7 +236,7 @@ class OCRProcessor:
                 'results': []
             }
     
-    def validate_results(self, results: List[Dict]) -> Dict:
+    def validate_results(self, results: List[Dict], guild_id: int = 0) -> Dict:
         """Validate extracted results with flexible player count."""
         validation = {
             'is_valid': True,
@@ -284,24 +284,21 @@ class OCRProcessor:
             if not (12 <= score <= 180):
                 validation['warnings'].append(f"{result['name']}: Invalid score {score} (valid range: 12-180)")
         
-        # Check for trial/guest players (not in roster)
-        trials = []
-        roster_players = self.db_manager.get_roster_players() if self.db_manager else []
+        # Check for roster vs non-roster players (informational only)
+        roster_members = []
+        non_roster = []
         
         for result in results:
-            # Use database name resolution if available, otherwise check directly
-            if self.db_manager:
-                resolved_name = self.db_manager.resolve_player_name(result['name'])
-                if not resolved_name or resolved_name not in roster_players:
-                    trials.append(result['name'])
+            if result.get('is_roster_member', False):
+                roster_members.append(result['name'])
             else:
-                # Fallback: check if name is directly in roster (this shouldn't happen)
-                if result['name'] not in roster_players:
-                    trials.append(result['name'])
+                non_roster.append(result.get('raw_name', result['name']))
         
-        if trials:
-            validation['warnings'].append(f"Trial/Guest players detected: {', '.join(trials)}")
-            validation['needs_confirmation'] = True
+        if non_roster:
+            validation['warnings'].append(f"Non-roster players detected: {', '.join(non_roster)}")
+        
+        if roster_members:
+            validation['warnings'].append(f"Roster members found: {', '.join(roster_members)}")
         
         return validation
     
@@ -363,104 +360,74 @@ class OCRProcessor:
         
         return texts
     
-    def find_clan_members_in_text(self, text: str) -> List[Dict]:
-        """Find clan member names and scores using preset configuration."""
+    def find_clan_members_in_text(self, text: str, guild_id: int = 0) -> List[Dict]:
+        """Find ALL player names and scores in text (no database filtering)."""
         results = []
         lines = text.split('\n')
         
         # Get patterns from preset config
         score_pattern = self.preset_config['score_pattern']
         
-        # Get current roster from database
-        roster_players = self.db_manager.get_roster_players() if self.db_manager else []
+        # Get current roster from database for nickname resolution (but don't filter)
+        roster_players = self.db_manager.get_roster_players(guild_id) if self.db_manager else []
         
         for line in lines:
             line = line.strip()
             if not line:
                 continue
                 
-            # Look for clan members and nicknames in the line
-            found_in_line = False
-            for roster_name in roster_players:
-                if roster_name.lower() in line.lower():
-                    # Use preset score pattern to find scores
-                    score_matches = re.findall(score_pattern, line)
-                    if score_matches:
-                        # Take the first reasonable score (0-999)
-                        for score_str in score_matches:
-                            score = int(score_str)
+            # Extract potential player names and scores from each line
+            words = line.split()
+            for i, word in enumerate(words):
+                # Check if this could be a player name
+                # Filter out obvious artifacts but allow single meaningful letters (H, J, etc.)
+                is_valid_name = (
+                    re.match(r'^[A-Za-z0-9ΣΩ]+$', word) and 
+                    len(word) >= 1 and
+                    not word.lower() in ['a', 'i', 'o', 'e', 'u', 'oo', 'aa', 'ii']  # Filter common OCR artifacts
+                )
+                
+                if is_valid_name:
+                    # Look for valid scores in the line
+                    all_scores_in_line = []
+                    for j, check_word in enumerate(words):
+                        if re.match(score_pattern, check_word):
+                            score = int(check_word)
                             if 12 <= score <= 180:
-                                results.append({
-                                    'name': roster_name,
-                                    'score': score,
-                                    'raw_line': line,
-                                    'preset_used': self.table_preset,
-                                    'confidence': 0.9  # High confidence for exact roster match
-                                })
-                                found_in_line = True
-                                break
-                if found_in_line:
-                    break
-            
-            # If no roster name found, check for nicknames and unknown players
-            if not found_in_line:
-                # Extract potential player names (words before scores)
-                words = line.split()
-                for i, word in enumerate(words):
-                    # Check if this could be a player name
-                    # Filter out obvious artifacts but allow single meaningful letters (H, J, etc.)
-                    is_valid_name = (
-                        re.match(r'^[A-Za-z0-9ΣΩ]+$', word) and 
-                        len(word) >= 1 and
-                        not word.lower() in ['a', 'i', 'o', 'e', 'u', 'oo', 'aa', 'ii']  # Filter common OCR artifacts
-                    )
+                                all_scores_in_line.append(score)
                     
-                    if is_valid_name:
-                        # Look for the LAST valid score in the line (most likely to be the player's score)
-                        all_scores_in_line = []
-                        for j, check_word in enumerate(words):
-                            if re.match(score_pattern, check_word):
-                                score = int(check_word)
-                                if 12 <= score <= 180:
-                                    all_scores_in_line.append(score)
+                    # If we found scores, use the last one (most likely the player's total)
+                    if all_scores_in_line:
+                        score = all_scores_in_line[-1]  # Take the last score in the line
                         
-                        # If we found scores, use the last one (most likely the player's total)
-                        if all_scores_in_line:
-                            score = all_scores_in_line[-1]  # Take the last score in the line
+                        # Score validation 
+                        if 12 <= score <= 180:
+                            # Try to resolve nickname to roster name using database
+                            resolved_name = word  # Default to detected name
+                            is_roster_member = False
                             
-                            # Score validation - already filtered to 12-180 range, but double-check
-                            if not (12 <= score <= 180):
-                                logging.warning(f"⚠️ Invalid score detected for {word}: {score} (outside 12-180 range)")
-                                # Try to find alternative scores in the line
-                                if len(all_scores_in_line) > 1:
-                                    alt_score = max([s for s in all_scores_in_line if 12 <= s <= 180])
-                                    if alt_score:
-                                        logging.info(f"Using alternative score for {word}: {alt_score} instead of {score}")
-                                        score = alt_score
-                            
-                            # Resolve nickname to roster name using database
                             if self.db_manager:
-                                resolved_name = self.db_manager.resolve_player_name(word)
-                            else:
-                                resolved_name = word  # Fallback to original name
+                                try:
+                                    db_resolved = self.db_manager.resolve_player_name(word, guild_id)
+                                    if db_resolved and db_resolved in roster_players:
+                                        resolved_name = db_resolved
+                                        is_roster_member = True
+                                except Exception as e:
+                                    # If resolution fails, just use the original name
+                                    logging.debug(f"Name resolution failed for '{word}': {e}")
+                                    pass
                             
-                            # Only add if it's a clan member or a recognized nickname
-                            if resolved_name and resolved_name in roster_players:
-                                confidence = 0.9
-                                results.append({
-                                    'name': resolved_name,
-                                    'raw_name': word,  # Original detected name
-                                    'score': score,
-                                    'raw_line': line,
-                                    'preset_used': self.table_preset,
-                                    'confidence': confidence,
-                                    'is_trial': False
-                                })
-                                found_in_line = True
-                                break
-                            # Skip non-roster players that aren't recognized nicknames
-                    if found_in_line:
-                        break
+                            # Add ALL detected players (no filtering)
+                            results.append({
+                                'name': resolved_name,
+                                'raw_name': word,  # Original detected name
+                                'score': score,
+                                'raw_line': line,
+                                'preset_used': self.table_preset,
+                                'confidence': 0.9 if is_roster_member else 0.7,
+                                'is_roster_member': is_roster_member
+                            })
+                            break  # Only take first valid name per line
         
         return results
     
@@ -484,14 +451,14 @@ class OCRProcessor:
         
         return metadata
     
-    def parse_mario_kart_results(self, texts: List[str]) -> Dict:
+    def parse_mario_kart_results(self, texts: List[str], guild_id: int = 0) -> Dict:
         """Parse extracted text to find Mario Kart race results."""
         try:
             all_results = []
             
             # Get results from all text variations
             for text in texts:
-                results = self.find_clan_members_in_text(text)
+                results = self.find_clan_members_in_text(text, guild_id)
                 all_results.extend(results)
             
             # Prioritize clan roster members
@@ -525,7 +492,7 @@ class OCRProcessor:
             logging.error(f"Parsing error: {e}")
             return {'results': [], 'total_extracted': 0}
     
-    def process_image(self, image_path: str, message_timestamp=None) -> Dict:
+    def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0) -> Dict:
         """Complete image processing pipeline with war metadata extraction."""
         try:
             logging.info(f"Processing image: {image_path}")
@@ -541,7 +508,7 @@ class OCRProcessor:
                 }
             
             # Parse the extracted text
-            parsed_data = self.parse_mario_kart_results(texts)
+            parsed_data = self.parse_mario_kart_results(texts, guild_id)
             
             if parsed_data['total_extracted'] == 0:
                 return {
@@ -559,7 +526,7 @@ class OCRProcessor:
                 result.update(war_metadata)
             
             # Validate results
-            validation_result = self.validate_results(parsed_data['results'])
+            validation_result = self.validate_results(parsed_data['results'], guild_id)
             
             return {
                 'success': True,
@@ -622,11 +589,11 @@ class OCRProcessor:
             logging.error(f"Error creating visual overlay: {e}")
             return None
     
-    def process_image_with_overlay(self, image_path: str) -> Dict:
+    def process_image_with_overlay(self, image_path: str, guild_id: int = 0) -> Dict:
         """Process image using the ice_mario preset and create visual overlay."""
         try:
             # Process using the ice_mario preset
-            result = self.process_image_with_preset(image_path, "ice_mario")
+            result = self.process_image_with_preset(image_path, "ice_mario", guild_id)
             
             # Create visual overlay showing processed region
             overlay_path = self.create_visual_overlay(image_path)
