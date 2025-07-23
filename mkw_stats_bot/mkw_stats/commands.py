@@ -1801,15 +1801,15 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send(f"❌ Error initializing OCR: {str(e)}")
                 return
             
-            # Process the image with OCR
-            logging.info("🔍 Starting OCR processing...")
+            # Process the image with OCR (full image debug mode)
+            logging.info("🔍 Starting full-image OCR debug processing...")
             try:
-                result = ocr.process_image_with_overlay(temp_image_path, guild_id)
-                logging.info(f"📊 OCR processing completed. Success: {result.get('success', False)}")
+                result = ocr.process_full_image_debug(temp_image_path, guild_id)
+                logging.info(f"📊 OCR debug processing completed. Success: {result.get('success', False)}")
                 
-                if 'overlay_image' in result:
-                    overlay_path = result['overlay_image']
-                    logging.info(f"🎨 Overlay image created: {overlay_path}")
+                if 'debug_overlay' in result:
+                    overlay_path = result['debug_overlay']
+                    logging.info(f"🎨 Debug overlay image created: {overlay_path}")
                 
             except Exception as e:
                 logging.error(f"❌ Exception during OCR processing: {e}")
@@ -1823,11 +1823,18 @@ class MarioKartCommands(commands.Cog):
                 return
             
             # Format the results
-            logging.info("📝 Formatting OCR results...")
-            results_text = "🔍 **OCR Test Results** (Not saved to database)\n\n"
+            logging.info("📝 Formatting OCR debug results...")
+            results_text = "🔍 **OCR Debug Results** (Full Image Analysis)\n\n"
             
             results = result.get('results', [])
+            debug_info = result.get('debug_info', {})
             logging.info(f"👥 Found {len(results)} player results")
+            
+            # Show debug statistics
+            total_elements = debug_info.get('total_elements', 0)
+            results_text += f"**Debug Stats:**\n"
+            results_text += f"🔤 Total text elements detected: {total_elements}\n"
+            results_text += f"👥 Player results found: {len(results)}\n\n"
             
             if results:
                 results_text += "**Players Found:**\n"
@@ -1853,12 +1860,15 @@ class MarioKartCommands(commands.Cog):
                 if validation:
                     results_text += f"\n**Total Found:** {validation.get('player_count', 0)}"
                     warnings = validation.get('warnings', [])
-                    if warnings:
-                        results_text += f"\n⚠️ **Warnings:** {'; '.join(warnings)}"
+                    if warnings and len(warnings) <= 3:  # Limit warnings to avoid too long message
+                        results_text += f"\n⚠️ **Warnings:** {'; '.join(warnings[:3])}"
                         logging.warning(f"⚠️ Validation warnings: {warnings}")
             else:
                 results_text += "No players found in the image."
                 logging.warning("❌ No player results found")
+                
+            # Add note about color coding
+            results_text += f"\n\n**Legend for overlay image:**\n🔴 Red: Letters/Names\n🟢 Green: Numbers/Scores\n🔵 Blue: Symbols"
             
             # Create embed for results
             embed = discord.Embed(
@@ -1871,22 +1881,41 @@ class MarioKartCommands(commands.Cog):
             logging.info("📤 Sending OCR results to Discord...")
             await interaction.followup.send(embed=embed)
             
-            # Send the overlay image if available
-            if overlay_path and os.path.exists(overlay_path):
-                logging.info(f"📤 Sending overlay image: {overlay_path}")
+            # Send the debug overlay image if available
+            debug_overlay_path = result.get('debug_overlay')
+            if debug_overlay_path and os.path.exists(debug_overlay_path):
+                logging.info(f"📤 Sending debug overlay image: {debug_overlay_path}")
                 try:
-                    with open(overlay_path, 'rb') as f:
-                        overlay_file = discord.File(f, 'ocr_overlay.png')
+                    with open(debug_overlay_path, 'rb') as f:
+                        overlay_file = discord.File(f, 'ocr_debug_overlay.png')
                         await interaction.followup.send(
-                            "📍 **Processing Region Visualization:**", 
+                            "🎨 **Color-Coded Text Detection:**", 
                             file=overlay_file
                         )
-                    logging.info("✅ Overlay image sent successfully")
+                    logging.info("✅ Debug overlay image sent successfully")
                 except Exception as e:
-                    logging.error(f"❌ Error sending overlay image: {e}")
-                    await interaction.followup.send(f"⚠️ Could not send overlay image: {str(e)}")
+                    logging.error(f"❌ Error sending debug overlay image: {e}")
+                    await interaction.followup.send(f"⚠️ Could not send debug overlay image: {str(e)}")
             else:
-                logging.warning("⚠️ No overlay image available to send")
+                logging.warning("⚠️ No debug overlay image available to send")
+            
+            # Send raw OCR text for debugging if available
+            raw_text = debug_info.get('raw_text', '')
+            if raw_text and len(raw_text) > 50:  # Only send if there's substantial text
+                logging.info("📤 Sending raw OCR text for debugging")
+                try:
+                    # Truncate if too long for Discord
+                    if len(raw_text) > 1500:
+                        raw_text = raw_text[:1500] + "\n... (truncated)"
+                    
+                    await interaction.followup.send(
+                        f"📄 **Raw OCR Text (for debugging):**\n```\n{raw_text}\n```"
+                    )
+                    logging.info("✅ Raw OCR text sent successfully")
+                except Exception as e:
+                    logging.error(f"❌ Error sending raw OCR text: {e}")
+            else:
+                logging.info("ℹ️ No substantial raw text to send")
             
             logging.info("✅ OCR test command completed successfully")
             
@@ -1908,12 +1937,13 @@ class MarioKartCommands(commands.Cog):
                 except Exception as e:
                     logging.error(f"⚠️ Could not clean up temp image: {e}")
             
-            if overlay_path and os.path.exists(overlay_path):
+            debug_overlay_path = result.get('debug_overlay') if 'result' in locals() else None
+            if debug_overlay_path and os.path.exists(debug_overlay_path):
                 try:
-                    os.unlink(overlay_path)
-                    logging.info(f"🧹 Cleaned up overlay image: {overlay_path}")
+                    os.unlink(debug_overlay_path)
+                    logging.info(f"🧹 Cleaned up debug overlay image: {debug_overlay_path}")
                 except Exception as e:
-                    logging.error(f"⚠️ Could not clean up overlay image: {e}")
+                    logging.error(f"⚠️ Could not clean up debug overlay image: {e}")
     
 
 async def setup(bot):

@@ -545,6 +545,141 @@ class OCRProcessor:
                 'results': []
             }
     
+    def detect_all_text_with_boxes(self, image_path: str) -> Dict:
+        """Detect all text in image with bounding boxes and classifications."""
+        try:
+            # Load image
+            img = cv2.imread(image_path)
+            if img is None:
+                logging.error(f"Could not load image for text detection: {image_path}")
+                return {'success': False, 'error': 'Could not load image'}
+            
+            # Use pytesseract to get detailed text data
+            logging.info("🔍 Detecting all text with bounding boxes...")
+            data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT, config=r'--oem 3 --psm 6')
+            
+            # Process detected text elements
+            text_elements = []
+            for i in range(len(data['text'])):
+                text = data['text'][i].strip()
+                conf = int(data['conf'][i]) if data['conf'][i] != '-1' else 0
+                
+                # Filter out empty text and low confidence
+                if text and conf > 20:  # Confidence threshold
+                    x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                    
+                    # Classify text type
+                    text_type = self.classify_text_type(text)
+                    
+                    text_elements.append({
+                        'text': text,
+                        'confidence': conf,
+                        'bbox': (x, y, w, h),
+                        'type': text_type,
+                        'level': data['level'][i]
+                    })
+            
+            logging.info(f"📊 Detected {len(text_elements)} text elements")
+            return {
+                'success': True,
+                'text_elements': text_elements,
+                'raw_data': data
+            }
+            
+        except Exception as e:
+            logging.error(f"Error detecting text with boxes: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def classify_text_type(self, text: str) -> str:
+        """Classify text as letters, numbers, or symbols."""
+        if not text:
+            return 'unknown'
+            
+        # Count character types
+        letters = sum(1 for c in text if c.isalpha())
+        numbers = sum(1 for c in text if c.isdigit())
+        symbols = len(text) - letters - numbers
+        
+        # Determine primary type
+        if numbers > 0 and letters == 0 and symbols <= 1:
+            return 'number'
+        elif letters > 0 and numbers <= letters:
+            return 'letter'
+        elif symbols > 0:
+            return 'symbol'
+        else:
+            return 'mixed'
+    
+    def create_debug_overlay(self, image_path: str) -> str:
+        """Create color-coded overlay showing all detected text with bounding boxes."""
+        try:
+            # Detect all text elements
+            detection_result = self.detect_all_text_with_boxes(image_path)
+            if not detection_result['success']:
+                return None
+            
+            # Load original image
+            img = cv2.imread(image_path)
+            if img is None:
+                return None
+                
+            text_elements = detection_result['text_elements']
+            logging.info(f"🎨 Creating debug overlay with {len(text_elements)} text elements")
+            
+            # Color scheme: Red=letters, Green=numbers, Blue=symbols
+            colors = {
+                'letter': (0, 0, 255),      # Red (BGR format)
+                'number': (0, 255, 0),      # Green
+                'symbol': (255, 0, 0),      # Blue
+                'mixed': (0, 255, 255),     # Yellow
+                'unknown': (128, 128, 128)   # Gray
+            }
+            
+            # Draw bounding boxes and labels
+            for element in text_elements:
+                text = element['text']
+                conf = element['confidence']
+                x, y, w, h = element['bbox']
+                text_type = element['type']
+                
+                # Get color for this text type
+                color = colors.get(text_type, colors['unknown'])
+                
+                # Draw rectangle
+                cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
+                
+                # Add text label with confidence
+                label = f"{text} ({conf}%)"
+                label_pos = (x, y - 5 if y > 20 else y + h + 15)
+                cv2.putText(img, label, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 
+                           0.4, color, 1, cv2.LINE_AA)
+            
+            # Add legend
+            legend_y = 30
+            for text_type, color in colors.items():
+                if text_type != 'unknown':  # Skip unknown in legend
+                    legend_text = f"{text_type.title()}"
+                    cv2.putText(img, legend_text, (10, legend_y), cv2.FONT_HERSHEY_SIMPLEX,
+                               0.6, color, 2, cv2.LINE_AA)
+                    legend_y += 25
+            
+            # Save overlay image
+            import time
+            timestamp = int(time.time())
+            overlay_path = f"temp_debug_overlay_{timestamp}.png"
+            
+            success = cv2.imwrite(overlay_path, img)
+            if success:
+                logging.info(f"Created debug overlay: {overlay_path}")
+                return overlay_path
+            else:
+                logging.error("Failed to save debug overlay image")
+                return None
+                
+        except Exception as e:
+            logging.error(f"Error creating debug overlay: {e}")
+            return None
+    
     def create_visual_overlay(self, image_path: str) -> str:
         """Create a visual overlay showing the processed region with red box."""
         try:
@@ -588,6 +723,70 @@ class OCRProcessor:
         except Exception as e:
             logging.error(f"Error creating visual overlay: {e}")
             return None
+    
+    def process_full_image_debug(self, image_path: str, guild_id: int = 0) -> Dict:
+        """Process entire image for debugging with color-coded text detection overlay."""
+        try:
+            logging.info(f"🔍 Processing full image for debugging: {image_path}")
+            
+            # Extract text from full image
+            texts = self.extract_text_from_image(image_path)
+            
+            # Get detailed text detection with bounding boxes
+            detection_result = self.detect_all_text_with_boxes(image_path)
+            
+            if not texts or not any(text.strip() for text in texts):
+                return {
+                    'success': False,
+                    'error': 'No text could be extracted from the image',
+                    'results': [],
+                    'debug_info': {
+                        'raw_text': '',
+                        'detected_elements': []
+                    }
+                }
+            
+            # Parse results from extracted text
+            parsed_data = self.parse_mario_kart_results(texts, guild_id)
+            
+            # Create debug overlay showing all detected text
+            debug_overlay_path = self.create_debug_overlay(image_path)
+            
+            # Prepare debug information
+            debug_info = {
+                'raw_text': '\n'.join(texts)[:2000],  # Limit to 2000 chars
+                'detected_elements': detection_result.get('text_elements', [])[:50],  # Limit to 50 elements
+                'total_elements': len(detection_result.get('text_elements', [])) if detection_result['success'] else 0,
+                'processing_mode': 'full_image_debug'
+            }
+            
+            # Validate results
+            validation_result = self.validate_results(parsed_data['results'], guild_id)
+            
+            result = {
+                'success': parsed_data['total_extracted'] > 0,
+                'results': parsed_data['results'],
+                'total_found': parsed_data['total_extracted'],
+                'validation': validation_result,
+                'debug_info': debug_info
+            }
+            
+            if debug_overlay_path:
+                result['debug_overlay'] = debug_overlay_path
+            
+            if parsed_data['total_extracted'] == 0:
+                result['error'] = 'No valid player results found in the image'
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"Error processing full image for debug: {e}")
+            return {
+                'success': False,
+                'error': f'Debug processing failed: {str(e)}',
+                'results': [],
+                'debug_info': {'raw_text': '', 'detected_elements': [], 'total_elements': 0}
+            }
     
     def process_image_with_overlay(self, image_path: str, guild_id: int = 0) -> Dict:
         """Process image using the ice_mario preset and create visual overlay."""
