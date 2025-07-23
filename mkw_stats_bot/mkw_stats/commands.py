@@ -1727,6 +1727,122 @@ class MarioKartCommands(commands.Cog):
                 await interaction.response.send_message("❌ Error renaming team", ephemeral=True)
             else:
                 await interaction.followup.send("❌ Error renaming team", ephemeral=True)
+
+    @app_commands.command(name="runocr", description="Test OCR on the most recent image uploaded to this channel")
+    @require_guild_setup
+    async def run_ocr_test(self, interaction: discord.Interaction):
+        """Run OCR test on the most recent image uploaded to the channel."""
+        try:
+            await interaction.response.defer()
+            
+            # Search for the most recent image in the channel
+            recent_image = None
+            temp_image_path = None
+            
+            async for message in interaction.channel.history(limit=50):
+                if message.attachments:
+                    for attachment in message.attachments:
+                        if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg']):
+                            recent_image = attachment
+                            break
+                if recent_image:
+                    break
+            
+            if not recent_image:
+                await interaction.followup.send("❌ No recent image found in this channel. Please upload an image first.")
+                return
+            
+            # Download the image to a temporary file
+            import aiohttp
+            import tempfile
+            import os
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(recent_image.url) as response:
+                        if response.status == 200:
+                            # Create temporary file
+                            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                                temp_image_path = temp_file.name
+                                temp_file.write(await response.read())
+                        else:
+                            await interaction.followup.send("❌ Failed to download image.")
+                            return
+            except Exception as e:
+                logging.error(f"Error downloading image: {e}")
+                await interaction.followup.send("❌ Error downloading image.")
+                return
+            
+            # Process the image with OCR
+            from .ocr_processor import OCRProcessor
+            guild_id = self.get_guild_id_from_interaction(interaction)
+            
+            ocr = OCRProcessor(db_manager=self.bot.db)
+            result = ocr.process_image_with_overlay(temp_image_path)
+            
+            if not result['success']:
+                await interaction.followup.send(f"❌ OCR processing failed: {result.get('error', 'Unknown error')}")
+                return
+            
+            # Format the results
+            results_text = "🔍 **OCR Test Results** (Not saved to database)\n\n"
+            
+            if result['results']:
+                results_text += "**Players Found:**\n"
+                for i, player_result in enumerate(result['results'], 1):
+                    results_text += f"{i}. **{player_result['name']}**: {player_result['score']} points\n"
+                
+                # Add validation info
+                validation = result.get('validation', {})
+                if validation:
+                    results_text += f"\n**Total Found:** {validation.get('player_count', 0)}"
+                    if validation.get('warnings'):
+                        results_text += f"\n⚠️ **Warnings:** {'; '.join(validation['warnings'])}"
+            else:
+                results_text += "No players found in the image."
+            
+            # Create embed for results
+            embed = discord.Embed(
+                title="🔍 OCR Processing Test",
+                description=results_text,
+                color=0x00ff00 if result['success'] else 0xff0000
+            )
+            
+            # Send the results
+            await interaction.followup.send(embed=embed)
+            
+            # Send the overlay image if available
+            overlay_path = result.get('overlay_image')
+            if overlay_path and os.path.exists(overlay_path):
+                try:
+                    with open(overlay_path, 'rb') as f:
+                        overlay_file = discord.File(f, 'ocr_overlay.png')
+                        await interaction.followup.send(
+                            "📍 **Processing Region Visualization:**", 
+                            file=overlay_file
+                        )
+                except Exception as e:
+                    logging.error(f"Error sending overlay image: {e}")
+                finally:
+                    # Clean up overlay file
+                    try:
+                        os.unlink(overlay_path)
+                    except:
+                        pass
+            
+        except Exception as e:
+            logging.error(f"Error in OCR test command: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error running OCR test", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error running OCR test")
+        finally:
+            # Clean up temporary image file
+            if temp_image_path and os.path.exists(temp_image_path):
+                try:
+                    os.unlink(temp_image_path)
+                except:
+                    pass
     
 
 async def setup(bot):

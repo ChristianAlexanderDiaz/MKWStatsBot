@@ -578,6 +578,71 @@ class OCRProcessor:
                 'results': []
             }
     
+    def create_visual_overlay(self, image_path: str) -> str:
+        """Create a visual overlay showing the processed region with red box."""
+        try:
+            # Use the ice_mario preset region coordinates
+            region_coords = {
+                "start": [576, 101],
+                "end": [1064, 1015]
+            }
+            
+            # Load the original image
+            img = cv2.imread(image_path)
+            if img is None:
+                logging.error(f"Could not load image for overlay: {image_path}")
+                return None
+            
+            # Extract coordinates
+            start_x, start_y = region_coords["start"]
+            end_x, end_y = region_coords["end"]
+            
+            # Draw red rectangle around the processed region
+            cv2.rectangle(img, (start_x, start_y), (end_x, end_y), (0, 0, 255), 4)
+            
+            # Add label
+            label_pos = (start_x, start_y - 10 if start_y > 20 else end_y + 25)
+            cv2.putText(img, "OCR Region", label_pos, cv2.FONT_HERSHEY_SIMPLEX, 
+                       0.8, (0, 0, 255), 2, cv2.LINE_AA)
+            
+            # Save overlay image with timestamp to avoid conflicts
+            import time
+            timestamp = int(time.time())
+            overlay_path = f"temp_overlay_{timestamp}.png"
+            
+            success = cv2.imwrite(overlay_path, img)
+            if success:
+                logging.info(f"Created visual overlay: {overlay_path}")
+                return overlay_path
+            else:
+                logging.error("Failed to save overlay image")
+                return None
+                
+        except Exception as e:
+            logging.error(f"Error creating visual overlay: {e}")
+            return None
+    
+    def process_image_with_overlay(self, image_path: str) -> Dict:
+        """Process image using the ice_mario preset and create visual overlay."""
+        try:
+            # Process using the ice_mario preset
+            result = self.process_image_with_preset(image_path, "ice_mario")
+            
+            # Create visual overlay showing processed region
+            overlay_path = self.create_visual_overlay(image_path)
+            if overlay_path:
+                result['overlay_image'] = overlay_path
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"Error processing with overlay: {e}")
+            return {
+                'success': False,
+                'error': f'Processing failed: {str(e)}',
+                'results': []
+            }
+
     def format_results_for_confirmation(self, results: List[Dict]) -> str:
         """Format extracted results for user confirmation."""
         if not results:
