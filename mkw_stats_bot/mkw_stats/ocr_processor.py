@@ -1009,22 +1009,25 @@ class OCRProcessor:
     
     def extract_text_from_region_with_config(self, image_path: str, region_type: str) -> List[str]:
         """Extract text using specialized OCR config for names or scores."""
-        processed_images = self.preprocess_image(image_path)
+        # Use only single preprocessing to eliminate duplication
+        img = cv2.imread(image_path)
+        if img is None:
+            return []
+        
+        # Convert to grayscale for better OCR performance
+        processed_images = [cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)]
         texts = []
         
-        # Different configs for names vs scores
+        # Single config per region type to eliminate duplication
         if region_type == "names":
-            # Mixed character set for names like "Cynical(5)"
+            # Mixed character set for names like "Cynical(5)" - single PSM 6 config
             configs = [
-                r'--oem 3 --psm 6 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789() "',
-                r'--oem 3 --psm 7 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789() "'
+                r'--oem 3 --psm 6 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789() "'
             ]
         else:  # scores
-            # Numbers only for pure score detection
+            # Numbers only for pure score detection - single PSM 6 config
             configs = [
-                r'--oem 3 --psm 6 -c tessedit_char_whitelist="0123456789"',
-                r'--oem 3 --psm 7 -c tessedit_char_whitelist="0123456789"',
-                r'--oem 3 --psm 8 -c tessedit_char_whitelist="0123456789"'
+                r'--oem 3 --psm 6 -c tessedit_char_whitelist="0123456789"'
             ]
         
         for img in processed_images:
@@ -1147,19 +1150,58 @@ class OCRProcessor:
             cv2.putText(img, "Scores", (separator_x + 10, start_y + 25), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
+            # Get text detection results from both regions and draw individual elements
+            name_detection = self.detect_all_text_with_boxes(name_roi_path)
+            score_detection = self.detect_all_text_with_boxes(score_roi_path)
+            
+            # Draw individual text elements from name region
+            if name_detection['success']:
+                for element in name_detection['text_elements']:
+                    # Adjust coordinates back to original image (name region)
+                    roi_x, roi_y, roi_w, roi_h = element['bbox']
+                    orig_x = start_x + roi_x
+                    orig_y = start_y + roi_y
+                    
+                    # Draw red box around names
+                    cv2.rectangle(img, (orig_x, orig_y), (orig_x + roi_w, orig_y + roi_h), (0, 0, 255), 1)
+                    
+                    # Add text label with confidence
+                    label = f"{element['text']} ({element['confidence']}%)"
+                    label_pos = (orig_x, orig_y - 3 if orig_y > 15 else orig_y + roi_h + 12)
+                    cv2.putText(img, label, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 
+                               0.3, (0, 0, 255), 1, cv2.LINE_AA)
+            
+            # Draw individual text elements from score region  
+            if score_detection['success']:
+                for element in score_detection['text_elements']:
+                    # Adjust coordinates back to original image (score region)
+                    roi_x, roi_y, roi_w, roi_h = element['bbox']
+                    orig_x = separator_x + roi_x
+                    orig_y = start_y + roi_y
+                    
+                    # Draw green box around scores
+                    cv2.rectangle(img, (orig_x, orig_y), (orig_x + roi_w, orig_y + roi_h), (0, 255, 0), 1)
+                    
+                    # Add text label with confidence
+                    label = f"{element['text']} ({element['confidence']}%)"
+                    label_pos = (orig_x, orig_y - 3 if orig_y > 15 else orig_y + roi_h + 12)
+                    cv2.putText(img, label, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 
+                               0.3, (0, 255, 0), 1, cv2.LINE_AA)
+            
             # Add legend
             legend_y = 30
             legend_items = [
                 ("Selected Region", (0, 255, 255)),
                 ("Extended Region", (0, 165, 255)),
-                ("Separator", (0, 0, 255)),
                 ("Names Region", (255, 0, 0)),
-                ("Scores Region", (0, 255, 0))
+                ("Scores Region", (0, 255, 0)),
+                ("Name Text", (0, 0, 255)),
+                ("Score Text", (0, 255, 0))
             ]
             
             for i, (text, color) in enumerate(legend_items):
-                cv2.putText(img, text, (10, legend_y + i * 25), cv2.FONT_HERSHEY_SIMPLEX,
-                           0.6, color, 2, cv2.LINE_AA)
+                cv2.putText(img, text, (10, legend_y + i * 20), cv2.FONT_HERSHEY_SIMPLEX,
+                           0.5, color, 2, cv2.LINE_AA)
             
             # Save overlay image
             import time
