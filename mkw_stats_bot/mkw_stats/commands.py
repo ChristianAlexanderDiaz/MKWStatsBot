@@ -1903,7 +1903,12 @@ class MarioKartCommands(commands.Cog):
             
             # Send raw OCR text for debugging if available
             raw_text = debug_info.get('raw_text', '')
-            if raw_text and len(raw_text) > 50:  # Only send if there's substantial text
+            raw_name_text = debug_info.get('raw_name_text', '')
+            raw_score_text = debug_info.get('raw_score_text', '')
+            
+            # Handle both single region and split region raw text
+            if raw_text and len(raw_text) > 50:
+                # Single region processing
                 logging.info("📤 Sending raw OCR text for debugging")
                 try:
                     # Truncate if too long for Discord
@@ -1916,6 +1921,26 @@ class MarioKartCommands(commands.Cog):
                     logging.info("✅ Raw OCR text sent successfully")
                 except Exception as e:
                     logging.error(f"❌ Error sending raw OCR text: {e}")
+            elif (raw_name_text and len(raw_name_text) > 10) or (raw_score_text and len(raw_score_text) > 10):
+                # Split region processing - show both name and score text separately
+                logging.info("📤 Sending split region raw OCR text for debugging")
+                try:
+                    debug_message = "📄 **Raw OCR Text (Split Regions):**\n\n"
+                    
+                    if raw_name_text and len(raw_name_text) > 10:
+                        # Truncate name text if too long
+                        name_text = raw_name_text[:750] + ("\n... (truncated)" if len(raw_name_text) > 750 else "")
+                        debug_message += f"**Names Region:**\n```\n{name_text}\n```\n"
+                    
+                    if raw_score_text and len(raw_score_text) > 10:
+                        # Truncate score text if too long
+                        score_text = raw_score_text[:750] + ("\n... (truncated)" if len(raw_score_text) > 750 else "")
+                        debug_message += f"**Scores Region:**\n```\n{score_text}\n```"
+                    
+                    await interaction.followup.send(debug_message)
+                    logging.info("✅ Split region raw OCR text sent successfully")
+                except Exception as e:
+                    logging.error(f"❌ Error sending split region raw OCR text: {e}")
             else:
                 logging.info("ℹ️ No substantial raw text to send")
             
