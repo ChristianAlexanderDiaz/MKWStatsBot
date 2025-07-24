@@ -30,5 +30,13 @@ aptPkgs = [
     "libhdf5-dev"
 ]
 
+[phases.install]
+# Force install headless OpenCV first to prevent GUI library conflicts
+cmds = [
+    "pip install opencv-python-headless>=4.5.0",
+    "pip uninstall -y opencv-python || true",
+    "pip install --force-reinstall opencv-python-headless>=4.5.0"
+]
+
 [start]
 cmd = "python main.py"
