@@ -287,7 +287,7 @@ class OCRProcessor:
         # Check score ranges (Mario Kart: 12-180 for 12 races)
         for result in results:
             score = result.get('score', 0)
-            if not (12 <= score <= 180):
+            if not (1 <= score <= 180):
                 validation['warnings'].append(f"{result['name']}: Invalid score {score} (valid range: 12-180)")
         
         # Check for roster vs non-roster players (informational only)
@@ -394,7 +394,7 @@ class OCRProcessor:
             for word in words:
                 if re.match(score_pattern, word):
                     score = int(word)
-                    if 12 <= score <= 180:
+                    if 1 <= score <= 180:
                         all_scores_in_line.append(score)
             
             # If we found scores, try to match with names
@@ -415,7 +415,7 @@ class OCRProcessor:
                 
                 if best_name:
                     # Score validation 
-                    if 12 <= score <= 180:
+                    if 1 <= score <= 180:
                         # Try to resolve nickname to roster name using database
                         resolved_name = best_name  # Default to detected name
                         is_roster_member = False
@@ -1043,11 +1043,44 @@ class OCRProcessor:
             for config in configs:
                 try:
                     text = pytesseract.image_to_string(img, config=config)
+                    
+                    # For scores region, apply additional filtering to ensure only clean numbers
+                    if region_type == "scores":
+                        text = self.clean_score_text(text)
+                    
                     texts.append(text)
                 except Exception as e:
                     logging.error(f"OCR extraction error for {region_type}: {e}")
         
         return texts
+    
+    def clean_score_text(self, text: str) -> str:
+        """Clean OCR text for scores region to ensure only valid numbers."""
+        if not text:
+            return ""
+        
+        # Extract only pure numbers from the text
+        lines = text.split('\n')
+        clean_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Extract all number sequences from the line
+            numbers = re.findall(r'\d+', line)
+            
+            # Only keep numbers in valid score range (1-180)
+            for num_str in numbers:
+                try:
+                    num = int(num_str)
+                    if 1 <= num <= 180:
+                        clean_lines.append(num_str)
+                except ValueError:
+                    continue
+        
+        return '\n'.join(clean_lines)
     
     def match_names_with_scores(self, name_texts: List[str], score_texts: List[str], 
                                name_detection: Dict, score_detection: Dict, guild_id: int = 0) -> List[Dict]:
@@ -1087,7 +1120,7 @@ class OCRProcessor:
                         number_matches = re.findall(r'\d+', word)
                         for number_str in number_matches:
                             score = int(number_str)
-                            if 12 <= score <= 180:  # Valid score range
+                            if 1 <= score <= 180:  # Valid score range
                                 score_candidates.append(score)
                                 break  # Only take first valid score from each word
             
