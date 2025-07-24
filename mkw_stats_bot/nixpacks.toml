@@ -31,12 +31,8 @@ aptPkgs = [
 ]
 
 [phases.install]
-# Force install headless OpenCV first to prevent GUI library conflicts
-cmds = [
-    "pip install opencv-python-headless>=4.5.0",
-    "pip uninstall -y opencv-python || true",
-    "pip install --force-reinstall opencv-python-headless>=4.5.0"
-]
+# Install dependencies from requirements.txt
+cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "python main.py"
