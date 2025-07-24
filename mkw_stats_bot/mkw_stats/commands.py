@@ -9,6 +9,7 @@ import aiohttp
 import tempfile
 import os
 from .ocr_processor import OCRProcessor
+from .ocr_processor_paddle import PaddleOCRProcessor
 
 def require_guild_setup(func):
     """Decorator to ensure guild is initialized before running slash commands."""
@@ -1733,8 +1734,13 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send("❌ Error renaming team", ephemeral=True)
 
     @app_commands.command(name="runocr", description="Test OCR on the most recent image uploaded to this channel")
+    @app_commands.describe(engine="OCR engine to use (tesseract or paddle)")
+    @app_commands.choices(engine=[
+        app_commands.Choice(name="Tesseract (Current - ~90% accuracy)", value="tesseract"),
+        app_commands.Choice(name="PaddleOCR (Experimental - Better for backgrounds)", value="paddle")
+    ])
     @require_guild_setup
-    async def run_ocr_test(self, interaction: discord.Interaction):
+    async def run_ocr_test(self, interaction: discord.Interaction, engine: str = "tesseract"):
         """Run OCR test on the most recent image uploaded to the channel."""
         temp_image_path = None
         overlay_path = None
@@ -1791,29 +1797,34 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send(f"❌ Error downloading image: {str(e)}")
                 return
             
-            # Initialize OCR processor
-            logging.info("🔧 Initializing OCR processor...")
+            # Initialize OCR processor based on selected engine
+            logging.info(f"🔧 Initializing {engine.upper()} OCR processor...")
             try:
-                ocr = OCRProcessor(db_manager=self.bot.db)
-                logging.info("✅ OCR processor initialized successfully")
+                if engine == "paddle":
+                    ocr = PaddleOCRProcessor(db_manager=self.bot.db)
+                    engine_name = "PaddleOCR"
+                else:
+                    ocr = OCRProcessor(db_manager=self.bot.db)
+                    engine_name = "Tesseract"
+                logging.info(f"✅ {engine_name} processor initialized successfully")
             except Exception as e:
-                logging.error(f"❌ Failed to initialize OCR processor: {e}")
-                await interaction.followup.send(f"❌ Error initializing OCR: {str(e)}")
+                logging.error(f"❌ Failed to initialize {engine.upper()} processor: {e}")
+                await interaction.followup.send(f"❌ Error initializing {engine.upper()} OCR: {str(e)}")
                 return
             
             # Process the image with OCR (split region debug mode)
-            logging.info("🔍 Starting split region OCR debug processing...")
+            logging.info(f"🔍 Starting {engine_name} OCR debug processing...")
             try:
                 result = ocr.process_split_regions_debug(temp_image_path, guild_id)
-                logging.info(f"📊 Split region OCR debug processing completed. Success: {result.get('success', False)}")
+                logging.info(f"📊 {engine_name} OCR debug processing completed. Success: {result.get('success', False)}")
                 
                 if 'debug_overlay' in result:
                     overlay_path = result['debug_overlay']
-                    logging.info(f"🎨 Split region debug overlay image created: {overlay_path}")
+                    logging.info(f"🎨 {engine_name} debug overlay image created: {overlay_path}")
                 
             except Exception as e:
-                logging.error(f"❌ Exception during custom region OCR processing: {e}")
-                await interaction.followup.send(f"❌ Custom region OCR processing error: {str(e)}")
+                logging.error(f"❌ Exception during {engine_name} OCR processing: {e}")
+                await interaction.followup.send(f"❌ {engine_name} OCR processing error: {str(e)}")
                 return
             
             if not result.get('success', False):
@@ -1823,8 +1834,8 @@ class MarioKartCommands(commands.Cog):
                 return
             
             # Format the results
-            logging.info("📝 Formatting custom region OCR debug results...")
-            results_text = "🔍 **Custom Region OCR Debug Results**\n\n"
+            logging.info(f"📝 Formatting {engine_name} OCR debug results...")
+            results_text = f"🔍 **{engine_name} OCR Debug Results**\n\n"
             
             results = result.get('results', [])
             debug_info = result.get('debug_info', {})
