@@ -10,6 +10,43 @@ import tempfile
 import os
 from .ocr_processor import OCRProcessor
 
+def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Embed:
+    """
+    Create an embed showing duplicate war detection with comparison.
+    Follows existing embed patterns in the codebase.
+    """
+    embed = discord.Embed(
+        title="⚠️ Duplicate War Detected",
+        description="The war you're trying to add appears identical to your most recent war.",
+        color=0xffa500  # Orange warning color (same as other warnings)
+    )
+    
+    # Show the war results that would be added (same format as successful war embed)
+    player_list = []
+    for result in resolved_results:
+        if result['races_played'] == races:
+            # Full participation - no parentheses
+            player_list.append(f"**{result['name']}**: {result['score']} points")
+        else:
+            # Substitution - show race count
+            player_list.append(f"**{result['name']}** ({result['races_played']}): {result['score']} points")
+    
+    embed.add_field(
+        name="🏁 War Results Being Added",
+        value="\n".join(player_list),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="❓ What would you like to do?",
+        value="✅ **Accept** - Add this war anyway\n❌ **Cancel** - Don't add this war",
+        inline=False
+    )
+    
+    embed.set_footer(text="This confirmation expires in 60 seconds • React with ✅ or ❌")
+    
+    return embed
+
 # Conditional import for PaddleOCR (may not be available in all deployments)
 try:
     from .ocr_processor_paddle import PaddleOCRProcessor
@@ -1104,6 +1141,51 @@ class MarioKartCommands(commands.Cog):
             if failed_players:
                 await interaction.response.send_message(f"❌ These players are not in the players table: {', '.join(failed_players)}\nUse `/addplayer <player>` to add them first.", ephemeral=True)
                 return
+            
+            # Check for duplicate war before adding to database
+            last_war_results = self.bot.db.get_last_war_for_duplicate_check(guild_id)
+            is_duplicate = self.bot.db.check_for_duplicate_war(resolved_results, last_war_results)
+            
+            if is_duplicate:
+                # Show duplicate warning embed with reactions
+                duplicate_embed = create_duplicate_war_embed(resolved_results, races)
+                
+                await interaction.response.send_message(embed=duplicate_embed)
+                confirmation_msg = await interaction.original_response()
+                
+                # Add reaction buttons
+                await confirmation_msg.add_reaction("✅")
+                await confirmation_msg.add_reaction("❌")
+                
+                # Wait for user reaction with timeout
+                def check(reaction, user):
+                    return (user == interaction.user and 
+                           str(reaction.emoji) in ["✅", "❌"] and 
+                           reaction.message.id == confirmation_msg.id)
+                
+                try:
+                    reaction, _ = await self.bot.wait_for('reaction_add', timeout=60.0, check=check)
+                    
+                    if str(reaction.emoji) == "❌":
+                        # User canceled
+                        cancel_embed = discord.Embed(
+                            title="❌ War Canceled",
+                            description="Duplicate war was not added to the database.",
+                            color=0xff4444
+                        )
+                        await interaction.edit_original_response(embed=cancel_embed)
+                        return
+                    # If ✅, continue with adding the war (fall through to next section)
+                    
+                except asyncio.TimeoutError:
+                    # Timeout - cancel the war
+                    timeout_embed = discord.Embed(
+                        title="⏰ Confirmation Timeout",
+                        description="Duplicate war confirmation timed out. War was not added.",
+                        color=0xff4444
+                    )
+                    await interaction.edit_original_response(embed=timeout_embed)
+                    return
             
             # Store war in database
             war_id = self.bot.db.add_race_results(resolved_results, races, guild_id)

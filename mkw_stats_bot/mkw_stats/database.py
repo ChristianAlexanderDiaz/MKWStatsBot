@@ -952,6 +952,92 @@ class DatabaseManager:
             logging.error(f"❌ Error getting all wars: {e}")
             return []
     
+    def get_last_war_for_duplicate_check(self, guild_id: int = 0) -> Optional[List[Dict]]:
+        """
+        Get the most recent war's player results for duplicate detection.
+        Returns normalized player data for comparison: [{'name': 'Player', 'score': 85}, ...]
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT players_data
+                    FROM wars
+                    WHERE guild_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (guild_id,))
+                
+                result = cursor.fetchone()
+                if not result or not result[0]:
+                    return None
+                
+                # Extract player results from the war data
+                war_data = result[0]
+                player_results = war_data.get('results', [])
+                
+                if not player_results:
+                    return None
+                
+                # Normalize the data for comparison (name and score only)
+                normalized_results = []
+                for player in player_results:
+                    normalized_results.append({
+                        'name': player.get('name', '').strip().lower(),
+                        'score': player.get('score', 0)
+                    })
+                
+                # Sort by name for consistent comparison
+                normalized_results.sort(key=lambda x: x['name'])
+                
+                logging.info(f"✅ Retrieved last war data for duplicate check: {len(normalized_results)} players")
+                return normalized_results
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting last war for duplicate check: {e}")
+            return None
+    
+    @staticmethod
+    def check_for_duplicate_war(new_results: List[Dict], last_war_results: Optional[List[Dict]]) -> bool:
+        """
+        Check if new war results are identical to the last war.
+        Compares normalized player names and scores.
+        
+        Args:
+            new_results: New war results to check
+            last_war_results: Previous war results from get_last_war_for_duplicate_check()
+            
+        Returns:
+            True if wars are identical, False otherwise
+        """
+        if not last_war_results or not new_results:
+            return False
+        
+        # Normalize new results for comparison
+        normalized_new = []
+        for player in new_results:
+            normalized_new.append({
+                'name': player.get('name', '').strip().lower(),
+                'score': player.get('score', 0)
+            })
+        
+        # Sort by name for consistent comparison
+        normalized_new.sort(key=lambda x: x['name'])
+        
+        # Compare lengths first
+        if len(normalized_new) != len(last_war_results):
+            return False
+        
+        # Compare each player entry
+        for new_player, last_player in zip(normalized_new, last_war_results):
+            if (new_player['name'] != last_player['name'] or 
+                new_player['score'] != last_player['score']):
+                return False
+        
+        logging.info(f"🔍 Duplicate war detected: {len(normalized_new)} players with identical names and scores")
+        return True
+    
     def remove_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[int]:
         """Remove a war by ID and update player statistics."""
         try:
