@@ -1146,12 +1146,16 @@ class MarioKartCommands(commands.Cog):
             last_war_results = self.bot.db.get_last_war_for_duplicate_check(guild_id)
             is_duplicate = self.bot.db.check_for_duplicate_war(resolved_results, last_war_results)
             
+            # Track if we've already responded to the interaction
+            already_responded = False
+            
             if is_duplicate:
                 # Show duplicate warning embed with reactions
                 duplicate_embed = create_duplicate_war_embed(resolved_results, races)
                 
                 await interaction.response.send_message(embed=duplicate_embed)
                 confirmation_msg = await interaction.original_response()
+                already_responded = True  # Mark that we've responded
                 
                 # Add reaction buttons
                 await confirmation_msg.add_reaction("✅")
@@ -1251,7 +1255,12 @@ class MarioKartCommands(commands.Cog):
             )
             
             embed.set_footer(text="Player statistics have been automatically updated")
-            await interaction.response.send_message(embed=embed)
+            
+            # Send response using appropriate method based on whether we've already responded
+            if already_responded:
+                await interaction.edit_original_response(embed=embed, content="")
+            else:
+                await interaction.response.send_message(embed=embed)
             
             # Start countdown timer
             countdown_seconds = 30
@@ -1268,7 +1277,11 @@ class MarioKartCommands(commands.Cog):
             
         except Exception as e:
             logging.error(f"Error adding war: {e}")
-            await interaction.response.send_message("❌ Error adding war. Check the command format and try again.", ephemeral=True)
+            # Try to send error message, but handle if interaction already responded
+            try:
+                await interaction.response.send_message("❌ Error adding war. Check the command format and try again.", ephemeral=True)
+            except discord.errors.InteractionResponded:
+                await interaction.followup.send("❌ Error adding war. Check the command format and try again.", ephemeral=True)
 
     @app_commands.command(name="showallwars", description="Show all wars with pagination")
     @app_commands.describe(limit="Number of wars to show (default: 10, max: 50)")
