@@ -30,9 +30,6 @@ aptPkgs = [
     "libhdf5-dev"
 ]
 
-[phases.install]
-# Install dependencies from requirements.txt
-cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "python main.py"
