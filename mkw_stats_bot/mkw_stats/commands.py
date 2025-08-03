@@ -211,9 +211,12 @@ class MarioKartCommands(commands.Cog):
         return nicknames
 
     @app_commands.command(name="stats", description="View player statistics or leaderboard")
-    @app_commands.describe(player="Player name to view stats for (optional - shows leaderboard if empty)")
+    @app_commands.describe(
+        player="Player name to view stats for (optional - shows leaderboard if empty)",
+        lastxwars="Show stats for last X wars only (optional - shows all-time if empty)"
+    )
     @require_guild_setup
-    async def stats_slash(self, interaction: discord.Interaction, player: str = None):
+    async def stats_slash(self, interaction: discord.Interaction, player: str = None, lastxwars: int = None):
         """View statistics for a specific player or all players."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
@@ -224,12 +227,45 @@ class MarioKartCommands(commands.Cog):
                     await interaction.response.send_message(f"❌ No player found with name or nickname: {player}", ephemeral=True)
                     return
                 
-                # Get specific player stats from players table using resolved name
-                stats = self.bot.db.get_player_stats(resolved_player, guild_id)
+                # Handle lastxwars parameter validation and stats retrieval
+                if lastxwars is not None:
+                    # Validate lastxwars parameter
+                    if lastxwars < 1:
+                        await interaction.response.send_message("❌ Must be at least 1 war.", ephemeral=True)
+                        return
+                    
+                    # Get player's total war count for validation
+                    player_stats = self.bot.db.get_player_stats(resolved_player, guild_id)
+                    if not player_stats:
+                        await interaction.response.send_message(f"❌ No stats found for player: {resolved_player}", ephemeral=True)
+                        return
+                    
+                    player_war_count = float(player_stats.get('war_count', 0))
+                    if player_war_count == 0:
+                        await interaction.response.send_message(f"❌ {resolved_player} hasn't participated in any wars yet.", ephemeral=True)
+                        return
+                    
+                    if lastxwars > player_war_count:
+                        await interaction.response.send_message(f"❌ {resolved_player} has only {player_war_count:.1f} wars of participation, can't show last {lastxwars}.", ephemeral=True)
+                        return
+                    
+                    # Get stats for last X wars
+                    stats = self.bot.db.get_player_stats_last_x_wars(resolved_player, lastxwars, guild_id)
+                else:
+                    # Get all-time stats (default behavior)
+                    stats = self.bot.db.get_player_stats(resolved_player, guild_id)
+                
                 if stats:
                     # Create an embed for the player's stats
+                    if lastxwars is not None:
+                        title = f"📊 Last {lastxwars} Wars Stats for {stats['player_name']}"
+                        footer_text = f"Last {lastxwars} wars stats"
+                    else:
+                        title = f"📊 Stats for {stats['player_name']}"
+                        footer_text = "All-time stats"
+                    
                     embed = discord.Embed(
-                        title=f"📊 Stats for {stats['player_name']}",
+                        title=title,
                         color=0x00ff00
                     )
                     
@@ -269,6 +305,8 @@ class MarioKartCommands(commands.Cog):
                     else:
                         embed.add_field(name="Last War", value="No wars yet", inline=True)
                     
+                    # Set footer to indicate data source
+                    embed.set_footer(text=footer_text)
                     await interaction.response.send_message(embed=embed)
                 else:
                     # Check if player exists in players table but has no stats yet

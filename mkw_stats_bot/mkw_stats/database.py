@@ -883,6 +883,109 @@ class DatabaseManager:
             logging.error(f"❌ Error getting player stats: {e}")
             return None
     
+    def get_player_stats_last_x_wars(self, player_name: str, x_wars: int, guild_id: int = 0) -> Optional[Dict]:
+        """
+        Get player statistics calculated from their last X wars only.
+        
+        Args:
+            player_name: Name of the player
+            x_wars: Number of recent wars to calculate stats from
+            guild_id: Guild ID
+            
+        Returns:
+            Dict with same format as get_player_stats() but calculated from last X wars,
+            or None if player not found or no wars
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # First get basic player info (team, nicknames, etc.)
+                cursor.execute("""
+                    SELECT team, nicknames, added_by, created_at
+                    FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+                
+                player_info = cursor.fetchone()
+                if not player_info:
+                    return None
+                
+                # Get last X wars containing this player, ordered by most recent first
+                cursor.execute("""
+                    SELECT id, war_date, race_count, players_data, created_at
+                    FROM wars
+                    WHERE guild_id = %s
+                    ORDER BY created_at DESC
+                """, (guild_id,))
+                
+                # Find wars containing this player and collect their stats
+                player_wars = []
+                wars_found = 0
+                
+                for row in cursor.fetchall():
+                    if wars_found >= x_wars:
+                        break
+                        
+                    war_data = row[3] if row[3] else {}
+                    player_results = war_data.get('results', [])
+                    
+                    # Check if this player participated in this war
+                    for player_result in player_results:
+                        if player_result.get('name', '').lower() == player_name.lower():
+                            player_wars.append({
+                                'war_date': row[1].isoformat() if row[1] else None,
+                                'race_count': row[2],
+                                'player_result': player_result,
+                                'created_at': row[4].isoformat() if row[4] else None
+                            })
+                            wars_found += 1
+                            break
+                
+                if not player_wars:
+                    return None
+                
+                # Calculate stats from the collected wars
+                total_score = 0
+                total_races = 0
+                total_war_participation = 0.0
+                last_war_date = None
+                
+                for war in player_wars:
+                    player_result = war['player_result']
+                    score = player_result.get('score', 0)
+                    races_played = player_result.get('races_played', war['race_count'])
+                    war_participation = player_result.get('war_participation', races_played / war['race_count'])
+                    
+                    total_score += score
+                    total_races += races_played
+                    total_war_participation += war_participation
+                    
+                    # Track most recent war date
+                    if war['war_date'] and (not last_war_date or war['war_date'] > last_war_date):
+                        last_war_date = war['war_date']
+                
+                # Calculate average score
+                average_score = round(total_score / total_war_participation, 2) if total_war_participation > 0 else 0.0
+                
+                return {
+                    'player_name': player_name,
+                    'total_score': total_score,
+                    'total_races': total_races,
+                    'war_count': total_war_participation,
+                    'average_score': float(average_score),
+                    'last_war_date': last_war_date,
+                    'stats_created_at': player_info[3].isoformat() if player_info[3] else None,
+                    'stats_updated_at': None,  # Not applicable for calculated stats
+                    'team': player_info[0] if player_info[0] else 'Unassigned',
+                    'nicknames': player_info[1] if player_info[1] else [],
+                    'added_by': player_info[2]
+                }
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting player stats for last {x_wars} wars: {e}")
+            return None
+    
     def get_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[Dict]:
         """Get specific war details by ID."""
         try:
