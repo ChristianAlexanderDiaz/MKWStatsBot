@@ -986,6 +986,38 @@ class DatabaseManager:
             logging.error(f"❌ Error getting player stats for last {x_wars} wars: {e}")
             return None
     
+    def get_player_distinct_war_count(self, player_name: str, guild_id: int = 0) -> int:
+        """
+        Get the number of distinct wars a player has participated in.
+        Used for validation when requesting last X wars stats.
+        
+        Args:
+            player_name: Name of the player
+            guild_id: Guild ID
+            
+        Returns:
+            int: Number of distinct wars the player participated in (0 if none)
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Count wars where this player appears in the players_data JSON
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM wars
+                    WHERE guild_id = %s 
+                    AND players_data::text LIKE %s
+                """, (guild_id, f'%"name": "{player_name}"%'))
+                
+                count = cursor.fetchone()[0]
+                logging.info(f"✅ Player {player_name} participated in {count} distinct wars")
+                return count
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting distinct war count for {player_name}: {e}")
+            return 0
+    
     def get_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[Dict]:
         """Get specific war details by ID."""
         try:

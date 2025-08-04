@@ -234,19 +234,14 @@ class MarioKartCommands(commands.Cog):
                         await interaction.response.send_message("❌ Must be at least 1 war.", ephemeral=True)
                         return
                     
-                    # Get player's total war count for validation
-                    player_stats = self.bot.db.get_player_stats(resolved_player, guild_id)
-                    if not player_stats:
-                        await interaction.response.send_message(f"❌ No stats found for player: {resolved_player}", ephemeral=True)
-                        return
-                    
-                    player_war_count = float(player_stats.get('war_count', 0))
-                    if player_war_count == 0:
+                    # Get player's distinct war count for validation
+                    distinct_wars = self.bot.db.get_player_distinct_war_count(resolved_player, guild_id)
+                    if distinct_wars == 0:
                         await interaction.response.send_message(f"❌ {resolved_player} hasn't participated in any wars yet.", ephemeral=True)
                         return
                     
-                    if lastxwars > player_war_count:
-                        await interaction.response.send_message(f"❌ {resolved_player} has only {player_war_count:.1f} wars of participation, can't show last {lastxwars}.", ephemeral=True)
+                    if lastxwars > distinct_wars:
+                        await interaction.response.send_message(f"❌ {resolved_player} has only participated in {distinct_wars} wars, can't show last {lastxwars}.", ephemeral=True)
                         return
                     
                     # Get stats for last X wars
@@ -258,8 +253,9 @@ class MarioKartCommands(commands.Cog):
                 if stats:
                     # Create an embed for the player's stats
                     if lastxwars is not None:
-                        title = f"📊 Last {lastxwars} Wars Stats for {stats['player_name']}"
-                        footer_text = f"Last {lastxwars} wars stats"
+                        total_races = stats.get('total_races', 0)
+                        title = f"📊 Last {lastxwars} Wars Stats for {stats['player_name']} ({total_races} total races)"
+                        footer_text = f"Last {lastxwars} war events • {total_races} total races"
                     else:
                         title = f"📊 Stats for {stats['player_name']}"
                         footer_text = "All-time stats"
