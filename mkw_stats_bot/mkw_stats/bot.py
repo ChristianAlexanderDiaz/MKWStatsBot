@@ -9,7 +9,7 @@ from typing import Optional, Dict, List, Union
 from dotenv import load_dotenv
 from . import config
 from .database import DatabaseManager
-from .ocr_processor import OCRProcessor
+# Tesseract OCRProcessor removed - using only PaddleOCR
 from .logging_config import get_logger, log_discord_command, setup_logging
 
 # Load environment variables from .env file if it exists
@@ -39,8 +39,7 @@ class MarioKartBot(commands.Bot):
         
         # Initialize the new v2 database system
         self.db = DatabaseManager()
-        # Initialize the OCR processor
-        self.ocr = OCRProcessor(db_manager=self.db)
+        # OCR processor initialization moved to commands - using only PaddleOCR
         # Initialize the pending confirmations dictionary
         self.pending_confirmations = {}  # message_id -> confirmation_data
     

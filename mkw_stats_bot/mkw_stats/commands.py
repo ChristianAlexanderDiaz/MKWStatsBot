@@ -8,7 +8,7 @@ import functools
 import aiohttp
 import tempfile
 import os
-from .ocr_processor import OCRProcessor
+# Tesseract OCRProcessor removed - using only PaddleOCR
 
 def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Embed:
     """
@@ -47,14 +47,8 @@ def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Em
     
     return embed
 
-# Conditional import for PaddleOCR (may not be available in all deployments)
-try:
-    from .ocr_processor_paddle import PaddleOCRProcessor
-    PADDLE_OCR_AVAILABLE = True
-except ImportError as e:
-    logging.warning(f"PaddleOCR not available: {e}")
-    PaddleOCRProcessor = None
-    PADDLE_OCR_AVAILABLE = False
+# PaddleOCR is now the only OCR engine
+from .ocr_processor_paddle import PaddleOCRProcessor
 
 def require_guild_setup(func):
     """Decorator to ensure guild is initialized before running slash commands."""
@@ -1871,12 +1865,9 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send("❌ Error renaming team", ephemeral=True)
 
     @app_commands.command(name="runocr", description="Test OCR on the most recent image uploaded to this channel")
-    @app_commands.describe(engine="OCR engine to use")
-    @app_commands.choices(engine=[
-        app_commands.Choice(name="Tesseract (Current - ~90% accuracy)", value="tesseract"),
-    ] + ([app_commands.Choice(name="PaddleOCR (Experimental - Better for backgrounds)", value="paddle")] if PADDLE_OCR_AVAILABLE else []))
+    # PaddleOCR is now the only engine - no engine selection needed
     @require_guild_setup
-    async def run_ocr_test(self, interaction: discord.Interaction, engine: str = "tesseract"):
+    async def run_ocr_test(self, interaction: discord.Interaction):
         """Run OCR test on the most recent image uploaded to the channel."""
         temp_image_path = None
         overlay_path = None
@@ -1933,25 +1924,16 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send(f"❌ Error downloading image: {str(e)}")
                 return
             
-            # Initialize OCR processor based on selected engine
-            logging.info(f"🔧 Initializing {engine.upper()} OCR processor...")
+            # Initialize PaddleOCR processor
+            logging.info("🔧 Initializing PaddleOCR processor...")
             try:
-                if engine == "paddle":
-                    if not PADDLE_OCR_AVAILABLE:
-                        await interaction.followup.send("❌ PaddleOCR is not available in this deployment. Using Tesseract instead.")
-                        engine = "tesseract"
-                    else:
-                        ocr = PaddleOCRProcessor(db_manager=self.bot.db)
-                        engine_name = "PaddleOCR"
-                
-                if engine == "tesseract":
-                    ocr = OCRProcessor(db_manager=self.bot.db)
-                    engine_name = "Tesseract"
+                ocr = PaddleOCRProcessor(db_manager=self.bot.db)
+                engine_name = "PaddleOCR"
                     
                 logging.info(f"✅ {engine_name} processor initialized successfully")
             except Exception as e:
-                logging.error(f"❌ Failed to initialize {engine.upper()} processor: {e}")
-                await interaction.followup.send(f"❌ Error initializing {engine.upper()} OCR: {str(e)}")
+                logging.error(f"❌ Failed to initialize PaddleOCR processor: {e}")
+                await interaction.followup.send(f"❌ Error initializing PaddleOCR: {str(e)}")
                 return
             
             # Process the image with OCR (split region debug mode)
