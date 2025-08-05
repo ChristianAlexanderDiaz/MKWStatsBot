@@ -6,8 +6,8 @@ Core application package containing bot logic, OCR processing, and database oper
 
 from .bot import MarioKartBot, setup_bot
 from .database import DatabaseManager
-from .ocr_processor import OCRProcessor
+# OCRProcessor removed - using only PaddleOCR
 from . import config
 
 __version__ = "2.0.0"
-__all__ = ["MarioKartBot", "setup_bot", "DatabaseManager", "OCRProcessor", "config"] 
+__all__ = ["MarioKartBot", "setup_bot", "DatabaseManager", "config"] 
