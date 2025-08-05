@@ -27,7 +27,8 @@ aptPkgs = [
     "libtiff-dev",
     "libatlas-base-dev",
     "gfortran",
-    "libhdf5-dev"
+    "libhdf5-dev",
+    "libgl1-mesa-glx"
 ]
 
 
