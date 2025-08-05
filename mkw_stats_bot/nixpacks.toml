@@ -7,28 +7,10 @@ PYTHONDONTWRITEBYTECODE = "1"
 
 [phases.setup]
 aptPkgs = [
-    "tesseract-ocr", 
-    "tesseract-ocr-eng", 
-    "libglib2.0-0", 
-    "libsm6", 
-    "libxext6", 
-    "libxrender1", 
-    "libgomp1",
-    "libglib2.0-0",
-    "libgtk-3-0",
-    "libavcodec-dev",
-    "libavformat-dev",
-    "libswscale-dev",
-    "libv4l-dev",
-    "libxvidcore-dev",
-    "libx264-dev",
+    # Only minimal dependencies needed for PaddleOCR headless
     "libjpeg-dev",
     "libpng-dev",
-    "libtiff-dev",
-    "libatlas-base-dev",
-    "gfortran",
-    "libhdf5-dev",
-    "libglx-mesa0"
+    "libtiff-dev"
 ]
 
 
