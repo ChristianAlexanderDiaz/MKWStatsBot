@@ -28,7 +28,7 @@ aptPkgs = [
     "libatlas-base-dev",
     "gfortran",
     "libhdf5-dev",
-    "libgl1-mesa-glx"
+    "libglx-mesa0"
 ]
 
 
