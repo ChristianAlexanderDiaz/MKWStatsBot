@@ -12,8 +12,7 @@ from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 from PIL import Image, ImageDraw
 
-# PaddleOCR imports
-from paddleocr import PaddleOCR
+# PaddleOCR imports - lazy loaded to avoid startup crashes
 
 class PaddleOCRProcessor:
     """PaddleOCR processor for Mario Kart race result images."""
@@ -43,8 +42,13 @@ class PaddleOCRProcessor:
         logging.info("🚀 PaddleOCR environment configured for Railway/Linux")
     
     def _initialize_ocr(self):
-        """Initialize PaddleOCR with WORKING configuration from Windows code."""
+        """Initialize PaddleOCR with WORKING configuration (lazy loaded)."""
         try:
+            logging.info("🚀 Lazy loading PaddleOCR - importing now...")
+            
+            # Lazy import PaddleOCR only when actually needed
+            from paddleocr import PaddleOCR
+            
             logging.info("🚀 Using the WORKING OCR configuration...")
             
             self.ocr = PaddleOCR(
@@ -60,13 +64,21 @@ class PaddleOCRProcessor:
             
             logging.info("✅ PaddleOCR initialized successfully with working configuration")
             
+        except ImportError as e:
+            logging.error(f"❌ Failed to import PaddleOCR: {e}")
+            logging.error("💡 This might indicate missing dependencies or memory issues")
+            raise
         except Exception as e:
             logging.error(f"❌ Failed to initialize PaddleOCR: {e}")
+            logging.error("💡 This might indicate insufficient memory or model download issues")
             raise
     
     def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0) -> Dict:
         """Process image using PaddleOCR with ROI extension (based on working Windows code)."""
         try:
+            # Ensure PaddleOCR is initialized (lazy loading)
+            if self.ocr is None:
+                self._initialize_ocr()
             logging.info(f"🧪 Testing PaddleOCR with: {image_path}")
             
             if not os.path.exists(image_path):
