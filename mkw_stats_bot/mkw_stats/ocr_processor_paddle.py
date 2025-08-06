@@ -41,10 +41,78 @@ class PaddleOCRProcessor:
         os.environ['OPENCV_IO_ENABLE_OPENEXR'] = 'false'
         os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         
+        # Railway/Docker aggressive headless fixes
+        os.environ['DISPLAY'] = ''
+        os.environ['MPLBACKEND'] = 'Agg'
+        
         # Create output directory if needed
         Path("output").mkdir(exist_ok=True)
         
+        # Try to fix OpenCV conflicts at runtime
+        self._fix_opencv_conflicts()
+        
         logging.info("🚀 PaddleOCR environment configured for Railway/Linux")
+    
+    def _fix_opencv_conflicts(self):
+        """Aggressively fix OpenCV conflicts for Railway deployment."""
+        try:
+            import subprocess
+            import sys
+            
+            logging.info("🔧 Checking for OpenCV conflicts...")
+            
+            # Check what's installed
+            opencv_packages = ['opencv-python', 'opencv-contrib-python']
+            headless_packages = ['opencv-python-headless', 'opencv-contrib-python-headless']
+            
+            conflicts_found = []
+            headless_found = []
+            
+            for package in opencv_packages:
+                try:
+                    result = subprocess.run([sys.executable, '-m', 'pip', 'show', package], 
+                                          capture_output=True, text=True)
+                    if result.returncode == 0:
+                        conflicts_found.append(package)
+                except:
+                    pass
+            
+            for package in headless_packages:
+                try:
+                    result = subprocess.run([sys.executable, '-m', 'pip', 'show', package], 
+                                          capture_output=True, text=True)
+                    if result.returncode == 0:
+                        headless_found.append(package)
+                except:
+                    pass
+            
+            if conflicts_found:
+                logging.warning(f"⚠️ Found conflicting OpenCV packages: {conflicts_found}")
+                logging.info("🔧 Attempting to fix OpenCV conflicts...")
+                
+                # Try to uninstall conflicting packages
+                for package in conflicts_found:
+                    try:
+                        logging.info(f"🗑️ Removing {package}...")
+                        subprocess.run([sys.executable, '-m', 'pip', 'uninstall', package, '-y'], 
+                                     capture_output=True)
+                    except Exception as e:
+                        logging.warning(f"Failed to remove {package}: {e}")
+                
+                # Install headless version if not present
+                if not headless_found:
+                    try:
+                        logging.info("📦 Installing opencv-contrib-python-headless...")
+                        subprocess.run([sys.executable, '-m', 'pip', 'install', 'opencv-contrib-python-headless'], 
+                                     capture_output=True)
+                    except Exception as e:
+                        logging.warning(f"Failed to install headless OpenCV: {e}")
+            else:
+                logging.info("✅ No OpenCV conflicts detected")
+                
+        except Exception as e:
+            logging.warning(f"OpenCV conflict check failed: {e}")
+            # Don't raise - let the main process continue
     
     def _verify_opencv_installation(self):
         """Verify OpenCV installation and log detailed information."""
