@@ -41,10 +41,60 @@ class PaddleOCRProcessor:
         
         logging.info("🚀 PaddleOCR environment configured for Railway/Linux")
     
+    def _verify_opencv_installation(self):
+        """Verify OpenCV installation and log detailed information."""
+        try:
+            import cv2
+            import subprocess
+            import sys
+            
+            logging.info(f"✅ OpenCV imported successfully - Version: {cv2.__version__}")
+            
+            # Check which OpenCV packages are installed
+            opencv_packages = [
+                'opencv-python',
+                'opencv-python-headless', 
+                'opencv-contrib-python',
+                'opencv-contrib-python-headless'
+            ]
+            
+            installed_packages = []
+            for package in opencv_packages:
+                try:
+                    result = subprocess.run([sys.executable, '-m', 'pip', 'show', package], 
+                                          capture_output=True, text=True)
+                    if result.returncode == 0:
+                        lines = result.stdout.split('\n')
+                        version = next((line for line in lines if line.startswith('Version:')), 'Version: Unknown')
+                        installed_packages.append(f"{package} ({version.replace('Version: ', '')})")
+                except:
+                    pass
+            
+            if installed_packages:
+                logging.info(f"📦 Installed OpenCV packages: {', '.join(installed_packages)}")
+            else:
+                logging.warning("⚠️ No OpenCV packages found via pip")
+            
+            # Test basic OpenCV functionality
+            import numpy as np
+            test_image = np.zeros((10, 10, 3), dtype=np.uint8)
+            _ = cv2.cvtColor(test_image, cv2.COLOR_BGR2GRAY)  # Test color conversion
+            logging.info("✅ OpenCV basic functionality test passed")
+            
+        except ImportError as e:
+            logging.error(f"❌ OpenCV import failed: {e}")
+            raise
+        except Exception as e:
+            logging.warning(f"⚠️ OpenCV verification warning: {e}")
+            # Don't raise, just warn - OpenCV might still work
+    
     def _initialize_ocr(self):
         """Initialize PaddleOCR with WORKING configuration (lazy loaded)."""
         try:
             logging.info("🚀 Lazy loading PaddleOCR - importing now...")
+            
+            # First, verify OpenCV installation
+            self._verify_opencv_installation()
             
             # Lazy import PaddleOCR only when actually needed
             from paddleocr import PaddleOCR
@@ -148,10 +198,8 @@ class PaddleOCRProcessor:
             for result_item in parsed_results:
                 result_item.update(war_metadata)
             
-            # Validate results using existing OCRProcessor validation
-            from .ocr_processor import OCRProcessor
-            temp_processor = OCRProcessor(db_manager=self.db_manager)
-            validation_result = temp_processor.validate_results(parsed_results, guild_id)
+            # Validate results using built-in validation
+            validation_result = self._validate_results(parsed_results, guild_id)
             
             logging.info("🎉 SUCCESS! PaddleOCR processing completed!")
             
@@ -321,6 +369,48 @@ class PaddleOCRProcessor:
             logging.error(f"Error parsing Mario Kart results: {e}")
             return []
     
+    def _validate_results(self, results: List[Dict], guild_id: int = 0) -> Dict:
+        """Basic validation of parsed results."""
+        try:
+            validation = {
+                'is_valid': True,
+                'errors': [],
+                'warnings': []
+            }
+            
+            if not results:
+                validation['is_valid'] = False
+                validation['errors'].append("No results found")
+                return validation
+            
+            # Check for duplicate players
+            names = [result['name'] for result in results]
+            duplicates = set([name for name in names if names.count(name) > 1])
+            if duplicates:
+                validation['warnings'].append(f"Duplicate players found: {', '.join(duplicates)}")
+            
+            # Check score ranges
+            for result in results:
+                score = result.get('score', 0)
+                if not (1 <= score <= 180):
+                    validation['warnings'].append(f"{result['name']}: Score {score} is outside normal range (1-180)")
+            
+            # Check minimum players
+            if len(results) < 3:
+                validation['warnings'].append(f"Only {len(results)} players found, expected more for a war")
+            
+            logging.info(f"🔍 Validation complete: {len(validation['errors'])} errors, {len(validation['warnings'])} warnings")
+            
+            return validation
+            
+        except Exception as e:
+            logging.error(f"Error during validation: {e}")
+            return {
+                'is_valid': False,
+                'errors': [f"Validation failed: {str(e)}"],
+                'warnings': []
+            }
+    
     def _create_default_war_metadata(self, message_timestamp=None) -> Dict:
         """Create default war metadata."""
         from . import config
@@ -347,7 +437,7 @@ class PaddleOCRProcessor:
             
             # Load original image
             image = Image.open(image_path).convert('RGB')
-            orig_width, orig_height = image.size
+            _, orig_height = image.size  # Only need height for ROI extension
             draw = ImageDraw.Draw(image)
             
             # Get extended ROI coordinates and draw ROI boundary
@@ -378,7 +468,7 @@ class PaddleOCRProcessor:
                 boxes = result_data['rec_polys']
                 
                 # Draw detection boxes (adjust coordinates back to original image)
-                for i, (box, text, score) in enumerate(zip(boxes, texts, scores)):
+                for i, (box, text, _) in enumerate(zip(boxes, texts, scores)):
                     # Convert box to rectangle
                     x_coords = box[:, 0]
                     y_coords = box[:, 1]
