@@ -5,7 +5,11 @@
 paddlepaddle>=3.1.0
 paddleocr>=3.1.0
 
-# Note: PaddleOCR may install opencv-python which conflicts with opencv-python-headless
-# If you encounter libGL.so.1 errors in Docker/Railway, you may need to:
-# 1. Uninstall opencv-python: pip uninstall opencv-python
-# 2. Reinstall headless version: pip install opencv-python-headless
+# RAILWAY/DOCKER FIX: PaddleOCR automatically installs opencv-python which requires libGL.so.1
+# This causes "cannot open shared object file" errors in headless environments
+# Solution: Force installation of headless version after PaddleOCR
+opencv-contrib-python-headless>=4.5.0
+
+# Alternative manual fix if still having issues:
+# 1. pip uninstall opencv-python opencv-contrib-python
+# 2. pip install opencv-contrib-python-headless

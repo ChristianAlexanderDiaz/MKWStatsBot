@@ -36,6 +36,11 @@ class PaddleOCRProcessor:
         # Set PaddleOCR to use faster model downloads
         os.environ['PADDLE_PDX_MODEL_SOURCE'] = 'BOS'
         
+        # Force OpenCV to use headless mode (Railway/Docker compatibility)
+        os.environ['OPENCV_IO_ENABLE_JASPER'] = 'false'
+        os.environ['OPENCV_IO_ENABLE_OPENEXR'] = 'false'
+        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+        
         # Create output directory if needed
         Path("output").mkdir(exist_ok=True)
         
