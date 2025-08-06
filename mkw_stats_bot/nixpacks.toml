@@ -15,31 +15,16 @@ SDL_VIDEODRIVER = "dummy"
 
 [phases.setup]
 aptPkgs = [
-    # Image processing libraries
-    "libjpeg-dev",
-    "libpng-dev", 
-    "libtiff-dev",
-    # OpenGL/Graphics libraries for headless OpenCV
-    "libgl1-mesa-dev",
+    # Essential for libGL.so.1 error fix
+    "libgl1",
     "libglib2.0-0",
-    "libsm6", 
+    # Additional OpenGL/Mesa support for headless environments
+    "libglx-mesa0",
+    "libgl1-mesa-dri",
+    # Basic X11 libraries for headless display
+    "libsm6",
     "libxext6",
-    "libxrender-dev",
-    "libgomp1",
-    "libgthread-2.0-0",
-    "libgtk-3-dev",
-    # OpenCV video codec support
-    "libavcodec-dev",
-    "libavformat-dev",
-    "libswscale-dev",
-    # Additional graphics dependencies
-    "libglu1-mesa-dev",
-    "freeglut3-dev",
-    "mesa-common-dev",
-    # X11 libraries for headless display
-    "libx11-6",
-    "libxss1",
-    "libgconf-2-4"
+    "libxrender1"
 ]
 
 
