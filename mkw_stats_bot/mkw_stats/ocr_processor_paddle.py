@@ -59,7 +59,19 @@ class PaddleOCRProcessor:
             import subprocess
             import sys
             
-            logging.info("🔧 Checking for OpenCV conflicts...")
+            logging.info("🔧 Checking OpenCV installation status...")
+            
+            # First, try to import cv2 to see if it works
+            cv2_working = False
+            try:
+                import cv2
+                cv2_working = True
+                logging.info(f"✅ OpenCV already working - Version: {cv2.__version__}")
+                return  # If it works, don't mess with it
+            except ImportError:
+                logging.warning("❌ OpenCV not available - checking packages...")
+            except Exception as e:
+                logging.warning(f"❌ OpenCV import error: {e} - checking packages...")
             
             # Check what's installed
             opencv_packages = ['opencv-python', 'opencv-contrib-python']
@@ -71,48 +83,90 @@ class PaddleOCRProcessor:
             for package in opencv_packages:
                 try:
                     result = subprocess.run([sys.executable, '-m', 'pip', 'show', package], 
-                                          capture_output=True, text=True)
+                                          capture_output=True, text=True, timeout=10)
                     if result.returncode == 0:
                         conflicts_found.append(package)
+                        logging.info(f"Found GUI package: {package}")
                 except:
                     pass
             
             for package in headless_packages:
                 try:
                     result = subprocess.run([sys.executable, '-m', 'pip', 'show', package], 
-                                          capture_output=True, text=True)
+                                          capture_output=True, text=True, timeout=10)
                     if result.returncode == 0:
                         headless_found.append(package)
+                        logging.info(f"Found headless package: {package}")
                 except:
                     pass
             
-            if conflicts_found:
-                logging.warning(f"⚠️ Found conflicting OpenCV packages: {conflicts_found}")
-                logging.info("🔧 Attempting to fix OpenCV conflicts...")
+            # If no OpenCV at all, install headless
+            if not conflicts_found and not headless_found:
+                logging.info("📦 No OpenCV found - installing headless version...")
+                try:
+                    result = subprocess.run([sys.executable, '-m', 'pip', 'install', 'opencv-contrib-python-headless>=4.5.0'], 
+                                          capture_output=True, text=True, timeout=120)
+                    if result.returncode == 0:
+                        logging.info("✅ Successfully installed opencv-contrib-python-headless")
+                    else:
+                        logging.error(f"Failed to install headless OpenCV: {result.stderr}")
+                except Exception as e:
+                    logging.error(f"Failed to install headless OpenCV: {e}")
+            
+            # If conflicts exist but headless also exists, prefer headless
+            elif conflicts_found and headless_found:
+                logging.warning(f"⚠️ Both GUI {conflicts_found} and headless {headless_found} packages found")
+                logging.info("🔧 Removing GUI packages to prevent libGL.so.1 errors...")
                 
-                # Try to uninstall conflicting packages
+                for package in conflicts_found:
+                    try:
+                        logging.info(f"🗑️ Removing {package}...")
+                        result = subprocess.run([sys.executable, '-m', 'pip', 'uninstall', package, '-y'], 
+                                               capture_output=True, text=True, timeout=60)
+                        if result.returncode == 0:
+                            logging.info(f"✅ Successfully removed {package}")
+                    except Exception as e:
+                        logging.warning(f"Failed to remove {package}: {e}")
+            
+            # If only conflicts found, replace with headless
+            elif conflicts_found and not headless_found:
+                logging.warning(f"⚠️ Found GUI packages {conflicts_found} that will cause libGL.so.1 errors")
+                logging.info("🔧 Replacing with headless version...")
+                
+                # Remove GUI packages first
                 for package in conflicts_found:
                     try:
                         logging.info(f"🗑️ Removing {package}...")
                         subprocess.run([sys.executable, '-m', 'pip', 'uninstall', package, '-y'], 
-                                     capture_output=True)
+                                     capture_output=True, text=True, timeout=60)
                     except Exception as e:
                         logging.warning(f"Failed to remove {package}: {e}")
                 
-                # Install headless version if not present
-                if not headless_found:
-                    try:
-                        logging.info("📦 Installing opencv-contrib-python-headless...")
-                        subprocess.run([sys.executable, '-m', 'pip', 'install', 'opencv-contrib-python-headless'], 
-                                     capture_output=True)
-                    except Exception as e:
-                        logging.warning(f"Failed to install headless OpenCV: {e}")
-            else:
-                logging.info("✅ No OpenCV conflicts detected")
+                # Install headless version
+                try:
+                    logging.info("📦 Installing opencv-contrib-python-headless...")
+                    result = subprocess.run([sys.executable, '-m', 'pip', 'install', 'opencv-contrib-python-headless>=4.5.0'], 
+                                          capture_output=True, text=True, timeout=120)
+                    if result.returncode == 0:
+                        logging.info("✅ Successfully installed opencv-contrib-python-headless")
+                    else:
+                        logging.error(f"Failed to install headless OpenCV: {result.stderr}")
+                except Exception as e:
+                    logging.error(f"Failed to install headless OpenCV: {e}")
+            
+            # Final verification
+            try:
+                import cv2
+                logging.info(f"✅ OpenCV verification successful - Version: {cv2.__version__}")
+            except ImportError:
+                logging.error("❌ OpenCV still not available after fix attempt")
+                raise ImportError("OpenCV not available - Railway deployment may need manual intervention")
+            except Exception as e:
+                logging.error(f"❌ OpenCV verification failed: {e}")
                 
         except Exception as e:
             logging.warning(f"OpenCV conflict check failed: {e}")
-            # Don't raise - let the main process continue
+            # Don't raise - let the main process continue but log the issue
     
     def _verify_opencv_installation(self):
         """Verify OpenCV installation and log detailed information."""
