@@ -53,13 +53,37 @@ class PaddleOCRProcessor:
     def _verify_opencv_installation(self):
         """Verify OpenCV installation and log detailed information."""
         try:
-            import cv2
             import subprocess
             import sys
+            import os
+            
+            # DIAGNOSTIC: Check if we're in Docker vs nixpacks
+            logging.info("🔍 DIAGNOSTIC: Environment check...")
+            logging.info(f"🐳 DOCKER_CONTAINER env var: {os.environ.get('DOCKER_CONTAINER', 'Not set')}")
+            logging.info(f"🔧 NIXPACKS_BUILD env var: {os.environ.get('NIXPACKS_BUILD', 'Not set')}")
+            logging.info(f"🏗️ RAILWAY_BUILDER env var: {os.environ.get('RAILWAY_BUILDER', 'Not set')}")
+            
+            # Check what OpenCV packages are actually installed
+            logging.info("🔍 DIAGNOSTIC: Checking all installed packages...")
+            try:
+                result = subprocess.run([sys.executable, '-m', 'pip', 'list'], 
+                                      capture_output=True, text=True)
+                opencv_lines = [line for line in result.stdout.split('\n') if 'opencv' in line.lower()]
+                if opencv_lines:
+                    logging.info(f"📦 Found OpenCV packages: {opencv_lines}")
+                else:
+                    logging.error("❌ NO OpenCV packages found in pip list!")
+            except Exception as e:
+                logging.error(f"❌ Failed to run pip list: {e}")
+            
+            # Try to import cv2
+            import cv2
+            import numpy as np
             
             logging.info(f"✅ OpenCV imported successfully - Version: {cv2.__version__}")
+            logging.info(f"📍 OpenCV file location: {cv2.__file__}")
             
-            # Check which OpenCV packages are installed
+            # Check which OpenCV packages are installed with detailed info
             opencv_packages = [
                 'opencv-python',
                 'opencv-python-headless', 
@@ -82,16 +106,27 @@ class PaddleOCRProcessor:
             if installed_packages:
                 logging.info(f"📦 Installed OpenCV packages: {', '.join(installed_packages)}")
             else:
-                logging.warning("⚠️ No OpenCV packages found via pip")
+                logging.warning("⚠️ No OpenCV packages found via pip show")
             
             # Test basic OpenCV functionality
-            import numpy as np
             test_image = np.zeros((10, 10, 3), dtype=np.uint8)
             _ = cv2.cvtColor(test_image, cv2.COLOR_BGR2GRAY)  # Test color conversion
             logging.info("✅ OpenCV basic functionality test passed")
             
         except ImportError as e:
             logging.error(f"❌ OpenCV import failed: {e}")
+            
+            # DIAGNOSTIC: What packages ARE installed?
+            try:
+                import subprocess
+                import sys
+                result = subprocess.run([sys.executable, '-m', 'pip', 'list'], 
+                                      capture_output=True, text=True)
+                logging.info("🔍 DIAGNOSTIC: All installed packages:")
+                logging.info(result.stdout)
+            except:
+                pass
+                
             raise
         except Exception as e:
             logging.warning(f"⚠️ OpenCV verification warning: {e}")
