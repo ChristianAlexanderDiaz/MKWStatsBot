@@ -222,13 +222,14 @@ $RECYCLE.BIN/
 
 # Docker
 .dockerignore
-Dockerfile
 docker-compose.yml
 docker-compose.override.yml
 
 # Kubernetes
-*.yaml
-*.yml
+k8s-*.yaml
+k8s-*.yml
+deployment*.yaml
+deployment*.yml
 !render.yaml
 !requirements.txt
 
@@ -283,6 +284,7 @@ exports/
 !README.md
 !LICENSE
 !.gitignore
+!Dockerfile
 
 # Keep sample data files
 !data/formats/
