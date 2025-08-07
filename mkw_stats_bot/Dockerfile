@@ -60,17 +60,17 @@ RUN pip install --no-cache-dir \
 # Install PaddleOCR (this will install opencv-python GUI version as dependency)
 RUN pip install --no-cache-dir paddleocr>=2.7.0 paddlepaddle==2.6.0
 
-# CRITICAL FIX: Remove GUI OpenCV and install headless version
+# Copy application code BEFORE final OpenCV cleanup
+COPY . .
+
+# CRITICAL FIX: Remove GUI OpenCV and install headless version AFTER all dependencies
 # This prevents the libGL.so.1 errors that occur in Railway
 RUN pip uninstall -y opencv-python opencv-contrib-python || true
-RUN pip install --no-cache-dir opencv-contrib-python-headless>=4.5.0
+RUN pip install --no-cache-dir --force-reinstall opencv-contrib-python-headless>=4.5.0
 
 # Verify OpenCV installation works in headless environment
 RUN python -c "import cv2; print(f'✅ OpenCV version: {cv2.__version__}')"
 RUN python -c "import numpy as np; import cv2; test = np.zeros((10,10,3), dtype=np.uint8); _ = cv2.cvtColor(test, cv2.COLOR_BGR2GRAY); print('✅ OpenCV functionality test passed')"
-
-# Copy application code
-COPY . .
 
 # Create output directory for OCR debug images
 RUN mkdir -p output
