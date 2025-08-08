@@ -16,7 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     libgl1-mesa-glx \
-    libgthread-2.0-0 \
     # Additional OpenCV dependencies
     libopencv-dev \
     libgeos-dev \
