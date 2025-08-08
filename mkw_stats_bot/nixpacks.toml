@@ -24,19 +24,24 @@ aptPkgs = [
     "libgomp1"
 ]
 
-# Simple post-install verification (requirements.txt now handles the heavy lifting)
+# CACHE BUSTER: Updated 2025-01-08 - Force Railway rebuild with explicit paddlex[ocr] install
 [phases.postInstall]
 dependsOn = ["install"]  
 cmds = [
-    "echo '🔧 NIXPACKS: Verifying PaddleX OCR installation...'",
+    "echo '🔧 NIXPACKS: Post-install fixes for PaddleX OCR deployment (v2025-01-08)...'",
+    # EXPLICIT: Ensure paddlex[ocr] is installed (force reinstall to be sure)
+    ". /opt/venv/bin/activate && pip install 'paddlex[ocr]>=3.0.0' --force-reinstall --no-cache-dir",
     # Remove any GUI OpenCV that might have been installed as dependencies
     ". /opt/venv/bin/activate && pip uninstall -y opencv-python opencv-contrib-python || echo 'No GUI OpenCV found'",
     # Ensure headless OpenCV is installed
     ". /opt/venv/bin/activate && pip install opencv-contrib-python-headless>=4.5.0 --force-reinstall",
-    # Verify installation
+    # Verify installation with detailed output
+    "echo '🔍 Checking installed packages...'",
+    ". /opt/venv/bin/activate && pip list | grep -E '(paddlex|paddle|opencv)'",
+    # Verify functionality
     ". /opt/venv/bin/activate && python -c 'import cv2; print(f\"✅ OpenCV {cv2.__version__} verified\")' || echo '❌ OpenCV verification failed'",
     ". /opt/venv/bin/activate && python -c 'from paddlex import create_pipeline; print(\"✅ PaddleX OCR ready\")' || echo '❌ PaddleX verification failed'",
-    "echo '✅ NIXPACKS: Installation verification completed'"
+    "echo '✅ NIXPACKS: Installation verification completed (v2025-01-08)'"
 ]
 
 [start]

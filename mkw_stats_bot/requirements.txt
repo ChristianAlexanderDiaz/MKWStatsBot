@@ -6,6 +6,7 @@ psycopg2-binary>=2.9.0
 aiohttp>=3.8.0
 
 # PaddleX OCR - includes all OCR dependencies (paddlepaddle, paddleocr, etc.)
+# CACHE BUSTER: Updated 2025-01-08 - Railway rebuild forced
 paddlex[ocr]>=3.0.0
 
 # CRITICAL: Force headless OpenCV after PaddleX installation

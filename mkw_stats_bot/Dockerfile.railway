@@ -1,0 +1,82 @@
+# =============================================================================
+# Railway-Optimized PaddleX OCR Docker Configuration  
+# =============================================================================
+# Simplified, reliable approach for Railway deployment with PaddleX OCR
+
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables for Railway compatibility
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV DISPLAY=""
+ENV QT_QPA_PLATFORM="offscreen"
+ENV MPLBACKEND="Agg"
+ENV OPENCV_IO_ENABLE_JASPER="false" 
+ENV OPENCV_IO_ENABLE_OPENEXR="false"
+ENV PADDLE_PDX_MODEL_SOURCE="BOS"
+ENV PORT=8000
+
+# Install system dependencies (minimal set for Railway)
+RUN apt-get update && apt-get install -y \
+    # Essential build tools
+    build-essential \
+    pkg-config \
+    # OpenCV headless dependencies (NO GUI libraries)
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgthread-2.0-0 \
+    # Clean up to reduce image size
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better layer caching
+COPY requirements.txt .
+
+# Install Python packages with Railway-optimized approach
+RUN pip install --no-cache-dir --upgrade pip
+
+# Install base dependencies first (fast layer)
+RUN pip install --no-cache-dir \
+    discord.py>=2.0.0 \
+    numpy>=1.19.0 \
+    Pillow>=8.0.0 \
+    python-dotenv>=0.19.0 \
+    psycopg2-binary>=2.9.0 \
+    aiohttp>=3.8.0
+
+# CRITICAL: Install PaddleX with OCR dependencies (this is the key fix)
+RUN pip install --no-cache-dir "paddlex[ocr]>=3.0.0"
+
+# CRITICAL: Remove any GUI OpenCV and force headless installation
+RUN pip uninstall -y opencv-python opencv-contrib-python || true
+RUN pip install --no-cache-dir --force-reinstall opencv-contrib-python-headless>=4.5.0
+
+# Copy application code
+COPY . .
+
+# Verify installation works (but don't download models during build)
+RUN python -c "import cv2; print(f'✅ OpenCV headless version: {cv2.__version__}')"
+RUN python -c "import paddlex; print('✅ PaddleX imported for Railway')"
+RUN python -c "from paddlex import create_pipeline; print('✅ PaddleX OCR dependencies ready')"
+
+# Create output directory
+RUN mkdir -p output
+
+# Add our test script for debugging
+COPY test_paddlex_install.py .
+
+# Railway will use PORT environment variable
+EXPOSE $PORT
+
+# Health check optimized for Railway
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import cv2; import paddlex; print('Health OK')" || exit 1
+
+# Run the Discord bot
+CMD ["python", "main.py"]
