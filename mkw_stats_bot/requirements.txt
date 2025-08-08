@@ -7,7 +7,10 @@ aiohttp>=3.8.0
 
 # PaddleX direct integration for production deployment
 paddlepaddle>=3.0.0
-paddlex[ocr]>=3.0.0
+paddlex>=3.0.0
+
+# PaddleX OCR dependencies (installed separately to ensure compatibility)
+paddleocr>=3.0.0
 
 # CRITICAL: Install headless OpenCV ONLY
 # Note: nixpacks.toml handles removing GUI versions after PaddleX installation

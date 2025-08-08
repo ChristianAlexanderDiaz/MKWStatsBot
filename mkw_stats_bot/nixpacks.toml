@@ -24,15 +24,19 @@ aptPkgs = [
     "libgomp1"
 ]
 
-# CRITICAL: Fix OpenCV after pip install completes - remove GUI version, keep headless only  
+# CRITICAL: Fix dependencies after pip install completes
 [phases.postInstall]
 dependsOn = ["install"]  
 cmds = [
-    "echo '🔧 NIXPACKS: Post-install OpenCV fix for PaddleX headless deployment...'",
+    "echo '🔧 NIXPACKS: Post-install fixes for PaddleX headless deployment...'",
+    # Fix OpenCV - remove GUI version, keep headless only
     ". /opt/venv/bin/activate && pip uninstall -y opencv-python opencv-contrib-python || echo 'OpenCV GUI packages not found'",
     ". /opt/venv/bin/activate && pip install --force-reinstall opencv-contrib-python-headless>=4.5.0",
-    "echo '✅ NIXPACKS: OpenCV cleanup completed - only headless version should remain'",
-    ". /opt/venv/bin/activate && python -c 'import cv2; print(f\"✅ OpenCV {cv2.__version__} verified in headless mode\")' || echo '❌ OpenCV verification failed'"
+    # Ensure PaddleX OCR dependencies are installed
+    ". /opt/venv/bin/activate && pip install 'paddlex[ocr]>=3.0.0' --force-reinstall",
+    "echo '✅ NIXPACKS: Dependency fixes completed'",
+    ". /opt/venv/bin/activate && python -c 'import cv2; print(f\"✅ OpenCV {cv2.__version__} verified in headless mode\")' || echo '❌ OpenCV verification failed'",
+    ". /opt/venv/bin/activate && python -c 'from paddlex import create_pipeline; print(\"✅ PaddleX OCR dependencies verified\")' || echo '❌ PaddleX verification failed'"
 ]
 
 [start]
