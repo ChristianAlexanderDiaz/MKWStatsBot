@@ -29,10 +29,10 @@ aptPkgs = [
 dependsOn = ["setup"]
 cmds = [
     "echo '🔧 NIXPACKS: Fixing OpenCV installation for PaddleX headless deployment...'",
-    "pip uninstall -y opencv-python opencv-contrib-python || echo 'OpenCV GUI packages not found'",
-    "pip install --force-reinstall opencv-contrib-python-headless>=4.5.0",
+    ". /opt/venv/bin/activate && pip uninstall -y opencv-python opencv-contrib-python || echo 'OpenCV GUI packages not found'",
+    ". /opt/venv/bin/activate && pip install --force-reinstall opencv-contrib-python-headless>=4.5.0",
     "echo '✅ NIXPACKS: OpenCV cleanup completed - only headless version should remain'",
-    "python -c 'import cv2; print(f\"✅ OpenCV {cv2.__version__} verified in headless mode\")' || echo '❌ OpenCV verification failed'"
+    ". /opt/venv/bin/activate && python -c 'import cv2; print(f\"✅ OpenCV {cv2.__version__} verified in headless mode\")' || echo '❌ OpenCV verification failed'"
 ]
 
 [start]
