@@ -285,6 +285,7 @@ exports/
 !LICENSE
 !.gitignore
 !Dockerfile
+!build/Dockerfile
 
 # Keep sample data files
 !data/formats/
