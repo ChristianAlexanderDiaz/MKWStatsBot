@@ -158,12 +158,9 @@ class PaddleXOCRProcessor:
             
             logging.info("🚀 Creating PaddleX OCR pipeline for production deployment...")
             
-            # Create OCR pipeline with optimal settings for headless deployment
-            self.ocr_pipeline = create_pipeline(
-                task="OCR",
-                # Configure for headless operation
-                device="cpu",  # Use CPU for Railway compatibility
-            )
+            # Create OCR pipeline with correct PaddleX 3.0 API
+            # Reference: https://paddlepaddle.github.io/PaddleX/3.0-beta2/en/pipeline_usage/tutorials/ocr_pipelines/OCR.html
+            self.ocr_pipeline = create_pipeline(pipeline="OCR")
             
             logging.info("✅ PaddleX OCR pipeline initialized successfully")
             
