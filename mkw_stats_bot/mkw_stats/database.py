@@ -338,7 +338,7 @@ class DatabaseManager:
                 cursor.execute("""
                     SELECT player_name, added_by, created_at, updated_at, team, nicknames
                     FROM players 
-                    WHERE guild_id = %s AND is_active = TRUE
+                    WHERE guild_id = %s AND is_active = TRUE AND member_status != 'kicked'
                     ORDER BY team, player_name
                 """, (guild_id,))
                 
