@@ -57,33 +57,35 @@ RUN pip install --no-cache-dir \
     psycopg2-binary>=2.9.0 \
     aiohttp>=3.8.0
 
-# Install PaddleOCR (this will install opencv-python GUI version as dependency)
-RUN pip install --no-cache-dir paddleocr>=2.7.0 paddlepaddle==2.6.0
+# Install PaddleX and dependencies (direct integration approach)
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code BEFORE final OpenCV cleanup
+# Copy application code
 COPY . .
 
-# CRITICAL FIX: Remove GUI OpenCV and install headless version AFTER all dependencies
-# This prevents the libGL.so.1 errors that occur in Railway
+# CRITICAL: Remove any GUI OpenCV that might have been installed as dependency
 RUN pip uninstall -y opencv-python opencv-contrib-python || true
 RUN pip install --no-cache-dir --force-reinstall opencv-contrib-python-headless>=4.5.0
 
-# Verify OpenCV installation works in headless environment
-RUN python -c "import cv2; print(f'✅ OpenCV version: {cv2.__version__}')"
-RUN python -c "import numpy as np; import cv2; test = np.zeros((10,10,3), dtype=np.uint8); _ = cv2.cvtColor(test, cv2.COLOR_BGR2GRAY); print('✅ OpenCV functionality test passed')"
+# Verify headless OpenCV installation
+RUN python -c "import cv2; print(f'✅ OpenCV headless version: {cv2.__version__}')"
+RUN python -c "import numpy as np; import cv2; test = np.zeros((10,10,3), dtype=np.uint8); _ = cv2.cvtColor(test, cv2.COLOR_BGR2GRAY); print('✅ OpenCV headless functionality test passed')"
+
+# Verify PaddleX direct integration works
+RUN python -c "import paddlex; print('✅ PaddleX imported successfully for direct integration')"
 
 # Create output directory for OCR debug images
 RUN mkdir -p output
 
-# Test that PaddleOCR can initialize in this environment
-RUN python -c "from paddleocr import PaddleOCR; ocr = PaddleOCR(lang='en', use_angle_cls=False, use_gpu=False); print('✅ PaddleOCR initialization successful')"
+# Test PaddleX OCR pipeline initialization in headless environment
+RUN python -c "from paddlex import create_pipeline; pipeline = create_pipeline(task='OCR'); print('✅ PaddleX OCR pipeline initialization successful')"
 
 # Expose port (Railway will override this)
 EXPOSE 8000
 
-# Health check to verify dependencies are working
+# Health check to verify PaddleX works
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import cv2; from paddleocr import PaddleOCR" || exit 1
+    CMD python -c "import cv2; from paddlex import create_pipeline" || exit 1
 
-# Run the application
+# Run the Discord bot application
 CMD ["python", "main.py"]

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PaddleOCR Processor for MKW Stats Bot
-Railway/Linux compatible implementation based on working Windows code
+PaddleX OCR Processor for MKW Stats Bot
+Railway/Docker production deployment using PaddleX direct integration
 """
 import os
 import logging
@@ -12,43 +12,41 @@ from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 from PIL import Image, ImageDraw
 
-# PaddleOCR imports - lazy loaded to avoid startup crashes
+# PaddleX imports - direct integration for production deployment
 
-class PaddleOCRProcessor:
-    """PaddleOCR processor for Mario Kart race result images."""
+class PaddleXOCRProcessor:
+    """PaddleX OCR processor for Mario Kart race result images."""
     
     # Hardcoded ROI coordinates for Mario Kart table region
     DEFAULT_ROI_COORDS = [567, 96, 1068, 1012]  # [x1, y1, x2, y2]
     
     def __init__(self, db_manager=None):
-        """Initialize PaddleOCR processor."""
+        """Initialize PaddleX OCR processor."""
         self.db_manager = db_manager
         
-        # Setup Railway/Linux environment optimizations
+        # Setup Railway/Docker headless environment
         self._setup_environment()
         
-        # Initialize PaddleOCR with working settings
-        self.ocr = None
-        self._initialize_ocr()
+        # Initialize PaddleX OCR pipeline 
+        self.ocr_pipeline = None
+        self._initialize_pipeline()
     
     def _setup_environment(self):
-        """Setup environment for Railway/Linux deployment."""
-        # Set PaddleOCR to use faster model downloads
+        """Setup environment for Railway/Docker headless deployment."""
+        # PaddleX headless environment configuration
         os.environ['PADDLE_PDX_MODEL_SOURCE'] = 'BOS'
         
-        # Force OpenCV to use headless mode (Railway/Docker compatibility)
+        # Force headless mode for Railway/Docker compatibility
         os.environ['OPENCV_IO_ENABLE_JASPER'] = 'false'
         os.environ['OPENCV_IO_ENABLE_OPENEXR'] = 'false'
         os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-        
-        # Railway/Docker aggressive headless fixes
         os.environ['DISPLAY'] = ''
         os.environ['MPLBACKEND'] = 'Agg'
         
         # Create output directory if needed
         Path("output").mkdir(exist_ok=True)
         
-        logging.info("🚀 PaddleOCR environment configured for Railway/Linux")
+        logging.info("🚀 PaddleX environment configured for Railway/Docker headless deployment")
     
     def _verify_opencv_installation(self):
         """Verify OpenCV installation and log detailed information."""
@@ -132,48 +130,44 @@ class PaddleOCRProcessor:
             logging.warning(f"⚠️ OpenCV verification warning: {e}")
             # Don't raise, just warn - OpenCV might still work
     
-    def _initialize_ocr(self):
-        """Initialize PaddleOCR with WORKING configuration (lazy loaded)."""
+    def _initialize_pipeline(self):
+        """Initialize PaddleX OCR pipeline (recommended for production deployment)."""
         try:
-            logging.info("🚀 Lazy loading PaddleOCR - importing now...")
+            logging.info("🚀 Lazy loading PaddleX OCR pipeline - importing now...")
             
             # First, verify OpenCV installation
             self._verify_opencv_installation()
             
-            # Lazy import PaddleOCR only when actually needed
-            from paddleocr import PaddleOCR
+            # Lazy import PaddleX only when actually needed
+            from paddlex import create_pipeline
             
-            logging.info("🚀 Using the WORKING OCR configuration...")
+            logging.info("🚀 Creating PaddleX OCR pipeline for production deployment...")
             
-            self.ocr = PaddleOCR(
-                lang='en',                           # English preprocessing
-                ocr_version='PP-OCRv5',             # Latest version
-                text_det_limit_side_len=1080,       # High resolution processing
-                text_det_limit_type='max',          # Limit maximum side
-                text_det_thresh=0.2,                # Lower detection threshold
-                use_textline_orientation=False,      # Disabled for cleaner results
-                use_doc_orientation_classify=False,   # Disable document orientation classification
-                use_doc_unwarping=False             # Disable document unwarping
+            # Create OCR pipeline with optimal settings for headless deployment
+            self.ocr_pipeline = create_pipeline(
+                task="OCR",
+                # Configure for headless operation
+                device="cpu",  # Use CPU for Railway compatibility
             )
             
-            logging.info("✅ PaddleOCR initialized successfully with working configuration")
+            logging.info("✅ PaddleX OCR pipeline initialized successfully")
             
         except ImportError as e:
-            logging.error(f"❌ Failed to import PaddleOCR: {e}")
-            logging.error("💡 This might indicate missing dependencies or memory issues")
+            logging.error(f"❌ Failed to import PaddleX: {e}")
+            logging.error("💡 This might indicate missing PaddleX dependencies")
             raise
         except Exception as e:
-            logging.error(f"❌ Failed to initialize PaddleOCR: {e}")
+            logging.error(f"❌ Failed to initialize PaddleX OCR pipeline: {e}")
             logging.error("💡 This might indicate insufficient memory or model download issues")
             raise
     
     def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0) -> Dict:
-        """Process image using PaddleOCR with ROI extension (based on working Windows code)."""
+        """Process image using PaddleX OCR pipeline (production deployment method)."""
         try:
-            # Ensure PaddleOCR is initialized (lazy loading)
-            if self.ocr is None:
-                self._initialize_ocr()
-            logging.info(f"🧪 Testing PaddleOCR with: {image_path}")
+            # Ensure PaddleX pipeline is initialized (lazy loading)
+            if self.ocr_pipeline is None:
+                self._initialize_pipeline()
+            logging.info(f"🧪 Testing PaddleX OCR pipeline with: {image_path}")
             
             if not os.path.exists(image_path):
                 logging.error(f"❌ File not found: {image_path}")
@@ -183,7 +177,7 @@ class PaddleOCRProcessor:
                     'results': []
                 }
             
-            # Prepare image input with ROI extension
+            # Prepare image input with ROI extension (keeping your working approach)
             with Image.open(image_path) as img:
                 orig_width, orig_height = img.size
                 logging.info(f"📏 Original image size: {orig_width} x {orig_height} pixels")
@@ -191,7 +185,7 @@ class PaddleOCRProcessor:
                 # Use hardcoded ROI coordinates
                 x1, y1, x2, y2 = self.DEFAULT_ROI_COORDS
                 
-                # ⭐ EXTEND ROI TO BOTTOM OF IMAGE (creates vertical "channels")
+                # ⭐ EXTEND ROI TO BOTTOM OF IMAGE (your working approach)
                 y2_extended = orig_height  # Extend to full image height
                 logging.info(f"📏 Original ROI: ({x1}, {y1}) to ({x2}, {y2})")
                 logging.info(f"📏 Extended ROI: ({x1}, {y1}) to ({x2}, {y2_extended}) - extended downward")
@@ -204,21 +198,20 @@ class PaddleOCRProcessor:
                 
                 roi_image.save("debug_roi.png")
                 logging.info("💾 Saved ROI as debug_roi.png")
-                image_input = np.array(roi_image)
             
-            # Run PaddleOCR prediction
-            result = self.ocr.predict(input=image_input)
+            # Run PaddleX OCR pipeline prediction
+            result = self.ocr_pipeline.predict("debug_roi.png")
             
             if not result:
-                logging.error("❌ No OCR results")
+                logging.error("❌ No OCR results from PaddleX pipeline")
                 return {
                     'success': False,
-                    'error': 'No OCR results returned',
+                    'error': 'No OCR results returned from PaddleX pipeline',
                     'results': []
                 }
             
-            # Extract and filter results (based on working Windows code)
-            extracted_data = self._extract_and_filter_results(result)
+            # Extract and filter results (adapted for PaddleX format)
+            extracted_data = self._extract_and_filter_results_paddlex(result)
             
             if not extracted_data['texts']:
                 return {
@@ -245,7 +238,7 @@ class PaddleOCRProcessor:
             # Validate results using built-in validation
             validation_result = self._validate_results(parsed_results, guild_id)
             
-            logging.info("🎉 SUCCESS! PaddleOCR processing completed!")
+            logging.info("🎉 SUCCESS! PaddleX OCR processing completed!")
             
             return {
                 'success': True,
@@ -253,17 +246,100 @@ class PaddleOCRProcessor:
                 'total_found': len(parsed_results),
                 'war_metadata': war_metadata,
                 'validation': validation_result,
-                'processing_engine': 'PaddleOCR'
+                'processing_engine': 'PaddleX'
             }
             
         except Exception as e:
-            logging.error(f"❌ PaddleOCR processing error: {e}")
+            logging.error(f"❌ PaddleX OCR processing error: {e}")
             return {
                 'success': False,
-                'error': f'PaddleOCR processing failed: {str(e)}',
+                'error': f'PaddleX OCR processing failed: {str(e)}',
                 'results': []
             }
     
+    def _extract_and_filter_results_paddlex(self, result) -> Dict:
+        """Extract and filter OCR results from PaddleX format."""
+        try:
+            # PaddleX result format is different from PaddleOCR
+            # Extract texts and scores from PaddleX result
+            texts = []
+            scores = []
+            boxes = []
+            
+            # Handle PaddleX result format
+            if hasattr(result, 'rec_texts'):
+                texts = result.rec_texts
+                scores = result.rec_scores if hasattr(result, 'rec_scores') else [1.0] * len(texts)
+                boxes = result.rec_polys if hasattr(result, 'rec_polys') else []
+            elif isinstance(result, dict) and 'rec_texts' in result:
+                texts = result['rec_texts']
+                scores = result.get('rec_scores', [1.0] * len(texts))
+                boxes = result.get('rec_polys', [])
+            else:
+                # Fallback: try to extract from whatever format PaddleX returns
+                logging.warning("⚠️ Unknown PaddleX result format, attempting fallback extraction")
+                if hasattr(result, '__dict__'):
+                    logging.info(f"🔍 PaddleX result attributes: {list(result.__dict__.keys())}")
+                return {'texts': [], 'scores': [], 'boxes': []}
+            
+            # ⭐ FILTER OUT JUNK - Keep only characters, numbers, and parentheses
+            filtered_texts = []
+            filtered_scores = []
+            filtered_boxes = []
+            
+            for i, (text, score) in enumerate(zip(texts, scores)):
+                text_clean = text.strip() if isinstance(text, str) else str(text).strip()
+                
+                # Only keep text that contains ONLY: letters, numbers, spaces, punctuation, parentheses
+                if (text_clean and  # Exclude empty strings
+                    re.match(r'^[a-zA-Z0-9\s.,\-+%$()]+$', text_clean)):  # Characters, numbers, parentheses only
+                    
+                    filtered_texts.append(text_clean)
+                    filtered_scores.append(score)
+                    if i < len(boxes):
+                        filtered_boxes.append(boxes[i])
+            
+            # Use filtered data for display
+            texts = filtered_texts
+            scores = filtered_scores
+            
+            logging.info(f"📊 PaddleX OCR RESULTS ({len(texts)} items found):")
+            logging.info("=" * 60)
+            
+            # Display all results
+            for i, (text, score) in enumerate(zip(texts, scores), 1):
+                confidence_percent = score * 100 if isinstance(score, (int, float)) else 85.0
+                confidence_indicator = "🟢" if confidence_percent > 90 else "🟡" if confidence_percent > 70 else "🔴"
+                logging.info(f"{i:2d}. {confidence_indicator} '{text}' - {confidence_percent:.1f}%")
+            
+            # Extract just the numbers
+            numbers_only = []
+            for i, (text, score) in enumerate(zip(texts, scores)):
+                if re.match(r'^[\d\s.,\-+%$]+$', text.strip()):
+                    confidence_percent = score * 100 if isinstance(score, (int, float)) else 85.0
+                    numbers_only.append({
+                        'position': i + 1,
+                        'number': text.strip(),
+                        'confidence': confidence_percent
+                    })
+            
+            if numbers_only:
+                logging.info(f"🔢 EXTRACTED NUMBERS ({len(numbers_only)} items):")
+                logging.info("-" * 40)
+                for item in numbers_only:
+                    quality = "🟢 HIGH" if item['confidence'] > 90 else "🟡 MED" if item['confidence'] > 70 else "🔴 LOW"
+                    logging.info(f"   Position #{item['position']}: {item['number']} - {quality} ({item['confidence']:.1f}%)")
+            
+            return {
+                'texts': filtered_texts,
+                'scores': filtered_scores,  
+                'boxes': filtered_boxes
+            }
+            
+        except Exception as e:
+            logging.error(f"Error extracting PaddleX OCR results: {e}")
+            return {'texts': [], 'scores': [], 'boxes': []}
+
     def _extract_and_filter_results(self, result) -> Dict:
         """Extract and filter OCR results (based on working Windows code)."""
         try:

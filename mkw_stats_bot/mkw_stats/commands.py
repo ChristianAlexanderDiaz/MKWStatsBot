@@ -47,8 +47,8 @@ def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Em
     
     return embed
 
-# PaddleOCR is now the only OCR engine
-from .ocr_processor_paddle import PaddleOCRProcessor
+# PaddleX OCR for production deployment (replaces PaddleOCR)
+from .ocr_processor_paddle import PaddleXOCRProcessor
 
 def require_guild_setup(func):
     """Decorator to ensure guild is initialized before running slash commands."""
@@ -1925,10 +1925,10 @@ class MarioKartCommands(commands.Cog):
                 return
             
             # Initialize PaddleOCR processor
-            logging.info("🔧 Initializing PaddleOCR processor...")
+            logging.info("🔧 Initializing PaddleX OCR processor...")
             try:
-                ocr = PaddleOCRProcessor(db_manager=self.bot.db)
-                engine_name = "PaddleOCR"
+                ocr = PaddleXOCRProcessor(db_manager=self.bot.db)
+                engine_name = "PaddleX"
                     
                 logging.info(f"✅ {engine_name} processor initialized successfully")
             except Exception as e:
