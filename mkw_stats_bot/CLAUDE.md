@@ -3,7 +3,7 @@
 ## Project Overview
 - **Purpose**: Discord bot for Mario Kart clan statistics with OCR image processing
 - **Architecture**: Python Discord bot + PostgreSQL database + Tesseract OCR
-- **Version**: 0.17.0 (stable release)
+- **Version**: 0.17.1 (Docker deployment fix)
 - **Deployment**: Railway with PostgreSQL, Docker support
 - **Multi-Guild Support**: Full data isolation between Discord servers
 
