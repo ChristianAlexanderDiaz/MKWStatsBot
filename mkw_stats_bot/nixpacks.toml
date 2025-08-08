@@ -24,11 +24,11 @@ aptPkgs = [
     "libgomp1"
 ]
 
-# CRITICAL: Fix OpenCV after installation - remove GUI version, keep headless only
-[phases.install]
-dependsOn = ["setup"]
+# CRITICAL: Fix OpenCV after pip install completes - remove GUI version, keep headless only  
+[phases.postInstall]
+dependsOn = ["install"]  
 cmds = [
-    "echo '🔧 NIXPACKS: Fixing OpenCV installation for PaddleX headless deployment...'",
+    "echo '🔧 NIXPACKS: Post-install OpenCV fix for PaddleX headless deployment...'",
     ". /opt/venv/bin/activate && pip uninstall -y opencv-python opencv-contrib-python || echo 'OpenCV GUI packages not found'",
     ". /opt/venv/bin/activate && pip install --force-reinstall opencv-contrib-python-headless>=4.5.0",
     "echo '✅ NIXPACKS: OpenCV cleanup completed - only headless version should remain'",
