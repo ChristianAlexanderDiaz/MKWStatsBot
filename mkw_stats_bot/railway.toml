@@ -1,6 +1,9 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "build/Dockerfile"
+# Remove this line if Dockerfile is in root, or update to correct path
+# dockerfilePath = "Dockerfile"  # Not needed if in root
 
 [deploy]
-startCommand = "python main.py" 
+startCommand = "python main.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
