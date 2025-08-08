@@ -10,7 +10,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mkw_stats.ocr_processor import OCRProcessor
+from mkw_stats.ocr_processor_paddle import PaddleXOCRProcessor
 from mkw_stats.database import DatabaseManager
 from mkw_stats import config
 import json
@@ -28,7 +28,7 @@ def test_ocr_processing(image_path: str):
     
     # Initialize OCR processor with database
     db = DatabaseManager()
-    ocr = OCRProcessor(db_manager=db)
+    ocr = PaddleXOCRProcessor(db_manager=db)
     
     # Process the image
     results = ocr.process_image(image_path)

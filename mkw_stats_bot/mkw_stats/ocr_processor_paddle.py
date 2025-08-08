@@ -146,31 +146,51 @@ class PaddleXOCRProcessor:
             # Don't raise, just warn - OpenCV might still work
     
     def _initialize_pipeline(self):
-        """Initialize PaddleX OCR pipeline (recommended for production deployment)."""
+        """Initialize PaddleX OCR pipeline with fallback to PaddleOCR."""
         try:
             logging.info("🚀 Lazy loading PaddleX OCR pipeline - importing now...")
             
             # First, verify OpenCV installation
             self._verify_opencv_installation()
             
-            # Lazy import PaddleX only when actually needed
-            from paddlex import create_pipeline
-            
-            logging.info("🚀 Creating PaddleX OCR pipeline for production deployment...")
-            
-            # Create OCR pipeline with correct PaddleX 3.0 API
-            # Reference: https://paddlepaddle.github.io/PaddleX/3.0-beta2/en/pipeline_usage/tutorials/ocr_pipelines/OCR.html
-            self.ocr_pipeline = create_pipeline(pipeline="OCR")
-            
-            logging.info("✅ PaddleX OCR pipeline initialized successfully")
+            # Try PaddleX first
+            try:
+                # Lazy import PaddleX only when actually needed
+                from paddlex import create_pipeline
+                
+                logging.info("🚀 Creating PaddleX OCR pipeline for production deployment...")
+                
+                # Create OCR pipeline with correct PaddleX 3.0 API
+                # Reference: https://paddlepaddle.github.io/PaddleX/3.0-beta2/en/pipeline_usage/tutorials/ocr_pipelines/OCR.html
+                self.ocr_pipeline = create_pipeline(pipeline="OCR")
+                self.ocr_engine = "paddlex"
+                
+                logging.info("✅ PaddleX OCR pipeline initialized successfully")
+                return
+                
+            except Exception as paddlex_error:
+                logging.error(f"❌ PaddleX initialization failed: {paddlex_error}")
+                logging.info("🔄 Falling back to PaddleOCR directly...")
+                
+                # Fallback to PaddleOCR
+                from paddleocr import PaddleOCR
+                
+                self.ocr_pipeline = PaddleOCR(
+                    use_textline_orientation=True,
+                    lang='en'
+                )
+                self.ocr_engine = "paddleocr"
+                
+                logging.info("✅ PaddleOCR fallback initialized successfully")
+                return
             
         except ImportError as e:
-            logging.error(f"❌ Failed to import PaddleX: {e}")
-            logging.error("💡 This might indicate missing PaddleX dependencies")
+            logging.error(f"❌ Failed to import OCR libraries: {e}")
+            logging.error("💡 This might indicate missing OCR dependencies")
             raise
         except Exception as e:
-            logging.error(f"❌ Failed to initialize PaddleX OCR pipeline: {e}")
-            logging.error("💡 This might indicate insufficient memory or model download issues")
+            logging.error(f"❌ Failed to initialize any OCR pipeline: {e}")
+            logging.error("💡 This might indicate insufficient memory or dependency issues")
             raise
     
     def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0) -> Dict:
@@ -211,19 +231,21 @@ class PaddleXOCRProcessor:
                 roi_image.save("debug_roi.png")
                 logging.info("💾 Saved ROI as debug_roi.png")
             
-            # Run PaddleX OCR pipeline prediction
-            result = self.ocr_pipeline.predict("debug_roi.png")
+            # Run OCR pipeline prediction (works for both PaddleX and PaddleOCR)
+            if self.ocr_engine == "paddlex":
+                result = self.ocr_pipeline.predict("debug_roi.png")
+                extracted_data = self._extract_and_filter_results_paddlex(result)
+            else:  # paddleocr fallback
+                result = self.ocr_pipeline.predict("debug_roi.png")
+                extracted_data = self._extract_and_filter_results_paddleocr(result)
             
             if not result:
-                logging.error("❌ No OCR results from PaddleX pipeline")
+                logging.error(f"❌ No OCR results from {self.ocr_engine} pipeline")
                 return {
                     'success': False,
-                    'error': 'No OCR results returned from PaddleX pipeline',
+                    'error': f'No OCR results returned from {self.ocr_engine} pipeline',
                     'results': []
                 }
-            
-            # Extract and filter results (adapted for PaddleX format)
-            extracted_data = self._extract_and_filter_results_paddlex(result)
             
             if not extracted_data['texts']:
                 return {
@@ -258,7 +280,7 @@ class PaddleXOCRProcessor:
                 'total_found': len(parsed_results),
                 'war_metadata': war_metadata,
                 'validation': validation_result,
-                'processing_engine': 'PaddleX'
+                'processing_engine': self.ocr_engine
             }
             
         except Exception as e:
@@ -278,7 +300,16 @@ class PaddleXOCRProcessor:
             scores = []
             boxes = []
             
-            # Handle PaddleX result format
+            # Handle PaddleX result format - debug first
+            logging.info(f"🔍 PaddleX result type: {type(result)}")
+            logging.info(f"🔍 PaddleX result value: {result}")
+            if hasattr(result, '__dict__'):
+                logging.info(f"🔍 PaddleX result attributes: {list(result.__dict__.keys())}")
+                for attr in result.__dict__.keys():
+                    val = getattr(result, attr)
+                    logging.info(f"🔍   {attr}: {type(val)} = {val}")
+            
+            # Handle various PaddleX result formats
             if hasattr(result, 'rec_texts'):
                 texts = result.rec_texts
                 scores = result.rec_scores if hasattr(result, 'rec_scores') else [1.0] * len(texts)
@@ -287,12 +318,39 @@ class PaddleXOCRProcessor:
                 texts = result['rec_texts']
                 scores = result.get('rec_scores', [1.0] * len(texts))
                 boxes = result.get('rec_polys', [])
+            elif hasattr(result, 'prediction'):
+                # New PaddleX 3.0 format
+                pred = result.prediction
+                texts = pred.get('rec_texts', [])
+                scores = pred.get('rec_scores', [1.0] * len(texts))
+                boxes = pred.get('rec_polys', [])
+            elif isinstance(result, dict) and 'prediction' in result:
+                pred = result['prediction']
+                texts = pred.get('rec_texts', [])
+                scores = pred.get('rec_scores', [1.0] * len(texts))
+                boxes = pred.get('rec_polys', [])
             else:
                 # Fallback: try to extract from whatever format PaddleX returns
-                logging.warning("⚠️ Unknown PaddleX result format, attempting fallback extraction")
-                if hasattr(result, '__dict__'):
-                    logging.info(f"🔍 PaddleX result attributes: {list(result.__dict__.keys())}")
-                return {'texts': [], 'scores': [], 'boxes': []}
+                logging.warning("⚠️ Unknown PaddleX result format, attempting to extract available data")
+                texts = []
+                scores = []
+                boxes = []
+                
+                # Try to find text data in various places
+                if hasattr(result, 'text') and result.text:
+                    texts = [result.text] if isinstance(result.text, str) else result.text
+                    scores = [1.0] * len(texts)
+                elif isinstance(result, dict):
+                    # Look for text in common keys
+                    for key in ['texts', 'text', 'ocr_text', 'rec_texts']:
+                        if key in result and result[key]:
+                            texts = result[key] if isinstance(result[key], list) else [result[key]]
+                            scores = [1.0] * len(texts)
+                            break
+                
+                if not texts:
+                    logging.error("❌ Could not extract any text from PaddleX result")
+                    return {'texts': [], 'scores': [], 'boxes': []}
             
             # ⭐ FILTER OUT JUNK - Keep only characters, numbers, and parentheses
             filtered_texts = []
@@ -350,6 +408,109 @@ class PaddleXOCRProcessor:
             
         except Exception as e:
             logging.error(f"Error extracting PaddleX OCR results: {e}")
+            return {'texts': [], 'scores': [], 'boxes': []}
+
+    def _extract_and_filter_results_paddleocr(self, result) -> Dict:
+        """Extract and filter OCR results from PaddleOCR format."""
+        try:
+            if not result or len(result) == 0:
+                return {'texts': [], 'scores': [], 'boxes': []}
+            
+            texts = []
+            scores = []
+            boxes = []
+            
+            # Handle new PaddleOCR format where result is a list with dict containing rec_texts
+            if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
+                # New format: result[0] is a dict with 'rec_texts', 'rec_scores', 'rec_polys'
+                result_dict = result[0]
+                texts = result_dict.get('rec_texts', [])
+                scores = result_dict.get('rec_scores', [1.0] * len(texts))
+                boxes = result_dict.get('rec_polys', [])
+                
+                # Ensure we have matching lengths
+                if len(boxes) < len(texts):
+                    boxes = boxes + [None] * (len(texts) - len(boxes))
+                if len(scores) < len(texts):
+                    scores = scores + [1.0] * (len(texts) - len(scores))
+                
+                logging.info(f"🔍 PaddleOCR new format: Found {len(texts)} texts: {texts}")
+                logging.info(f"🔍 PaddleOCR scores: {len(scores)} items")
+                logging.info(f"🔍 PaddleOCR boxes: {len(boxes)} items")
+            else:
+                # Old PaddleOCR format: result[0] contains list of [box, (text, confidence)]
+                for line in result[0]:
+                    if len(line) >= 2:
+                        box = line[0]  # 4 corner points
+                        text_info = line[1]  # (text, confidence)
+                        if len(text_info) >= 2:
+                            text = text_info[0]
+                            score = text_info[1]
+                            
+                            texts.append(text)
+                            scores.append(score)
+                            boxes.append(box)
+            
+            # ⭐ FILTER OUT JUNK - Keep only characters, numbers, and parentheses
+            filtered_texts = []
+            filtered_scores = []
+            filtered_boxes = []
+            
+            for i, (text, score, box) in enumerate(zip(texts, scores, boxes)):
+                text_clean = text.strip() if isinstance(text, str) else str(text).strip()
+                
+                logging.info(f"🔍 Filtering text {i+1}: '{text_clean}' (type: {type(text_clean)})")
+                
+                # Only keep text that contains ONLY: letters, numbers, spaces, punctuation, parentheses
+                if (text_clean and  # Exclude empty strings
+                    re.match(r'^[a-zA-Z0-9\s.,\-+%$()]+$', text_clean)):  # Characters, numbers, parentheses only
+                    
+                    logging.info(f"✅ Text {i+1} passed filter: '{text_clean}'")
+                    filtered_texts.append(text_clean)
+                    filtered_scores.append(score)
+                    filtered_boxes.append(box)
+                else:
+                    logging.info(f"❌ Text {i+1} failed filter: '{text_clean}'")
+            
+            # Use filtered data for display
+            texts = filtered_texts
+            scores = filtered_scores
+            
+            logging.info(f"📊 PaddleOCR RESULTS ({len(texts)} items found):")
+            logging.info("=" * 60)
+            
+            # Display all results
+            for i, (text, score) in enumerate(zip(texts, scores), 1):
+                confidence_percent = score * 100 if isinstance(score, (int, float)) else 85.0
+                confidence_indicator = "🟢" if confidence_percent > 90 else "🟡" if confidence_percent > 70 else "🔴"
+                logging.info(f"{i:2d}. {confidence_indicator} '{text}' - {confidence_percent:.1f}%")
+            
+            # Extract just the numbers
+            numbers_only = []
+            for i, (text, score) in enumerate(zip(texts, scores)):
+                if re.match(r'^[\d\s.,\-+%$]+$', text.strip()):
+                    confidence_percent = score * 100 if isinstance(score, (int, float)) else 85.0
+                    numbers_only.append({
+                        'position': i + 1,
+                        'number': text.strip(),
+                        'confidence': confidence_percent
+                    })
+            
+            if numbers_only:
+                logging.info(f"🔢 EXTRACTED NUMBERS ({len(numbers_only)} items):")
+                logging.info("-" * 40)
+                for item in numbers_only:
+                    quality = "🟢 HIGH" if item['confidence'] > 90 else "🟡 MED" if item['confidence'] > 70 else "🔴 LOW"
+                    logging.info(f"   Position #{item['position']}: {item['number']} - {quality} ({item['confidence']:.1f}%)")
+            
+            return {
+                'texts': filtered_texts,
+                'scores': filtered_scores,  
+                'boxes': filtered_boxes
+            }
+            
+        except Exception as e:
+            logging.error(f"Error extracting PaddleOCR results: {e}")
             return {'texts': [], 'scores': [], 'boxes': []}
 
     def _extract_and_filter_results(self, result) -> Dict:

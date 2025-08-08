@@ -32,9 +32,7 @@ ENV MPLBACKEND=Agg
 # Copy and install requirements
 COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install paddlepaddle==2.6.0 && \
-    pip install opencv-python-headless && \
-    pip install paddleocr && \
+    pip install paddlepaddle==3.0.0b2 && \
     pip install -r requirements.txt
 
 # Copy application
