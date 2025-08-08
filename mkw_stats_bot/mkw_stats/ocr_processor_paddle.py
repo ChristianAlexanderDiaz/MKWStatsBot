@@ -114,6 +114,12 @@ class PaddleXOCRProcessor:
         except ImportError as e:
             logging.error(f"❌ OpenCV import failed: {e}")
             
+            # Enhanced error handling for libGL.so.1 issues
+            if "libGL.so.1" in str(e):
+                logging.error("🚨 CRITICAL: GUI OpenCV detected - this should not happen!")
+                logging.error("💡 SOLUTION: The nixpacks.toml OpenCV cleanup may have failed")
+                logging.error("🔧 DEBUG: Check if 'pip uninstall opencv-python opencv-contrib-python' ran during build")
+            
             # DIAGNOSTIC: What packages ARE installed?
             try:
                 import subprocess
@@ -122,6 +128,15 @@ class PaddleXOCRProcessor:
                                       capture_output=True, text=True)
                 logging.info("🔍 DIAGNOSTIC: All installed packages:")
                 logging.info(result.stdout)
+                
+                # Check specifically for problematic OpenCV packages
+                opencv_lines = [line for line in result.stdout.split('\n') if 'opencv' in line.lower()]
+                logging.error(f"🔍 OpenCV packages found: {opencv_lines}")
+                
+                if any('opencv-python' in line and 'headless' not in line for line in opencv_lines):
+                    logging.error("🚨 PROBLEM IDENTIFIED: GUI OpenCV packages are still installed!")
+                    logging.error("💡 The nixpacks.toml cleanup step failed - GUI OpenCV should be removed")
+                
             except:
                 pass
                 

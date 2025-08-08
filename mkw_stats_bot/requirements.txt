@@ -5,10 +5,14 @@ python-dotenv>=0.19.0
 psycopg2-binary>=2.9.0
 aiohttp>=3.8.0
 
-# PaddleX direct integration (Method 2 - no HTTP service needed)
+# PaddleX direct integration for production deployment
 paddlepaddle>=3.0.0
 paddlex[ocr]>=3.0.0
 
-# CRITICAL: Force headless OpenCV installation to prevent libGL.so.1 errors
-# This prevents GUI dependency issues in Railway/Docker headless environments
-opencv-contrib-python-headless>=4.5.0 
+# CRITICAL: Install headless OpenCV ONLY
+# Note: nixpacks.toml handles removing GUI versions after PaddleX installation
+opencv-contrib-python-headless>=4.5.0,<5.0.0
+
+# Explicitly prevent GUI OpenCV installation (may not work with all pip versions)
+# opencv-python==DONOTINSTALL
+# opencv-contrib-python==DONOTINSTALL 

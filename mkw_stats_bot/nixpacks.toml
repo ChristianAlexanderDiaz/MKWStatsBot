@@ -5,28 +5,35 @@ providers = ["python"]
 PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
 # Force headless mode for graphics libraries  
-DISPLAY = ":99"
+DISPLAY = ""
 QT_QPA_PLATFORM = "offscreen"
 MPLBACKEND = "Agg"
 # OpenCV headless configuration
-OPENCV_IO_ENABLE_OPENEXR = "0"
+OPENCV_IO_ENABLE_OPENEXR = "false"
+OPENCV_IO_ENABLE_JASPER = "false"
 # Disable GUI-related imports
 SDL_VIDEODRIVER = "dummy"
 
 [phases.setup]
+# HEADLESS ONLY - Remove OpenGL libraries that cause libGL.so.1 errors
 aptPkgs = [
-    # Essential for libGL.so.1 error fix
-    "libgl1",
     "libglib2.0-0",
-    # Additional OpenGL/Mesa support for headless environments
-    "libglx-mesa0",
-    "libgl1-mesa-dri",
-    # Basic X11 libraries for headless display
     "libsm6",
-    "libxext6",
-    "libxrender1"
+    "libxext6", 
+    "libxrender1",
+    "libgomp1"
 ]
 
+# CRITICAL: Fix OpenCV after installation - remove GUI version, keep headless only
+[phases.install]
+dependsOn = ["setup"]
+cmds = [
+    "echo '🔧 NIXPACKS: Fixing OpenCV installation for PaddleX headless deployment...'",
+    "pip uninstall -y opencv-python opencv-contrib-python || echo 'OpenCV GUI packages not found'",
+    "pip install --force-reinstall opencv-contrib-python-headless>=4.5.0",
+    "echo '✅ NIXPACKS: OpenCV cleanup completed - only headless version should remain'",
+    "python -c 'import cv2; print(f\"✅ OpenCV {cv2.__version__} verified in headless mode\")' || echo '❌ OpenCV verification failed'"
+]
 
 [start]
 cmd = "python main.py"
