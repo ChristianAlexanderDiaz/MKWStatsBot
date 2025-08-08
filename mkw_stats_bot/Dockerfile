@@ -57,7 +57,7 @@ RUN pip install --no-cache-dir \
     psycopg2-binary>=2.9.0 \
     aiohttp>=3.8.0
 
-# Install PaddleX and dependencies (direct integration approach)
+# Install PaddleX OCR with all dependencies (direct integration approach)
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
@@ -71,21 +71,21 @@ RUN pip install --no-cache-dir --force-reinstall opencv-contrib-python-headless>
 RUN python -c "import cv2; print(f'✅ OpenCV headless version: {cv2.__version__}')"
 RUN python -c "import numpy as np; import cv2; test = np.zeros((10,10,3), dtype=np.uint8); _ = cv2.cvtColor(test, cv2.COLOR_BGR2GRAY); print('✅ OpenCV headless functionality test passed')"
 
-# Verify PaddleX direct integration works
-RUN python -c "import paddlex; print('✅ PaddleX imported successfully for direct integration')"
+# Verify PaddleX OCR integration works
+RUN python -c "from paddlex import create_pipeline; print('✅ PaddleX OCR dependencies verified')"
 
 # Create output directory for OCR debug images
 RUN mkdir -p output
 
-# Test PaddleX OCR pipeline initialization in headless environment
-RUN python -c "from paddlex import create_pipeline; pipeline = create_pipeline(task='OCR'); print('✅ PaddleX OCR pipeline initialization successful')"
+# Note: Full pipeline initialization test removed to avoid model downloads during build
+# Models will be downloaded on first use in production
 
 # Expose port (Railway will override this)
 EXPOSE 8000
 
-# Health check to verify PaddleX works
+# Health check to verify core dependencies
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import cv2; from paddlex import create_pipeline" || exit 1
+    CMD python -c "import cv2; import paddlex; print('Health check passed')" || exit 1
 
 # Run the Discord bot application
 CMD ["python", "main.py"]

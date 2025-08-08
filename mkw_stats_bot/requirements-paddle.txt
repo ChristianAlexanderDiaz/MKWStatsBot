@@ -1,15 +1,10 @@
-# Optional PaddleOCR dependencies
-# Install only if you want to enable the experimental PaddleOCR engine
-# Note: Requires significant additional disk space and may conflict with headless deployments
+# PaddleX OCR dependencies for production deployment
+# This file is now simplified - use requirements.txt which includes paddlex[ocr]
 
-paddlepaddle>=3.1.0
-paddleocr>=3.1.0
+# PaddleX OCR - includes all required dependencies
+paddlex[ocr]>=3.0.0
 
-# RAILWAY/DOCKER FIX: PaddleOCR automatically installs opencv-python which requires libGL.so.1
-# This causes "cannot open shared object file" errors in headless environments
-# Solution: Force installation of headless version after PaddleOCR
+# RAILWAY/DOCKER FIX: Force headless OpenCV after PaddleX installation
 opencv-contrib-python-headless>=4.5.0
 
-# Alternative manual fix if still having issues:
-# 1. pip uninstall opencv-python opencv-contrib-python
-# 2. pip install opencv-contrib-python-headless
+# Note: This file is kept for reference. Main installation now handled by requirements.txt

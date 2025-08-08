@@ -11,11 +11,11 @@ MPLBACKEND = "Agg"
 # OpenCV headless configuration
 OPENCV_IO_ENABLE_OPENEXR = "false"
 OPENCV_IO_ENABLE_JASPER = "false"
-# Disable GUI-related imports
-SDL_VIDEODRIVER = "dummy"
+# PaddleX configuration for production deployment
+PADDLE_PDX_MODEL_SOURCE = "BOS"
 
 [phases.setup]
-# HEADLESS ONLY - Remove OpenGL libraries that cause libGL.so.1 errors
+# Install system packages needed for headless OpenCV and PaddleX
 aptPkgs = [
     "libglib2.0-0",
     "libsm6",
@@ -24,21 +24,19 @@ aptPkgs = [
     "libgomp1"
 ]
 
-# CRITICAL: Fix dependencies after pip install completes
+# Simple post-install verification (requirements.txt now handles the heavy lifting)
 [phases.postInstall]
 dependsOn = ["install"]  
 cmds = [
-    "echo '🔧 NIXPACKS: Post-install fixes for PaddleX headless deployment...'",
-    # CRITICAL: Install PaddleX OCR first (this will install GUI OpenCV)
-    ". /opt/venv/bin/activate && pip install 'paddlex[ocr]>=3.0.0' --force-reinstall",
-    # THEN fix OpenCV - remove GUI version, install and LOCK headless version
-    ". /opt/venv/bin/activate && pip uninstall -y opencv-python opencv-contrib-python || echo 'GUI OpenCV packages not found'",
+    "echo '🔧 NIXPACKS: Verifying PaddleX OCR installation...'",
+    # Remove any GUI OpenCV that might have been installed as dependencies
+    ". /opt/venv/bin/activate && pip uninstall -y opencv-python opencv-contrib-python || echo 'No GUI OpenCV found'",
+    # Ensure headless OpenCV is installed
     ". /opt/venv/bin/activate && pip install opencv-contrib-python-headless>=4.5.0 --force-reinstall",
-    # LOCK headless OpenCV to prevent future overwrites
-    ". /opt/venv/bin/activate && pip install opencv-contrib-python-headless>=4.5.0 --upgrade --force-reinstall --no-deps",
-    "echo '✅ NIXPACKS: Dependency fixes completed'",
-    ". /opt/venv/bin/activate && python -c 'import cv2; print(f\"✅ OpenCV {cv2.__version__} verified in headless mode\")' || echo '❌ OpenCV verification failed'",
-    ". /opt/venv/bin/activate && python -c 'from paddlex import create_pipeline; print(\"✅ PaddleX OCR dependencies verified\")' || echo '❌ PaddleX verification failed'"
+    # Verify installation
+    ". /opt/venv/bin/activate && python -c 'import cv2; print(f\"✅ OpenCV {cv2.__version__} verified\")' || echo '❌ OpenCV verification failed'",
+    ". /opt/venv/bin/activate && python -c 'from paddlex import create_pipeline; print(\"✅ PaddleX OCR ready\")' || echo '❌ PaddleX verification failed'",
+    "echo '✅ NIXPACKS: Installation verification completed'"
 ]
 
 [start]
