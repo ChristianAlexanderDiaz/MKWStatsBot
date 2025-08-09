@@ -53,8 +53,7 @@ class OCRProcessor:
                 rec_model_dir=None,
                 cls_model_dir=None,
                 show_log=False,
-                use_space_char=True,
-                drop_score=0.5  # Filter low confidence results
+                use_space_char=True
             )
             
             logging.info("✅ PaddleOCR initialized successfully!")
@@ -241,79 +240,34 @@ class OCRProcessor:
             }
     
     def _parse_mario_kart_results(self, extracted_texts: List[Dict], guild_id: int = 0) -> List[Dict]:
-        """Parse extracted text to find Mario Kart player results."""
+        """Parse extracted text to find Mario Kart player results using database validation."""
         try:
-            results = []
+            if not self.db_manager:
+                logging.error("❌ No database manager available for player validation")
+                return []
             
-            # Get current roster from database for nickname resolution
-            roster_players = self.db_manager.get_roster_players(guild_id) if self.db_manager else []
+            # Combine all OCR text into single string and tokenize
+            combined_text = ' '.join([item['text'] for item in extracted_texts])
+            tokens = combined_text.split()
             
-            # Create single text string for processing
-            combined_text = '\n'.join([item['text'] for item in extracted_texts])
-            lines = combined_text.split('\n')
+            logging.info(f"🔍 OCR tokens: {tokens}")
             
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                    
-                # Look for complete player names that may include spaces and parentheses
-                name_pattern = r'([A-Za-z0-9][A-Za-z0-9\s()]*[A-Za-z0-9()]|[A-Za-z0-9]{2,})'
-                potential_names = re.findall(name_pattern, line)
-                
-                # Find all valid scores in the line
-                all_scores_in_line = []
-                words = line.split()
-                for word in words:
-                    if re.match(r'\b\d{1,3}\b', word):
-                        score = int(word)
-                        if 1 <= score <= 180:
-                            all_scores_in_line.append(score)
-                
-                # If we found scores, try to match with names
-                if all_scores_in_line and potential_names:
-                    # Use the last score as the player's total score
-                    score = all_scores_in_line[-1]
-                    
-                    # Find the best matching name
-                    best_name = None
-                    for potential_name in potential_names:
-                        potential_name = potential_name.strip()
-                        # Validate name: at least 2 chars, contains letters, not pure numbers
-                        if (len(potential_name) >= 2 and 
-                            re.search(r'[A-Za-z]', potential_name) and 
-                            not re.match(r'^\d+$', potential_name)):
-                            if best_name is None or len(potential_name) > len(best_name):
-                                best_name = potential_name
-                    
-                    if best_name:
-                        # Score validation 
-                        if 1 <= score <= 180:
-                            # Try to resolve nickname to roster name using database
-                            resolved_name = best_name  # Default to detected name
-                            is_roster_member = False
-                            
-                            if self.db_manager:
-                                try:
-                                    db_resolved = self.db_manager.resolve_player_name(best_name, guild_id)
-                                    if db_resolved and db_resolved in roster_players:
-                                        resolved_name = db_resolved
-                                        is_roster_member = True
-                                except Exception as e:
-                                    logging.debug(f"Name resolution failed for '{best_name}': {e}")
-                                    pass
-                            
-                            # Add detected player
-                            results.append({
-                                'name': resolved_name,
-                                'raw_name': best_name,
-                                'score': score,
-                                'raw_line': line,
-                                'preset_used': 'paddle_ocr_crop',
-                                'confidence': 0.9 if is_roster_member else 0.7,
-                                'is_roster_member': is_roster_member
-                            })
-                            break  # Only take first valid name per line
+            # Find all valid scores (1-180)
+            score_positions = []
+            for i, token in enumerate(tokens):
+                if token.isdigit() and 1 <= int(token) <= 180:
+                    score_positions.append(i)
+                    logging.info(f"📊 Found score: {token} at position {i}")
+            
+            # Find all valid player names using sliding window
+            valid_names = self._find_valid_names_with_window(tokens, guild_id)
+            
+            # Pair names with scores using proximity
+            results = self._pair_names_with_scores(valid_names, score_positions, tokens)
+            
+            logging.info(f"🎯 Final results: {len(results)} players found")
+            for result in results:
+                logging.info(f"  👤 {result['name']}: {result['score']} points")
             
             return results
             
@@ -448,3 +402,69 @@ class OCRProcessor:
         except Exception as e:
             logging.error(f"❌ Error creating debug overlay: {e}")
             return None
+    
+    def _find_valid_names_with_window(self, tokens: List[str], guild_id: int) -> List[tuple]:
+        """Find valid player names using sliding window approach for 1-word and 2-word combinations."""
+        valid_names = []
+        i = 0
+        
+        while i < len(tokens):
+            # Skip tokens that are clearly scores
+            if tokens[i].isdigit() and 1 <= int(tokens[i]) <= 180:
+                i += 1
+                continue
+            
+            # Try 2-word combination first (for "No name", "kyle christian")
+            if i < len(tokens) - 1:
+                two_word = f"{tokens[i]} {tokens[i+1]}"
+                resolved = self.db_manager.resolve_player_name(two_word, guild_id)
+                if resolved:
+                    valid_names.append((i, resolved, two_word))
+                    logging.info(f"✅ Found 2-word name: '{two_word}' → '{resolved}' at position {i}")
+                    i += 2  # Skip next token
+                    continue
+            
+            # Try single word
+            resolved = self.db_manager.resolve_player_name(tokens[i], guild_id)
+            if resolved:
+                valid_names.append((i, resolved, tokens[i]))
+                logging.info(f"✅ Found 1-word name: '{tokens[i]}' → '{resolved}' at position {i}")
+            
+            i += 1
+        
+        return valid_names
+    
+    def _pair_names_with_scores(self, valid_names: List[tuple], score_positions: List[int], tokens: List[str]) -> List[Dict]:
+        """Pair validated player names with scores using proximity matching."""
+        results = []
+        used_scores = set()
+        
+        for name_pos, official_name, raw_name in valid_names:
+            # Find nearest unused score
+            best_score_pos = None
+            min_distance = float('inf')
+            
+            for score_pos in score_positions:
+                if score_pos not in used_scores:
+                    distance = abs(name_pos - score_pos)
+                    if distance < min_distance:
+                        min_distance = distance
+                        best_score_pos = score_pos
+            
+            if best_score_pos is not None:
+                score = int(tokens[best_score_pos])
+                results.append({
+                    'name': official_name,
+                    'raw_name': raw_name,
+                    'score': score,
+                    'raw_line': f"{raw_name} {score}",
+                    'preset_used': 'database_validated',
+                    'confidence': 1.0,  # Database validated = highest confidence
+                    'is_roster_member': True  # All results are validated against roster
+                })
+                used_scores.add(best_score_pos)
+                logging.info(f"🎯 Paired '{official_name}' (raw: '{raw_name}') with score {score}")
+            else:
+                logging.warning(f"⚠️ No available score found for '{official_name}'")
+        
+        return results
