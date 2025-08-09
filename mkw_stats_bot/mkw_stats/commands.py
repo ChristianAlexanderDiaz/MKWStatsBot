@@ -8,6 +8,7 @@ import functools
 import aiohttp
 import tempfile
 import os
+import traceback
 # Tesseract OCRProcessor removed - using only PaddleOCR
 
 def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Embed:
@@ -48,7 +49,7 @@ def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Em
     return embed
 
 # PaddleX OCR for production deployment (replaces PaddleOCR)
-from .ocr_processor_paddle import PaddleXOCRProcessor
+from .ocr_processor import OCRProcessor
 
 def require_guild_setup(func):
     """Decorator to ensure guild is initialized before running slash commands."""
@@ -1864,249 +1865,148 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error renaming team", ephemeral=True)
 
-    @app_commands.command(name="runocr", description="Test OCR on the most recent image uploaded to this channel")
-    # PaddleOCR is now the only engine - no engine selection needed
+    @app_commands.command(name="runocr", description="Run OCR on the most recent image uploaded to this channel")
     @require_guild_setup
-    async def run_ocr_test(self, interaction: discord.Interaction):
-        """Run OCR test on the most recent image uploaded to the channel."""
-        temp_image_path = None
-        overlay_path = None
+    async def runocr(self, interaction: discord.Interaction):
+        """Run OCR on the most recent image uploaded to the channel."""
+        await interaction.response.defer(thinking=True)
         
         try:
-            await interaction.response.defer()
-            logging.info(f"🔍 Starting OCR test command for user {interaction.user.name}")
-            
-            guild_id = self.get_guild_id_from_interaction(interaction)
-            logging.info(f"🏰 Guild ID: {guild_id}")
+            logging.info(f"🔍 Starting OCR command for user {interaction.user.name}")
             
             # Search for the most recent image in the channel
-            logging.info("📝 Searching for recent images in channel...")
             recent_image = None
-            message_count = 0
-            
             async for message in interaction.channel.history(limit=50):
-                message_count += 1
-                if message.attachments:
-                    for attachment in message.attachments:
-                        if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg']):
-                            recent_image = attachment
-                            logging.info(f"✅ Found image: {attachment.filename} (size: {attachment.size} bytes)")
-                            break
+                for attachment in message.attachments:
+                    if attachment.filename.lower().endswith('.png'):
+                        recent_image = attachment
+                        logging.info(f"✅ Found image: {attachment.filename}")
+                        break
                 if recent_image:
                     break
             
-            logging.info(f"📊 Searched {message_count} messages")
-            
             if not recent_image:
-                logging.warning("❌ No recent image found in channel")
-                await interaction.followup.send("❌ No recent image found in this channel. Please upload an image first.")
+                await interaction.followup.send("❌ No recent images found in this channel (checked last 50 messages). Try uploading an image with the command!")
                 return
             
-            # Download the image to a temporary file
-            logging.info(f"⬇️ Downloading image from: {recent_image.url}")
-            
+            # Download image
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(recent_image.url) as response:
-                        if response.status == 200:
-                            # Create temporary file
-                            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                                temp_image_path = temp_file.name
-                                image_data = await response.read()
-                                temp_file.write(image_data)
-                                logging.info(f"✅ Image downloaded to: {temp_image_path} ({len(image_data)} bytes)")
-                        else:
-                            logging.error(f"❌ HTTP error downloading image: {response.status}")
-                            await interaction.followup.send(f"❌ Failed to download image (HTTP {response.status})")
+                        if response.status != 200:
+                            await interaction.followup.send(f"❌ Failed to download image: HTTP {response.status}")
                             return
+                        
+                        # Create temporary file
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                            temp_path = temp_file.name
+                            image_data = await response.read()
+                            temp_file.write(image_data)
+                            logging.info(f"✅ Image downloaded to: {temp_path}")
             except Exception as e:
-                logging.error(f"❌ Exception downloading image: {e}")
-                await interaction.followup.send(f"❌ Error downloading image: {str(e)}")
+                await interaction.followup.send(f"❌ Failed to download image: {str(e)}")
                 return
             
-            # Initialize PaddleOCR processor
-            logging.info("🔧 Initializing PaddleX OCR processor...")
             try:
-                ocr = PaddleXOCRProcessor(db_manager=self.bot.db)
-                engine_name = "PaddleX"
-                    
-                logging.info(f"✅ {engine_name} processor initialized successfully")
-            except Exception as e:
-                logging.error(f"❌ Failed to initialize PaddleOCR processor: {e}")
-                await interaction.followup.send(f"❌ Error initializing PaddleOCR: {str(e)}")
-                return
-            
-            # Process the image with OCR (split region debug mode)
-            logging.info(f"🔍 Starting {engine_name} OCR debug processing...")
-            try:
-                result = ocr.process_split_regions_debug(temp_image_path, guild_id)
-                logging.info(f"📊 {engine_name} OCR debug processing completed. Success: {result.get('success', False)}")
+                # Initialize OCR processor
+                ocr = OCRProcessor(db_manager=self.bot.db)
                 
-                if 'debug_overlay' in result:
-                    overlay_path = result['debug_overlay']
-                    logging.info(f"🎨 {engine_name} debug overlay image created: {overlay_path}")
+                # Perform OCR
+                ocr_result = ocr.perform_ocr_on_file(temp_path)
                 
-            except Exception as e:
-                logging.error(f"❌ Exception during {engine_name} OCR processing: {e}")
-                await interaction.followup.send(f"❌ {engine_name} OCR processing error: {str(e)}")
-                return
-            
-            if not result.get('success', False):
-                error_msg = result.get('error', 'Unknown error')
-                logging.error(f"❌ OCR processing failed: {error_msg}")
-                await interaction.followup.send(f"❌ OCR processing failed: {error_msg}")
-                return
-            
-            # Format the results
-            logging.info(f"📝 Formatting {engine_name} OCR debug results...")
-            results_text = f"🔍 **{engine_name} OCR Debug Results**\n\n"
-            
-            results = result.get('results', [])
-            debug_info = result.get('debug_info', {})
-            region_used = debug_info.get('region_used', {})
-            logging.info(f"👥 Found {len(results)} player results")
-            
-            # Show debug statistics and region info
-            total_elements = debug_info.get('total_elements', 0)
-            results_text += f"**Debug Stats:**\n"
-            results_text += f"📍 Region: ({region_used.get('start', [0,0])[0]}, {region_used.get('start', [0,0])[1]}) to ({region_used.get('end', [0,0])[0]}, {region_used.get('end', [0,0])[1]})\n"
-            results_text += f"🔤 Text elements in region: {total_elements}\n"
-            results_text += f"👥 Player results found: {len(results)}\n\n"
-            
-            if results:
-                results_text += "**Players Found:**\n"
-                for i, player_result in enumerate(results, 1):
-                    name = player_result.get('name', 'Unknown')
-                    raw_name = player_result.get('raw_name', name)
-                    score = player_result.get('score', 0)
-                    is_roster = player_result.get('is_roster_member', False)
-                    
-                    # Add indicator for roster status
-                    if is_roster:
-                        indicator = "✅"
-                        display_name = name
-                    else:
-                        indicator = "❓"
-                        display_name = raw_name if raw_name != name else name
-                    
-                    results_text += f"{i}. {indicator} **{display_name}**: {score} points\n"
-                    logging.info(f"  👤 Player {i}: {display_name} - {score} points (roster: {is_roster})")
+                if not ocr_result["success"]:
+                    await interaction.followup.send(f"❌ OCR failed: {ocr_result.get('error', 'Unknown error')}")
+                    return
                 
-                # Add validation info
-                validation = result.get('validation', {})
-                if validation:
-                    results_text += f"\n**Total Found:** {validation.get('player_count', 0)}"
-                    warnings = validation.get('warnings', [])
-                    if warnings and len(warnings) <= 3:  # Limit warnings to avoid too long message
-                        results_text += f"\n⚠️ **Warnings:** {'; '.join(warnings[:3])}"
-                        logging.warning(f"⚠️ Validation warnings: {warnings}")
-            else:
-                results_text += "No players found in the image."
-                logging.warning("❌ No player results found")
+                # Format results for Discord
+                if not ocr_result["text"].strip():
+                    await interaction.followup.send("✅ OCR completed, but no text was detected in the image.")
+                    return
                 
-            # Add note about color coding and region
-            results_text += f"\n\n**Legend for overlay image:**\n🟡 Yellow: Selected Region\n🟠 Orange: Extended Region\n🔴 Red: Letters/Names\n🟢 Green: Numbers/Scores\n🔵 Blue: Symbols"
-            
-            # Create embed for results
-            embed = discord.Embed(
-                title="🔍 OCR Processing Test",
-                description=results_text,
-                color=0x00ff00 if result.get('success') else 0xff0000
-            )
-            
-            # Send the results
-            logging.info("📤 Sending OCR results to Discord...")
-            await interaction.followup.send(embed=embed)
-            
-            # Send the debug overlay image if available
-            debug_overlay_path = result.get('debug_overlay')
-            if debug_overlay_path and os.path.exists(debug_overlay_path):
-                logging.info(f"📤 Sending debug overlay image: {debug_overlay_path}")
-                try:
-                    with open(debug_overlay_path, 'rb') as f:
-                        overlay_file = discord.File(f, 'ocr_debug_overlay.png')
-                        await interaction.followup.send(
-                            "🎨 **Color-Coded Text Detection:**", 
-                            file=overlay_file
-                        )
-                    logging.info("✅ Debug overlay image sent successfully")
-                except Exception as e:
-                    logging.error(f"❌ Error sending debug overlay image: {e}")
-                    await interaction.followup.send(f"⚠️ Could not send debug overlay image: {str(e)}")
-            else:
-                logging.warning("⚠️ No debug overlay image available to send")
-            
-            # Send raw OCR text for debugging if available
-            raw_text = debug_info.get('raw_text', '')
-            raw_name_text = debug_info.get('raw_name_text', '')
-            raw_score_text = debug_info.get('raw_score_text', '')
-            
-            # Handle both single region and split region raw text
-            if raw_text and len(raw_text) > 50:
-                # Single region processing
-                logging.info("📤 Sending raw OCR text for debugging")
-                try:
-                    # Truncate if too long for Discord
-                    if len(raw_text) > 1500:
-                        raw_text = raw_text[:1500] + "\n... (truncated)"
-                    
-                    await interaction.followup.send(
-                        f"📄 **Raw OCR Text (for debugging):**\n```\n{raw_text}\n```"
+                # Create embed for results
+                embed = discord.Embed(
+                    title="🔍 OCR Results",
+                    color=0x00ff00,
+                    description=f"**Source:** {recent_image.filename}"
+                )
+                
+                # Add crop region info
+                if "crop_coords" in ocr_result:
+                    x1, y1, x2, y2 = ocr_result["crop_coords"]
+                    embed.add_field(
+                        name="📐 Crop Region",
+                        value=f"X: {x1} to {x2}\nY: {y1} to {y2}\nSize: {x2-x1}×{y2-y1}px",
+                        inline=True
                     )
-                    logging.info("✅ Raw OCR text sent successfully")
-                except Exception as e:
-                    logging.error(f"❌ Error sending raw OCR text: {e}")
-            elif (raw_name_text and len(raw_name_text) > 10) or (raw_score_text and len(raw_score_text) > 10):
-                # Split region processing - show both name and score text separately
-                logging.info("📤 Sending split region raw OCR text for debugging")
-                try:
-                    debug_message = "📄 **Raw OCR Text (Split Regions):**\n\n"
-                    
-                    if raw_name_text and len(raw_name_text) > 10:
-                        # Truncate name text if too long
-                        name_text = raw_name_text[:750] + ("\n... (truncated)" if len(raw_name_text) > 750 else "")
-                        debug_message += f"**Names Region:**\n```\n{name_text}\n```\n"
-                    
-                    if raw_score_text and len(raw_score_text) > 10:
-                        # Truncate score text if too long
-                        score_text = raw_score_text[:750] + ("\n... (truncated)" if len(raw_score_text) > 750 else "")
-                        debug_message += f"**Scores Region:**\n```\n{score_text}\n```"
-                    
-                    await interaction.followup.send(debug_message)
-                    logging.info("✅ Split region raw OCR text sent successfully")
-                except Exception as e:
-                    logging.error(f"❌ Error sending split region raw OCR text: {e}")
-            else:
-                logging.info("ℹ️ No substantial raw text to send")
-            
-            logging.info("✅ OCR test command completed successfully")
-            
-        except Exception as e:
-            logging.error(f"❌ Unexpected error in OCR test command: {e}", exc_info=True)
-            try:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(f"❌ Unexpected error: {str(e)}", ephemeral=True)
+                
+                # Truncate text if too long for Discord
+                text_content = ocr_result["text"]
+                if len(text_content) > 3500:
+                    text_content = text_content[:3500] + "...\n*(text truncated)*"
+                
+                embed.add_field(
+                    name="📝 Extracted Text",
+                    value=f"```\n{text_content}\n```" if text_content else "*(No text detected)*",
+                    inline=False
+                )
+                
+                # Add confidence info if available
+                if ocr_result["results"]:
+                    avg_confidence = sum(r["confidence"] for r in ocr_result["results"]) / len(ocr_result["results"])
+                    embed.add_field(
+                        name="📊 Stats",
+                        value=f"Lines detected: {len(ocr_result['results'])}\nAvg confidence: {avg_confidence:.2f}",
+                        inline=True
+                    )
+                
+                # Prepare files to send
+                files_to_send = []
+                
+                # Add visualization image (original with crop region highlighted)
+                if "visual_path" in ocr_result and ocr_result["visual_path"] != temp_path:
+                    try:
+                        visual_file = discord.File(ocr_result["visual_path"], filename="crop_region_visual.png")
+                        files_to_send.append(visual_file)
+                        embed.set_image(url="attachment://crop_region_visual.png")
+                    except:
+                        pass
+                
+                # Add cropped image
+                if "cropped_path" in ocr_result and ocr_result["cropped_path"] != temp_path:
+                    try:
+                        cropped_file = discord.File(ocr_result["cropped_path"], filename="cropped_for_ocr.png")
+                        files_to_send.append(cropped_file)
+                        embed.set_thumbnail(url="attachment://cropped_for_ocr.png")
+                    except:
+                        pass
+                
+                # Send response with embed and files
+                if files_to_send:
+                    await interaction.followup.send(embed=embed, files=files_to_send)
                 else:
-                    await interaction.followup.send(f"❌ Unexpected error: {str(e)}")
-            except:
-                logging.error("❌ Could not send error message to Discord")
-        finally:
-            # Clean up temporary files
-            if temp_image_path and os.path.exists(temp_image_path):
+                    await interaction.followup.send(embed=embed)
+                
+            finally:
+                # Clean up temporary files
                 try:
-                    os.unlink(temp_image_path)
-                    logging.info(f"🧹 Cleaned up temp image: {temp_image_path}")
-                except Exception as e:
-                    logging.error(f"⚠️ Could not clean up temp image: {e}")
-            
-            debug_overlay_path = result.get('debug_overlay') if 'result' in locals() else None
-            if debug_overlay_path and os.path.exists(debug_overlay_path):
-                try:
-                    os.unlink(debug_overlay_path)
-                    logging.info(f"🧹 Cleaned up debug overlay image: {debug_overlay_path}")
-                except Exception as e:
-                    logging.error(f"⚠️ Could not clean up debug overlay image: {e}")
-    
+                    os.unlink(temp_path)
+                except:
+                    pass
+                
+                # Clean up visualization files if they were created
+                if 'ocr_result' in locals() and isinstance(ocr_result, dict):
+                    for path_key in ['cropped_path', 'visual_path']:
+                        if path_key in ocr_result and ocr_result[path_key] != temp_path:
+                            try:
+                                os.unlink(ocr_result[path_key])
+                            except:
+                                pass
+                    
+        except Exception as e:
+            logging.error(f"Error in runocr command: {e}")
+            logging.error(traceback.format_exc())
+            await interaction.followup.send(f"❌ An error occurred: {str(e)}")
+N    
 
 async def setup(bot):
     """Setup function for the cog."""
