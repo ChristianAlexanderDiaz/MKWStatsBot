@@ -9,7 +9,7 @@ import aiohttp
 import tempfile
 import os
 import traceback
-# Tesseract OCRProcessor removed - using only PaddleOCR
+# OCR processor initialized in bot.py at startup for instant response
 
 def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Embed:
     """
@@ -48,8 +48,7 @@ def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Em
     
     return embed
 
-# PaddleX OCR for production deployment (replaces PaddleOCR)
-from .ocr_processor import OCRProcessor
+# OCR processor is now initialized in bot.py at startup
 
 def require_guild_setup(func):
     """Decorator to ensure guild is initialized before running slash commands."""
@@ -1908,8 +1907,8 @@ class MarioKartCommands(commands.Cog):
                 return
             
             try:
-                # Initialize OCR processor
-                ocr = OCRProcessor(db_manager=self.bot.db)
+                # Use bot's OCR processor (initialized at startup)
+                ocr = self.bot.ocr
                 
                 # Get guild ID for database validation
                 guild_id = self.get_guild_id_from_interaction(interaction)

@@ -247,9 +247,7 @@ def log_discord_command(command: str, user: str, guild: str = None):
 
 
 # Configure logging on module import
-if __name__ != "__main__":
-    # Only setup logging if not running as main module
-    setup_logging()
+# Note: Logging setup is now handled explicitly in bot.py to avoid duplicate initialization
 
 
 # Test the logging configuration
