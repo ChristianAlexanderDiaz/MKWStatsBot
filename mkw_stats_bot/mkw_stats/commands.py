@@ -1911,17 +1911,24 @@ class MarioKartCommands(commands.Cog):
                 # Initialize OCR processor
                 ocr = OCRProcessor(db_manager=self.bot.db)
                 
-                # Perform OCR
+                # Get guild ID for database validation
+                guild_id = self.get_guild_id_from_interaction(interaction)
+                
+                # Perform OCR (raw results)
                 ocr_result = ocr.perform_ocr_on_file(temp_path)
                 
                 if not ocr_result["success"]:
                     await interaction.followup.send(f"❌ OCR failed: {ocr_result.get('error', 'Unknown error')}")
                     return
                 
-                # Format results for Discord
+                # Format raw OCR results for Discord
                 if not ocr_result["text"].strip():
                     await interaction.followup.send("✅ OCR completed, but no text was detected in the image.")
                     return
+                
+                # Process OCR results for database validation
+                extracted_texts = [{'text': ocr_result["text"], 'confidence': 0.9}]
+                processed_results = ocr._parse_mario_kart_results(extracted_texts, guild_id)
                 
                 # Create embed for results
                 embed = discord.Embed(
@@ -1945,19 +1952,44 @@ class MarioKartCommands(commands.Cog):
                     text_content = text_content[:3500] + "...\n*(text truncated)*"
                 
                 embed.add_field(
-                    name="📝 Extracted Text",
+                    name="📝 Raw OCR Text",
                     value=f"```\n{text_content}\n```" if text_content else "*(No text detected)*",
                     inline=False
                 )
                 
-                # Add confidence info if available
-                if ocr_result["results"]:
-                    avg_confidence = sum(r["confidence"] for r in ocr_result["results"]) / len(ocr_result["results"])
+                # Add processed database results
+                if processed_results:
+                    processed_text = "\n".join([
+                        f"👤 {result['name']}: {result['score']} points ✅"
+                        + (f" (raw: {result['raw_name']})" if result['raw_name'] != result['name'] else "")
+                        for result in processed_results
+                    ])
+                    
+                    if len(processed_text) > 1000:
+                        processed_text = processed_text[:1000] + "...\n*(truncated)*"
+                    
                     embed.add_field(
-                        name="📊 Stats",
-                        value=f"Lines detected: {len(ocr_result['results'])}\nAvg confidence: {avg_confidence:.2f}",
-                        inline=True
+                        name="👥 Processed Database Results",
+                        value=processed_text if processed_text else "*(No validated players found)*",
+                        inline=False
                     )
+                else:
+                    embed.add_field(
+                        name="👥 Processed Database Results",
+                        value="❌ No players found in database",
+                        inline=False
+                    )
+                
+                # Add processing statistics
+                raw_tokens = len(ocr_result["text"].split())
+                players_found = len(processed_results)
+                avg_confidence = sum(r["confidence"] for r in ocr_result["results"]) / len(ocr_result["results"]) if ocr_result["results"] else 0.0
+                
+                embed.add_field(
+                    name="📊 Processing Stats",
+                    value=f"Raw tokens: {raw_tokens}\nPlayers validated: {players_found}\nOCR confidence: {avg_confidence:.2f}",
+                    inline=True
+                )
                 
                 # Prepare files to send
                 files_to_send = []
