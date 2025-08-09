@@ -217,7 +217,7 @@ class DatabaseManager:
                 # Third, check if it's an exact nickname match
                 cursor.execute("""
                     SELECT player_name FROM players 
-                    WHERE nicknames ? %s AND guild_id = %s AND is_active = TRUE
+                    WHERE nicknames IS NOT NULL AND nicknames ? %s AND guild_id = %s AND is_active = TRUE
                 """, (name_or_nickname, guild_id))
                 
                 result = cursor.fetchone()
@@ -227,7 +227,7 @@ class DatabaseManager:
                 # Finally, try case-insensitive search for nicknames
                 cursor.execute("""
                     SELECT player_name FROM players 
-                    WHERE EXISTS (
+                    WHERE nicknames IS NOT NULL AND EXISTS (
                         SELECT 1 FROM jsonb_array_elements_text(nicknames) AS nickname
                         WHERE LOWER(nickname) = LOWER(%s)
                     )
@@ -241,7 +241,7 @@ class DatabaseManager:
                 return None  # Not found
                 
         except Exception as e:
-            logging.error(f"❌ Error resolving player name {name_or_nickname}: {e}")
+            logging.error(f"❌ Database error resolving player name {name_or_nickname}: {e}")
             return None
     
     def add_race_results(self, results: List[Dict], race_count: int = 12, guild_id: int = 0) -> Optional[int]:

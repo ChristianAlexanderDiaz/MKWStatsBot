@@ -265,9 +265,17 @@ class OCRProcessor:
             # Pair names with scores using proximity
             results = self._pair_names_with_scores(valid_names, score_positions, tokens)
             
-            logging.info(f"🎯 Final results: {len(results)} players found")
-            for result in results:
-                logging.info(f"  👤 {result['name']}: {result['score']} points")
+            # Count total detected vs guild players
+            all_detected_scores = len(score_positions)
+            guild_players_found = len(results)
+            opponent_players = all_detected_scores - guild_players_found
+            
+            logging.info(f"🎯 OCR Results: {guild_players_found} guild players found, {opponent_players} opponent players detected")
+            
+            # Log guild team summary
+            if results:
+                team_summary = ", ".join([f"{result['name']} {result['score']}" for result in results])
+                logging.info(f"Your team: {team_summary}")
             
             return results
             
@@ -423,12 +431,16 @@ class OCRProcessor:
                     logging.info(f"✅ Found 2-word name: '{two_word}' → '{resolved}' at position {i}")
                     i += 2  # Skip next token
                     continue
+                else:
+                    logging.debug(f"Player '{two_word}' not found in guild roster (likely opponent)")
             
             # Try single word
             resolved = self.db_manager.resolve_player_name(tokens[i], guild_id)
             if resolved:
                 valid_names.append((i, resolved, tokens[i]))
                 logging.info(f"✅ Found 1-word name: '{tokens[i]}' → '{resolved}' at position {i}")
+            else:
+                logging.debug(f"Player '{tokens[i]}' not found in guild roster (likely opponent)")
             
             i += 1
         
