@@ -188,8 +188,14 @@ class DatabaseManager:
             logging.error(f"❌ Error initializing PostgreSQL database: {e}")
             raise
     
-    def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0) -> Optional[str]:
-        """Resolve a name or nickname to players table player name."""
+    def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0, log_level: str = 'error') -> Optional[str]:
+        """Resolve a name or nickname to players table player name.
+        
+        Args:
+            name_or_nickname: The name or nickname to resolve
+            guild_id: Guild ID for data isolation
+            log_level: Logging level for database errors ('error', 'debug', 'none')
+        """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -241,7 +247,12 @@ class DatabaseManager:
                 return None  # Not found
                 
         except Exception as e:
-            logging.error(f"❌ Database error resolving player name {name_or_nickname}: {e}")
+            # Log database errors based on specified level
+            if log_level == 'error':
+                logging.error(f"❌ Database error resolving player name {name_or_nickname}: {e}")
+            elif log_level == 'debug':
+                logging.debug(f"🔍 Database lookup failed for {name_or_nickname} (expected if opponent): {e}")
+            # log_level == 'none' means no logging
             return None
     
     def add_race_results(self, results: List[Dict], race_count: int = 12, guild_id: int = 0) -> Optional[int]:

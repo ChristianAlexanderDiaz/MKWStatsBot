@@ -425,7 +425,7 @@ class OCRProcessor:
             # Try 2-word combination first (for "No name", "kyle christian")
             if i < len(tokens) - 1:
                 two_word = f"{tokens[i]} {tokens[i+1]}"
-                resolved = self.db_manager.resolve_player_name(two_word, guild_id)
+                resolved = self.db_manager.resolve_player_name(two_word, guild_id, log_level='debug')
                 if resolved:
                     valid_names.append((i, resolved, two_word))
                     logging.info(f"✅ Found 2-word name: '{two_word}' → '{resolved}' at position {i}")
@@ -435,7 +435,7 @@ class OCRProcessor:
                     logging.debug(f"Player '{two_word}' not found in guild roster (likely opponent)")
             
             # Try single word
-            resolved = self.db_manager.resolve_player_name(tokens[i], guild_id)
+            resolved = self.db_manager.resolve_player_name(tokens[i], guild_id, log_level='debug')
             if resolved:
                 valid_names.append((i, resolved, tokens[i]))
                 logging.info(f"✅ Found 1-word name: '{tokens[i]}' → '{resolved}' at position {i}")
