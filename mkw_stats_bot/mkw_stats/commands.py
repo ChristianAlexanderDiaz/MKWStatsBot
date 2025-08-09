@@ -2006,7 +2006,7 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error in runocr command: {e}")
             logging.error(traceback.format_exc())
             await interaction.followup.send(f"❌ An error occurred: {str(e)}")
-N    
+   
 
 async def setup(bot):
     """Setup function for the cog."""
