@@ -230,15 +230,17 @@ class DatabaseManager:
                 if result:
                     return result[0]
                 
-                # Finally, try case-insensitive search for nicknames
+                # Finally, try case-insensitive search for nicknames using ILIKE
                 cursor.execute("""
                     SELECT player_name FROM players 
-                    WHERE nicknames IS NOT NULL AND EXISTS (
+                    WHERE nicknames IS NOT NULL 
+                    AND guild_id = %s 
+                    AND is_active = TRUE
+                    AND EXISTS (
                         SELECT 1 FROM jsonb_array_elements_text(nicknames) AS nickname
-                        WHERE LOWER(nickname) = LOWER(%s)
+                        WHERE nickname ILIKE %s
                     )
-                    AND guild_id = %s AND is_active = TRUE
-                """, (name_or_nickname, guild_id))
+                """, (guild_id, name_or_nickname))
                 
                 result = cursor.fetchone()
                 if result:
