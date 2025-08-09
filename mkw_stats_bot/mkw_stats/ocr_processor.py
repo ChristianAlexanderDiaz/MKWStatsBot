@@ -435,21 +435,44 @@ class OCRProcessor:
         return valid_names
     
     def _pair_names_with_scores(self, valid_names: List[tuple], score_positions: List[int], tokens: List[str]) -> List[Dict]:
-        """Pair validated player names with scores using proximity matching."""
+        """Pair validated player names with scores using sequential flow matching."""
         results = []
         used_scores = set()
         
-        for name_pos, official_name, raw_name in valid_names:
-            # Find nearest unused score
+        # Sort names by position to process in reading order
+        valid_names_sorted = sorted(valid_names, key=lambda x: x[0])
+        
+        for name_pos, official_name, raw_name in valid_names_sorted:
+            # Find the next available score after this name position
             best_score_pos = None
             min_distance = float('inf')
             
+            # First, try to find a score that comes AFTER the name (preferred pattern: "Name Score")
             for score_pos in score_positions:
-                if score_pos not in used_scores:
-                    distance = abs(name_pos - score_pos)
+                if score_pos not in used_scores and score_pos > name_pos:
+                    distance = score_pos - name_pos
                     if distance < min_distance:
                         min_distance = distance
                         best_score_pos = score_pos
+            
+            # If no score found after the name, try scores BEFORE the name (pattern: "Score Name")
+            if best_score_pos is None:
+                for score_pos in score_positions:
+                    if score_pos not in used_scores and score_pos < name_pos:
+                        distance = name_pos - score_pos
+                        # Only consider scores that are very close (within 2 positions) to avoid wrong pairings
+                        if distance <= 2 and distance < min_distance:
+                            min_distance = distance
+                            best_score_pos = score_pos
+            
+            # If still no score found, fall back to absolute nearest unused score
+            if best_score_pos is None:
+                for score_pos in score_positions:
+                    if score_pos not in used_scores:
+                        distance = abs(name_pos - score_pos)
+                        if distance < min_distance:
+                            min_distance = distance
+                            best_score_pos = score_pos
             
             if best_score_pos is not None:
                 score = int(tokens[best_score_pos])
@@ -463,7 +486,7 @@ class OCRProcessor:
                     'is_roster_member': True  # All results are validated against roster
                 })
                 used_scores.add(best_score_pos)
-                logging.info(f"🎯 Paired '{official_name}' (raw: '{raw_name}') with score {score}")
+                logging.info(f"🎯 Paired '{official_name}' (raw: '{raw_name}') at pos {name_pos} with score {score} at pos {best_score_pos}")
             else:
                 logging.warning(f"⚠️ No available score found for '{official_name}'")
         
