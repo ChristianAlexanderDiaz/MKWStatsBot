@@ -176,10 +176,10 @@ class MarioKartCommands(commands.Cog):
             embed.add_field(
                 name="🎯 Next Steps",
                 value=(
-                    "• Add more players: `!mkadd <player>`\n"
+                    "• Add more players: `/addplayer <player>`\n"
                     "• Start tracking wars: `/addwar`\n"
-                    "• View stats: `!S [player]`\n"
-                    "• Manage teams: `!mkassignteam`"
+                    "• View stats: `/stats [player]`\n"
+                    "• Manage teams: `/assignplayerstoteam`"
                 ),
                 inline=False
             )

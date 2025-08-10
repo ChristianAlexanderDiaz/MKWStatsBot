@@ -34,8 +34,8 @@ class MarioKartBot(commands.Bot):
         # Enable reactions intent
         intents.reactions = True
         
-        # Initialize the bot with the command prefix and intents
-        super().__init__(command_prefix='!', intents=intents)
+        # Initialize the bot with no command prefix (slash commands only)
+        super().__init__(command_prefix=None, intents=intents)
         
         # Initialize the new v2 database system
         self.db = DatabaseManager()
@@ -60,6 +60,7 @@ class MarioKartBot(commands.Bot):
         # NOTE: Automatic roster initialization disabled
         # Guilds must now use /setup command for proper initialization
         logger.info("🔧 Automatic roster initialization disabled - use /setup command")
+        logger.info("🔧 Using slash commands only - prefix commands disabled")
         
         # Sync slash commands
         try:
@@ -77,6 +78,17 @@ class MarioKartBot(commands.Bot):
             )
         )
     
+    async def on_command_error(self, ctx, error):
+        """Handle command errors - should not occur with prefix commands disabled."""
+        if isinstance(error, commands.CommandNotFound):
+            # Silently ignore command not found errors since we don't use prefix commands
+            logger.debug(f"Ignored prefix command attempt: {ctx.message.content}")
+            return
+        
+        # Log other errors for debugging
+        logger.error(f"Command error: {error}")
+        logger.error(f"Context: {ctx.message.content if ctx.message else 'Unknown'}")
+    
     """
     This is the on_message event.
     It is called when a message is sent in a channel the bot is in.
@@ -85,9 +97,6 @@ class MarioKartBot(commands.Bot):
         # Ignore bot's own messages
         if message.author == self.user:
             return
-        
-        # Process commands first
-        await self.process_commands(message)
         
         # Check if message has attachments (images)
         if message.attachments:
@@ -338,16 +347,13 @@ class MarioKartBot(commands.Bot):
         embed.add_field(
             name="🔧 Edit Commands",
             value=(
-                "`!mkadd PlayerName 85` - Add player with score\n"
-                "`!mkremove PlayerName` - Remove player\n"
-                "`!mkupdate PlayerName 92` - Update player's score\n"
-                "`!mkshow` - Show current results\n"
-                "`!mksave` - Save to database"
+                "Manual editing is no longer supported.\n"
+                "Use `/addwar` command to add war results manually."
             ),
             inline=False
         )
         
-        embed.set_footer(text="Edit the results using the commands above, then use !mksave")
+        embed.set_footer(text="Use /addwar command for manual entry instead")
         
         await message.edit(embed=embed)
         try:
