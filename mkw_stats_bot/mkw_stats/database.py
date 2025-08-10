@@ -238,7 +238,7 @@ class DatabaseManager:
                     AND is_active = TRUE
                     AND EXISTS (
                         SELECT 1 FROM jsonb_array_elements_text(nicknames) AS nickname
-                        WHERE nickname ILIKE %s
+                        WHERE LOWER(nickname) = LOWER(%s)
                     )
                 """, (guild_id, name_or_nickname))
                 
