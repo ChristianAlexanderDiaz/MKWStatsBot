@@ -270,6 +270,13 @@ class OCRProcessor:
             guild_players_found = len(results)
             opponent_players = all_detected_scores - guild_players_found
             
+            # Check for 6v6 team splitting scenario
+            if all_detected_scores == 12 and guild_players_found > 6:
+                logging.info(f"🔀 6v6 Split Detection: {guild_players_found} guild players in 12-player match")
+                results = self._apply_6v6_team_splitting(results, tokens, guild_id)
+                guild_players_found = len(results)  # Update count after splitting
+                opponent_players = all_detected_scores - guild_players_found
+            
             logging.info(f"🎯 OCR Results: {guild_players_found} guild players found, {opponent_players} opponent players detected")
             
             # Log guild team summary
@@ -282,6 +289,118 @@ class OCRProcessor:
         except Exception as e:
             logging.error(f"❌ Error parsing Mario Kart results: {e}")
             return []
+    
+    def _apply_6v6_team_splitting(self, guild_results: List[Dict], tokens: List[str], guild_id: int) -> List[Dict]:
+        """Apply 6v6 team splitting using majority rule based on player positions in raw OCR."""
+        try:
+            # Extract all player-score pairs from tokens in order
+            all_players = self._extract_all_players_from_tokens(tokens)
+            
+            if len(all_players) != 12:
+                logging.warning(f"⚠️ Expected 12 players for 6v6 split, found {len(all_players)}. Skipping split.")
+                return guild_results
+            
+            # Split into two teams of 6
+            team1_players = all_players[:6]   # First 6 positions
+            team2_players = all_players[6:]   # Last 6 positions
+            
+            # Count guild members in each team
+            team1_guild_count = 0
+            team2_guild_count = 0
+            team1_guild_members = []
+            team2_guild_members = []
+            
+            # Check team 1
+            for player_name, score in team1_players:
+                resolved_name = self.db_manager.resolve_player_name(player_name, guild_id, log_level='none')
+                if resolved_name:
+                    team1_guild_count += 1
+                    team1_guild_members.append({'name': resolved_name, 'score': score, 'raw_name': player_name})
+            
+            # Check team 2
+            for player_name, score in team2_players:
+                resolved_name = self.db_manager.resolve_player_name(player_name, guild_id, log_level='none')
+                if resolved_name:
+                    team2_guild_count += 1
+                    team2_guild_members.append({'name': resolved_name, 'score': score, 'raw_name': player_name})
+            
+            # Apply majority rule
+            if team1_guild_count > team2_guild_count:
+                winning_team = team1_guild_members
+                excluded_team = team2_guild_members
+                winning_team_num = 1
+            elif team2_guild_count > team1_guild_count:
+                winning_team = team2_guild_members
+                excluded_team = team1_guild_members
+                winning_team_num = 2
+            else:
+                # TODO: Tie scenario - implement user choice via Discord reactions
+                # For now, return all players and let user manually decide
+                logging.info(f"🤝 Team split tie: {team1_guild_count} vs {team2_guild_count} guild members.")
+                logging.info(f"TODO: Implement user choice for tie scenarios. Recording all players for now.")
+                return guild_results
+            
+            # Enhanced logging for team split decision
+            logging.info(f"🏆 Team {winning_team_num} wins: {len(winning_team)} guild members vs {len(excluded_team)}")
+            
+            if winning_team:
+                winning_summary = ", ".join([f"{p['name']} {p['score']}" for p in winning_team])
+                logging.info(f"✅ Recording team {winning_team_num}: {winning_summary}")
+            
+            if excluded_team:
+                excluded_summary = ", ".join([f"{p['name']} {p['score']}" for p in excluded_team])
+                logging.info(f"❌ Excluded team: {excluded_summary} (opposing team)")
+            
+            # Return winning team with proper format matching original results
+            formatted_results = []
+            for member in winning_team:
+                # Match the format of the original results
+                formatted_results.append({
+                    'name': member['name'],
+                    'raw_name': member['raw_name'],
+                    'score': member['score'],
+                    'raw_line': f"{member['raw_name']} {member['score']}",
+                    'preset_used': 'database_validated',
+                    'confidence': 1.0,
+                    'is_roster_member': True
+                })
+            
+            return formatted_results
+            
+        except Exception as e:
+            logging.error(f"❌ Error applying 6v6 team splitting: {e}")
+            return guild_results  # Return original results if splitting fails
+    
+    def _extract_all_players_from_tokens(self, tokens: List[str]) -> List[tuple]:
+        """Extract all player-score pairs from raw OCR tokens in order."""
+        players = []
+        i = 0
+        
+        while i < len(tokens) - 1:  # Need at least 2 tokens (name + score)
+            # Look for pattern: name(s) followed by score
+            if tokens[i + 1].isdigit() and 1 <= int(tokens[i + 1]) <= 180:
+                # Check if this is a 2-word name
+                if (i < len(tokens) - 2 and 
+                    not tokens[i].isdigit() and 
+                    not tokens[i + 2].isdigit()):
+                    # Potential 2-word name: "Nick F." 90
+                    player_name = f"{tokens[i]} {tokens[i + 1]}"
+                    if i + 2 < len(tokens) and tokens[i + 2].isdigit():
+                        score = int(tokens[i + 2])
+                        players.append((player_name, score))
+                        i += 3  # Skip name parts and score
+                        continue
+                
+                # Single word name: "Hero" 134
+                player_name = tokens[i]
+                score = int(tokens[i + 1])
+                players.append((player_name, score))
+                i += 2  # Skip name and score
+            else:
+                i += 1
+        
+        logging.info(f"🔍 Extracted {len(players)} player-score pairs: {[f'{name}:{score}' for name, score in players]}")
+        return players
     
     def _validate_results(self, results: List[Dict], guild_id: int = 0) -> Dict:
         """Basic validation of parsed results."""
