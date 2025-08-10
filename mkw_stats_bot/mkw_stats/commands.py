@@ -455,7 +455,7 @@ class MarioKartCommands(commands.Cog):
         except Exception as e:
             logging.error(f"Error showing roster: {e}")
             if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving roster", ephemeral=True)
+                await interaction.response.send_message("❌ Error retrieving roster", ephemeral=True)O
             else:
                 await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
 
@@ -725,53 +725,74 @@ class MarioKartCommands(commands.Cog):
             except:
                 await interaction.followup.send("❌ Error unassigning player from team", ephemeral=True)
 
-    @app_commands.command(name="showallteams", description="Show all players organized by teams")
+    @app_commands.command(name="showallteams", description="Show all players organized by member status")
     @require_guild_setup
     async def show_teams(self, interaction: discord.Interaction):
-        """Show all players organized by teams."""
+        """Show all players organized by member status."""
         try:
             guild_id = self.get_guild_id(interaction)
-            teams = self.bot.db.get_players_by_team(guild_id=guild_id)
             
-            if not teams:
+            # Get all active players (excluding kicked)
+            all_players = self.bot.db.get_all_players_stats(guild_id)
+            
+            if not all_players:
                 await interaction.response.send_message("❌ No players found in players table. Use `/addplayer` to add players.")
                 return
             
+            # Filter out kicked players and organize by member status
+            status_groups = {}
+            for player in all_players:
+                status = player.get('member_status', 'member')
+                # Skip kicked players
+                if status == 'kicked':
+                    continue
+                    
+                if status not in status_groups:
+                    status_groups[status] = []
+                status_groups[status].append(player)
+            
             embed = discord.Embed(
-                title="👥 Team Rosters",
-                description="Players organized by team assignment:",
+                title="👥 Player Rosters by Status",
+                description="Players organized by member status:",
                 color=0x9932cc
             )
             
-            # Define team colors
-            team_colors = {
-                'Phantom Orbit': '🔮',
-                'Moonlight Bootel': '🌙', 
-                'Unassigned': '❓'
+            # Define status info - only show Member, Trial, Ally
+            status_info = {
+                'member': {'icon': '👤', 'name': 'Members'},
+                'trial': {'icon': '🔍', 'name': 'Trials'},
+                'ally': {'icon': '🤝', 'name': 'Allies'}
             }
             
             total_players = 0
-            for team_name, players in teams.items():
-                if players:  # Only show teams with players
-                    icon = team_colors.get(team_name, '👥')
-                    player_list = "\n".join([f"• {player}" for player in players])
+            # Display in specific order: Member, Trial, Ally (no Kicked)
+            for status in ['member', 'trial', 'ally']:
+                if status in status_groups and status_groups[status]:
+                    players = status_groups[status]
+                    info = status_info[status]
+                    
+                    player_list = []
+                    for player in players:
+                        nickname_count = len(player.get('nicknames', []))
+                        nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
+                        player_list.append(f"• **{player['player_name']}**{nickname_text}")
                     
                     embed.add_field(
-                        name=f"{icon} {team_name} ({len(players)} players)",
-                        value=player_list,
+                        name=f"{info['icon']} {info['name']} ({len(players)} players)",
+                        value="\n".join(player_list),
                         inline=True
                     )
                     total_players += len(players)
             
-            embed.set_footer(text=f"Total players: {total_players} | Use /showspecificteamroster to view a specific team")
+            embed.set_footer(text=f"Total active players: {total_players} | Use /setmemberstatus to change player status")
             await interaction.response.send_message(embed=embed)
             
         except Exception as e:
-            logging.error(f"Error showing teams: {e}")
+            logging.error(f"Error showing player rosters: {e}")
             if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving team information", ephemeral=True)
+                await interaction.response.send_message("❌ Error retrieving player information", ephemeral=True)
             else:
-                await interaction.followup.send("❌ Error retrieving team information", ephemeral=True)
+                await interaction.followup.send("❌ Error retrieving player information", ephemeral=True)
 
     @app_commands.command(name="showspecificteamroster", description="Show roster for a specific team")
     @app_commands.describe(team_name="Name of the team to show roster for")

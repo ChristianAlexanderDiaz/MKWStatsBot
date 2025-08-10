@@ -103,7 +103,7 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 
 ### Guild Configuration Options
 - **Guild Name**: Display name for the guild
-- **Team Names**: Custom team names (default: Phantom Orbit, Moonlight Bootel)
+- **Team Names**: Custom team names (default: none, configured via /setup)
 - **Allowed Channels**: Restrict bot commands to specific channels
 - **Active Status**: Enable/disable guild functionality
 

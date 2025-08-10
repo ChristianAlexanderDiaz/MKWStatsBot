@@ -1361,7 +1361,7 @@ class DatabaseManager:
                 return {
                     'guild_id': result[0],
                     'guild_name': result[1],
-                    'team_names': result[2] if result[2] else ['Phantom Orbit', 'Moonlight Bootel'],
+                    'team_names': result[2] if result[2] else [],
                     'allowed_channels': result[3] if result[3] else [],
                     'is_active': result[4],
                     'created_at': result[5].isoformat() if result[5] else None,
@@ -1380,7 +1380,7 @@ class DatabaseManager:
                 
                 # Set defaults
                 if team_names is None:
-                    team_names = ['Phantom Orbit', 'Moonlight Bootel']
+                    team_names = []
                 if allowed_channels is None:
                     allowed_channels = []
                 
@@ -1443,8 +1443,8 @@ class DatabaseManager:
         """Get valid team names for a guild."""
         config = self.get_guild_config(guild_id)
         if config:
-            return config.get('team_names', ['Phantom Orbit', 'Moonlight Bootel'])
-        return ['Phantom Orbit', 'Moonlight Bootel']
+            return config.get('team_names', [])
+        return []
     
     def is_channel_allowed(self, guild_id: int, channel_id: int) -> bool:
         """Check if a channel is allowed for bot commands."""
