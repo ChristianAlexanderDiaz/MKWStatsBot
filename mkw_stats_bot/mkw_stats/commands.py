@@ -455,7 +455,7 @@ class MarioKartCommands(commands.Cog):
         except Exception as e:
             logging.error(f"Error showing roster: {e}")
             if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving roster", ephemeral=True)O
+                await interaction.response.send_message("❌ Error retrieving roster", ephemeral=True)
             else:
                 await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
 
