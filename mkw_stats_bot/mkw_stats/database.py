@@ -200,68 +200,137 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Debug logging
+                # Enhanced debug logging
                 if log_level == 'debug':
-                    logging.debug(f"🔍 Resolving name/nickname: '{name_or_nickname}' for guild {guild_id}")
+                    logging.debug(f"🔍 [RESOLVE] Starting resolution for: '{name_or_nickname}' (guild_id: {guild_id})")
                 
-                # Strategy 1: Exact match with player_name
-                cursor.execute("""
+                # Strategwait y 1: Exact match with player_name
+                strategy1_query = """
                     SELECT player_name FROM players 
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
-                """, (name_or_nickname, guild_id))
-                
+                """
+                if log_level == 'debug':
+                    logging.debug(f"🔍 [STRATEGY1] Exact player_name match: {strategy1_query}")
+                    logging.debug(f"🔍 [STRATEGY1] Parameters: ({name_or_nickname}, {guild_id})")
+                    
+                cursor.execute(strategy1_query, (name_or_nickname, guild_id))
                 result = cursor.fetchone()
                 if result:
                     if log_level == 'debug':
-                        logging.debug(f"✅ Found exact player_name match: {result[0]}")
+                        logging.debug(f"✅ [STRATEGY1] Found exact player_name match: {result[0]}")
                     return result[0]
+                elif log_level == 'debug':
+                    logging.debug(f"❌ [STRATEGY1] No exact player_name match found")
                 
                 # Strategy 2: Case-insensitive match with player_name
-                cursor.execute("""
+                strategy2_query = """
                     SELECT player_name FROM players 
                     WHERE LOWER(player_name) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
-                """, (name_or_nickname, guild_id))
-                
+                """
+                if log_level == 'debug':
+                    logging.debug(f"🔍 [STRATEGY2] Case-insensitive player_name match: {strategy2_query}")
+                    logging.debug(f"🔍 [STRATEGY2] Parameters: ({name_or_nickname}, {guild_id})")
+                    
+                cursor.execute(strategy2_query, (name_or_nickname, guild_id))
                 result = cursor.fetchone()
                 if result:
                     if log_level == 'debug':
-                        logging.debug(f"✅ Found case-insensitive player_name match: {result[0]}")
+                        logging.debug(f"✅ [STRATEGY2] Found case-insensitive player_name match: {result[0]}")
                     return result[0]
+                elif log_level == 'debug':
+                    logging.debug(f"❌ [STRATEGY2] No case-insensitive player_name match found")
                 
                 # Strategy 3: Exact nickname match (case-sensitive)
-                cursor.execute("""
+                strategy3_query = """
                     SELECT player_name FROM players 
                     WHERE nicknames IS NOT NULL 
                     AND nicknames ? %s 
                     AND guild_id = %s 
                     AND is_active = TRUE
-                """, (name_or_nickname, guild_id))
-                
+                """
+                if log_level == 'debug':
+                    logging.debug(f"🔍 [STRATEGY3] Exact nickname match: {strategy3_query}")
+                    logging.debug(f"🔍 [STRATEGY3] Parameters: ({name_or_nickname}, {guild_id})")
+                    
+                cursor.execute(strategy3_query, (name_or_nickname, guild_id))
                 result = cursor.fetchone()
                 if result:
                     if log_level == 'debug':
-                        logging.debug(f"✅ Found exact nickname match: {result[0]}")
+                        logging.debug(f"✅ [STRATEGY3] Found exact nickname match: {result[0]}")
                     return result[0]
+                elif log_level == 'debug':
+                    logging.debug(f"❌ [STRATEGY3] No exact nickname match found")
                 
-                # Strategy 4: Case-insensitive nickname match (FIXED)
+                # Strategy 4: Case-insensitive nickname match (Python list approach)
+                if log_level == 'debug':
+                    logging.debug(f"🔍 [STRATEGY4] Starting Python list-based nickname matching")
+                
+                # Get all players with nicknames and check them in Python
                 cursor.execute("""
-                    SELECT player_name FROM players 
-                    WHERE nicknames IS NOT NULL 
-                    AND guild_id = %s 
-                    AND is_active = TRUE
-                    AND EXISTS (
-                        SELECT 1 FROM jsonb_array_elements_text(nicknames) AS nickname
-                        WHERE LOWER(nickname) = LOWER(%s)
-                    )
-                """, (guild_id, name_or_nickname))
+                    SELECT player_name, nicknames 
+                    FROM players 
+                    WHERE guild_id = %s AND is_active = TRUE AND nicknames IS NOT NULL
+                """, (guild_id,))
                 
-                result = cursor.fetchone()
-                if result:
+                nickname_results = cursor.fetchall()
+                if log_level == 'debug':
+                    logging.debug(f"🔍 [STRATEGY4] Found {len(nickname_results)} players with nicknames in guild {guild_id}")
+                
+                for player_name, nicknames in nickname_results:
                     if log_level == 'debug':
-                        logging.debug(f"✅ Found case-insensitive nickname match: {result[0]}")
-                    return result[0]
+                        logging.debug(f"🔍 [STRATEGY4] Checking {player_name}: {nicknames} (type: {type(nicknames)})")
+                    
+                    # Handle Python list directly (current storage format)
+                    if isinstance(nicknames, list):
+                        for nickname in nicknames:
+                            if isinstance(nickname, str):
+                                if log_level == 'debug':
+                                    logging.debug(f"🔍 [STRATEGY4]   Testing nickname: '{nickname}' vs '{name_or_nickname}'")
+                                    logging.debug(f"🔍 [STRATEGY4]   LOWER comparison: '{nickname.lower()}' == '{name_or_nickname.lower()}' => {nickname.lower() == name_or_nickname.lower()}")
+                                
+                                if nickname.lower() == name_or_nickname.lower():
+                                    if log_level == 'debug':
+                                        logging.debug(f"✅ [STRATEGY4] Found case-insensitive nickname match: '{nickname}' -> {player_name}")
+                                    return player_name
+                    elif isinstance(nicknames, dict):
+                        # Handle empty dict placeholders
+                        if log_level == 'debug':
+                            logging.debug(f"🔍 [STRATEGY4]   Skipping dict (empty placeholder): {nicknames}")
+                        continue
+                    else:
+                        if log_level == 'debug':
+                            logging.debug(f"🔍 [STRATEGY4]   Unexpected nickname format: {type(nicknames)}")
                 
-                # Optional: Add debugging to see what nicknames exist for troubleshooting
+                if log_level == 'debug':
+                    logging.debug(f"❌ [STRATEGY4] No case-insensitive nickname match found")
+                
+                # Strategy 5: Alternative JSONB case-insensitive approach (fallback)
+                try:
+                    strategy5_query = """
+                        SELECT player_name FROM players 
+                        WHERE guild_id = %s 
+                        AND is_active = TRUE
+                        AND nicknames IS NOT NULL
+                        AND LOWER(nicknames::text) LIKE LOWER(%s)
+                    """
+                    if log_level == 'debug':
+                        logging.debug(f"🔍 [STRATEGY5] Alternative JSONB text search: {strategy5_query}")
+                        logging.debug(f"🔍 [STRATEGY5] Parameters: ({guild_id}, '%{name_or_nickname}%')")
+                    
+                    cursor.execute(strategy5_query, (guild_id, f'%"{name_or_nickname}"%'))
+                    result = cursor.fetchone()
+                    if result:
+                        if log_level == 'debug':
+                            logging.debug(f"✅ [STRATEGY5] Found alternative JSONB match: {result[0]}")
+                        return result[0]
+                    elif log_level == 'debug':
+                        logging.debug(f"❌ [STRATEGY5] No alternative JSONB match found")
+                        
+                except Exception as e:
+                    if log_level == 'debug':
+                        logging.debug(f"❌ [STRATEGY5] Alternative JSONB strategy failed: {e}")
+                
+                # Final debugging: show all available data
                 if log_level == 'debug':
                     cursor.execute("""
                         SELECT player_name, nicknames 
@@ -270,20 +339,21 @@ class DatabaseManager:
                     """, (guild_id,))
                     
                     all_players = cursor.fetchall()
-                    logging.debug(f"🔍 No match found for '{name_or_nickname}'")
-                    logging.debug(f"🔍 Active players in guild {guild_id}:")
+                    logging.debug(f"🔍 [FINAL] Resolution failed for '{name_or_nickname}' in guild {guild_id}")
+                    logging.debug(f"🔍 [FINAL] All active players in this guild:")
                     for player, nicknames in all_players:
-                        if nicknames:
-                            logging.debug(f"   - {player}: {nicknames}")
+                        logging.debug(f"🔍 [FINAL]   - {player}: {nicknames if nicknames else 'No nicknames'}")
                 
                 return None  # Not found
                 
         except Exception as e:
-            # Log database errors based on specified level
+            # Enhanced error logging
             if log_level == 'error':
-                logging.error(f"❌ Database error resolving player name {name_or_nickname}: {e}")
+                logging.error(f"❌ Database error resolving player name '{name_or_nickname}' (guild: {guild_id}): {e}")
+                import traceback
+                logging.error(f"❌ Full traceback: {traceback.format_exc()}")
             elif log_level == 'debug':
-                logging.debug(f"🔍 Database lookup failed for {name_or_nickname} (expected if opponent): {e}")
+                logging.debug(f"🔍 Database lookup failed for '{name_or_nickname}' (expected if opponent): {e}")
             # log_level == 'none' means no logging
             return None
     
