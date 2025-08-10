@@ -377,27 +377,39 @@ class OCRProcessor:
         i = 0
         
         while i < len(tokens) - 1:  # Need at least 2 tokens (name + score)
-            # Look for pattern: name(s) followed by score
-            if tokens[i + 1].isdigit() and 1 <= int(tokens[i + 1]) <= 180:
-                # Check if this is a 2-word name
-                if (i < len(tokens) - 2 and 
-                    not tokens[i].isdigit() and 
-                    not tokens[i + 2].isdigit()):
-                    # Potential 2-word name: "Nick F." 90
-                    player_name = f"{tokens[i]} {tokens[i + 1]}"
-                    if i + 2 < len(tokens) and tokens[i + 2].isdigit():
-                        score = int(tokens[i + 2])
-                        players.append((player_name, score))
-                        i += 3  # Skip name parts and score
-                        continue
-                
-                # Single word name: "Hero" 134
+            # Skip tokens that are clearly scores
+            if tokens[i].isdigit() and 1 <= int(tokens[i]) <= 180:
+                i += 1
+                continue
+            
+            # Check for 2-word name pattern: "Nick F." 90
+            if (i < len(tokens) - 2 and 
+                not tokens[i].isdigit() and 
+                not tokens[i + 1].isdigit() and 
+                tokens[i + 2].isdigit() and 
+                1 <= int(tokens[i + 2]) <= 180):
+                # Found 2-word name followed by valid score
+                player_name = f"{tokens[i]} {tokens[i + 1]}"
+                score = int(tokens[i + 2])
+                players.append((player_name, score))
+                logging.info(f"🔍 Found 2-word name: '{player_name}' with score {score}")
+                i += 3  # Skip both name parts and score
+                continue
+            
+            # Check for single-word name pattern: "Hero" 134
+            if (tokens[i + 1].isdigit() and 
+                1 <= int(tokens[i + 1]) <= 180 and 
+                not tokens[i].isdigit()):
+                # Found single word name followed by valid score
                 player_name = tokens[i]
                 score = int(tokens[i + 1])
                 players.append((player_name, score))
+                logging.info(f"🔍 Found 1-word name: '{player_name}' with score {score}")
                 i += 2  # Skip name and score
-            else:
-                i += 1
+                continue
+            
+            # No valid pattern found, move to next token
+            i += 1
         
         logging.info(f"🔍 Extracted {len(players)} player-score pairs: {[f'{name}:{score}' for name, score in players]}")
         return players
