@@ -11,6 +11,18 @@ import os
 import traceback
 # OCR processor initialized in bot.py at startup for instant response
 
+# Member status choices - centralized definition
+MEMBER_STATUS_CHOICES = [
+    app_commands.Choice(name="Member", value="member"),
+    app_commands.Choice(name="Trial", value="trial"),
+    app_commands.Choice(name="Ally", value="ally"),
+    app_commands.Choice(name="Kicked", value="kicked")
+]
+
+def get_member_status_text() -> str:
+    """Get formatted member status text for help documentation."""
+    return "/".join(choice.name for choice in MEMBER_STATUS_CHOICES)
+
 def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Embed:
     """
     Create an embed showing duplicate war detection with comparison.
@@ -452,11 +464,7 @@ class MarioKartCommands(commands.Cog):
         player_name="Name of the player to add to the roster",
         member_status="Member status (default: Member)"
     )
-    @app_commands.choices(member_status=[
-        app_commands.Choice(name="Member", value="member"),
-        app_commands.Choice(name="Trial", value="trial"),
-        app_commands.Choice(name="Kicked", value="kicked")
-    ])
+    @app_commands.choices(member_status=MEMBER_STATUS_CHOICES)
     @require_guild_setup
     async def add_player_to_roster(self, interaction: discord.Interaction, player_name: str, member_status: str = "member"):
         """Add a player to the clan roster."""
@@ -534,7 +542,7 @@ class MarioKartCommands(commands.Cog):
             value=(
                 "`/stats [player]` - Show player stats or leaderboard\n"
                 "`/roster` - Show complete clan roster by teams\n"
-                "`/addplayer <player> [status]` - Add player to roster (Member/Trial/Kicked)\n"
+                f"`/addplayer <player> [status]` - Add player to roster ({get_member_status_text()})\n"
                 "`/removeplayer <player>` - Remove player from roster"
             ),
             inline=False
@@ -543,7 +551,7 @@ class MarioKartCommands(commands.Cog):
         embed.add_field(
             name="👤 Member Status Commands",
             value=(
-                "`/setmemberstatus <player> <status>` - Set player status (Member/Trial/Kicked)\n"
+                f"`/setmemberstatus <player> <status>` - Set player status ({get_member_status_text()})\n"
                 "`/showtrials` - Show all trial members\n"
                 "`/showkicked` - Show all kicked members"
             ),
@@ -940,11 +948,7 @@ class MarioKartCommands(commands.Cog):
         player_name="Player to set status for",
         member_status="New member status"
     )
-    @app_commands.choices(member_status=[
-        app_commands.Choice(name="Member", value="member"),
-        app_commands.Choice(name="Trial", value="trial"),
-        app_commands.Choice(name="Kicked", value="kicked")
-    ])
+    @app_commands.choices(member_status=MEMBER_STATUS_CHOICES)
     @require_guild_setup
     async def set_member_status(self, interaction: discord.Interaction, player_name: str, member_status: str):
         """Set the member status for a player."""

@@ -127,7 +127,7 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 - **Statistics**: `/stats [player]` - View player statistics or leaderboard
 - **Player Management**: 
   - `/roster` - Show complete guild roster organized by teams
-  - `/addplayer <player_name> [member_status]` - Add player to roster with optional status (Member/Trial/Kicked)
+  - `/addplayer <player_name> [member_status]` - Add player to roster with optional status (Member/Trial/Ally/Kicked)
   - `/removeplayer <player_name>` - Remove player from roster
 - **Team Management**: 
   - `/addteam <team_name>` - Create new team
@@ -142,7 +142,7 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
   - `/removenickname <player_name> <nickname>` - Remove nickname from player
   - `/nicknamesfor <player_name>` - Show all nicknames for player
 - **Member Status Management**:
-  - `/setmemberstatus <player_name> <status>` - Set player status (Member/Trial/Kicked)
+  - `/setmemberstatus <player_name> <status>` - Set player status (Member/Trial/Ally/Kicked)
   - `/showtrials` - Show all trial members
   - `/showkicked` - Show all kicked members
 - **Help**: `/help` - Show comprehensive bot help and command reference
