@@ -449,10 +449,10 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT player_name, added_by, created_at, updated_at, team, nicknames
+                    SELECT player_name, added_by, created_at, updated_at, team, nicknames, member_status
                     FROM players 
-                    WHERE guild_id = %s AND is_active = TRUE AND member_status != 'kicked'
-                    ORDER BY team, player_name
+                    WHERE guild_id = %s AND is_active = TRUE
+                    ORDER BY member_status, player_name
                 """, (guild_id,))
                 
                 results = []
@@ -463,7 +463,8 @@ class DatabaseManager:
                         'created_at': row[2].isoformat() if row[2] else None,
                         'updated_at': row[3].isoformat() if row[3] else None,
                         'team': row[4] if row[4] else 'Unassigned',
-                        'nicknames': row[5] if row[5] else []
+                        'nicknames': row[5] if row[5] else [],
+                        'member_status': row[6] if row[6] else 'member'
                     })
                 
                 return results
