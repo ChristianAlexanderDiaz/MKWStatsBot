@@ -334,18 +334,21 @@ class MarioKartCommands(commands.Cog):
                         await interaction.response.send_message(f"❌ No stats found for player: {player}", ephemeral=True)
             else:
                 # Get all player statistics from players table
-                # First get all players
+                # First get all players and filter for Members only (exclude Trials, Allies, Kicked)
                 roster_stats = self.bot.db.get_all_players_stats(guild_id)
                 
-                if not roster_stats:
-                    await interaction.response.send_message("❌ No players found in players table.", ephemeral=True)
+                # Filter for only Members in leaderboard
+                member_stats = [player for player in roster_stats if player.get('member_status') == 'member']
+                
+                if not member_stats:
+                    await interaction.response.send_message("❌ No members found in players table.", ephemeral=True)
                     return
                 
-                # Get war statistics for players who have them
+                # Get war statistics for members who have them
                 players_with_stats = []
                 players_without_stats = []
                 
-                for roster_player in roster_stats:
+                for roster_player in member_stats:
                     war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
                     if war_stats:
                         players_with_stats.append(war_stats)
@@ -389,7 +392,7 @@ class MarioKartCommands(commands.Cog):
                     inline=False
                 )
                 
-                embed.set_footer(text=f"Showing all {len(all_players)} players.")
+                embed.set_footer(text=f"Showing {len(all_players)} members only (trials/allies/kicked excluded).")
                 
                 await interaction.response.send_message(embed=embed)
                 
