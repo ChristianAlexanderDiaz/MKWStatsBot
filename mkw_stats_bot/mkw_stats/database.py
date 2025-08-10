@@ -200,7 +200,11 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # First, check if it's an exact match with player_name
+                # Debug logging
+                if log_level == 'debug':
+                    logging.debug(f"🔍 Resolving name/nickname: '{name_or_nickname}' for guild {guild_id}")
+                
+                # Strategy 1: Exact match with player_name
                 cursor.execute("""
                     SELECT player_name FROM players 
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
@@ -208,9 +212,11 @@ class DatabaseManager:
                 
                 result = cursor.fetchone()
                 if result:
+                    if log_level == 'debug':
+                        logging.debug(f"✅ Found exact player_name match: {result[0]}")
                     return result[0]
                 
-                # Second, try case-insensitive match with player_name (e.g., "haku" -> "Haku")
+                # Strategy 2: Case-insensitive match with player_name
                 cursor.execute("""
                     SELECT player_name FROM players 
                     WHERE LOWER(player_name) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
@@ -218,19 +224,26 @@ class DatabaseManager:
                 
                 result = cursor.fetchone()
                 if result:
+                    if log_level == 'debug':
+                        logging.debug(f"✅ Found case-insensitive player_name match: {result[0]}")
                     return result[0]
                 
-                # Third, check if it's an exact nickname match
+                # Strategy 3: Exact nickname match (case-sensitive)
                 cursor.execute("""
                     SELECT player_name FROM players 
-                    WHERE nicknames IS NOT NULL AND nicknames ? %s AND guild_id = %s AND is_active = TRUE
+                    WHERE nicknames IS NOT NULL 
+                    AND nicknames ? %s 
+                    AND guild_id = %s 
+                    AND is_active = TRUE
                 """, (name_or_nickname, guild_id))
                 
                 result = cursor.fetchone()
                 if result:
+                    if log_level == 'debug':
+                        logging.debug(f"✅ Found exact nickname match: {result[0]}")
                     return result[0]
                 
-                # Finally, try case-insensitive search for nicknames using ILIKE
+                # Strategy 4: Case-insensitive nickname match (FIXED)
                 cursor.execute("""
                     SELECT player_name FROM players 
                     WHERE nicknames IS NOT NULL 
@@ -244,7 +257,24 @@ class DatabaseManager:
                 
                 result = cursor.fetchone()
                 if result:
+                    if log_level == 'debug':
+                        logging.debug(f"✅ Found case-insensitive nickname match: {result[0]}")
                     return result[0]
+                
+                # Optional: Add debugging to see what nicknames exist for troubleshooting
+                if log_level == 'debug':
+                    cursor.execute("""
+                        SELECT player_name, nicknames 
+                        FROM players 
+                        WHERE guild_id = %s AND is_active = TRUE
+                    """, (guild_id,))
+                    
+                    all_players = cursor.fetchall()
+                    logging.debug(f"🔍 No match found for '{name_or_nickname}'")
+                    logging.debug(f"🔍 Active players in guild {guild_id}:")
+                    for player, nicknames in all_players:
+                        if nicknames:
+                            logging.debug(f"   - {player}: {nicknames}")
                 
                 return None  # Not found
                 
