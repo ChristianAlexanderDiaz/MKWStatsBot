@@ -708,8 +708,40 @@ class OCRProcessor:
                 if len(tokens[i]) >= 5:  # Avoid false positives on short tokens
                     substring_match, _ = self._find_guild_name_in_substring(tokens[i], guild_id)
                     if substring_match:
-                        valid_names.append((i, substring_match, tokens[i]))
-                        logging.info(f"✅ Found substring match: '{tokens[i]}' contains '{substring_match}' at position {i}")
+                        # Check if this is part of a multi-token corrupted sequence
+                        # Look ahead for tokens that might contain embedded scores
+                        consumed_tokens = 1  # Start with current token
+                        embedded_score = None
+                        raw_name_parts = [tokens[i]]
+                        
+                        # Look ahead up to 2 positions for embedded scores
+                        for lookahead in range(1, min(3, len(tokens) - i)):
+                            next_token = tokens[i + lookahead]
+                            # Skip very short tokens or obvious separators
+                            if len(next_token) < 3 or next_token.lower() in ['go', 'and', 'vs']:
+                                continue
+                                
+                            potential_score = self._extract_score_from_corrupted_token(next_token)
+                            if potential_score:
+                                logging.info(f"🔍 Multi-token corrupted sequence detected: '{tokens[i]}' + '{next_token}' contains score {potential_score}")
+                                embedded_score = potential_score
+                                raw_name_parts.append(next_token)
+                                consumed_tokens += lookahead
+                                break
+                        
+                        # Store the match with embedded score info if found
+                        raw_name = " ".join(raw_name_parts)
+                        match_info = (i, substring_match, raw_name)
+                        if embedded_score:
+                            # Add embedded score info to the match tuple  
+                            match_info = (i, substring_match, raw_name, embedded_score)
+                            logging.info(f"✅ Found multi-token corrupted match: '{raw_name}' → '{substring_match}' with embedded score {embedded_score}")
+                        else:
+                            logging.info(f"✅ Found substring match: '{tokens[i]}' contains '{substring_match}' at position {i}")
+                        
+                        valid_names.append(match_info)
+                        i += consumed_tokens  # Skip the consumed tokens
+                        continue
                     else:
                         logging.debug(f"Player '{tokens[i]}' not found in guild roster (likely opponent)")
                 else:
@@ -727,7 +759,27 @@ class OCRProcessor:
         # Sort names by position to process in reading order
         valid_names_sorted = sorted(valid_names, key=lambda x: x[0])
         
-        for name_pos, official_name, raw_name in valid_names_sorted:
+        for name_match in valid_names_sorted:
+            # Handle both regular matches (3 elements) and multi-token matches (4 elements) 
+            if len(name_match) == 4:
+                name_pos, official_name, raw_name, embedded_score = name_match
+                # Use the embedded score directly for multi-token corrupted sequences
+                score = embedded_score
+                results.append({
+                    'name': official_name,
+                    'raw_name': raw_name,
+                    'score': score,
+                    'raw_line': f"{raw_name} {score}",
+                    'preset_used': 'database_validated',
+                    'confidence': 1.0,  # Database validated = highest confidence
+                    'is_roster_member': True  # All results are validated against roster
+                })
+                logging.info(f"🎯 Used embedded score: '{official_name}' (raw: '{raw_name}') with embedded score {score}")
+                continue
+            else:
+                # Regular 3-element match - find score using proximity matching
+                name_pos, official_name, raw_name = name_match
+            
             # Find the next available score after this name position
             best_score_pos = None
             min_distance = float('inf')
