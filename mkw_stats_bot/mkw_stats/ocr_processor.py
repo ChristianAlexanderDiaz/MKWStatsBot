@@ -258,6 +258,12 @@ class OCRProcessor:
                 if token.isdigit() and 1 <= int(token) <= 180:
                     score_positions.append(i)
                     logging.info(f"📊 Found score: {token} at position {i}")
+                else:
+                    # Check for embedded scores in corrupted tokens (like "RIC69")
+                    embedded_score = self._extract_score_from_corrupted_token(token)
+                    if embedded_score:
+                        score_positions.append(i)
+                        logging.info(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
             
             # Find all valid player names using sliding window
             valid_names = self._find_valid_names_with_window(tokens, guild_id)
