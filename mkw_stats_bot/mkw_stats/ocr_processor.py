@@ -318,7 +318,7 @@ class OCRProcessor:
                 logging.info(f"🚨 DEBUG: Input[{i}]: {result['name']} (score: {result['score']}, raw: {result.get('raw_name', 'N/A')})")
             
             # Extract all player-score pairs from tokens in order to determine positioning
-            all_players = self._extract_all_players_from_tokens(tokens)
+            all_players = self._extract_all_players_from_tokens(tokens, guild_id)
             logging.info(f"🚨 DEBUG: all_players extracted: {len(all_players)} players")
             for i, (name, score) in enumerate(all_players):
                 logging.info(f"🚨 DEBUG: all_players[{i}]: '{name}' -> {score}")
@@ -458,55 +458,165 @@ class OCRProcessor:
         
         return None
 
-    def _extract_all_players_from_tokens(self, tokens: List[str]) -> List[tuple]:
-        """Extract all player-score pairs from raw OCR tokens, handling corrupted OCR."""
+    def _extract_all_players_from_tokens(self, tokens: List[str], guild_id: int = 0) -> List[tuple]:
+        """Extract all player-score pairs using database-first approach for proper 6v6 splitting."""
+        if not self.db_manager:
+            logging.error("❌ No database manager available for guild member lookup")
+            return []
+            
+        # Get all guild members upfront (one database call)
+        guild_players = self.db_manager.get_all_players_stats(guild_id)
+        if not guild_players:
+            logging.warning("⚠️ No guild players found in database")
+            return []
+            
+        # Create lookup sets for faster searching
+        guild_names = set()
+        guild_nicknames = {}
+        for player in guild_players:
+            player_name = player.get('player_name', '').lower()
+            guild_names.add(player_name)
+            nicknames = player.get('nicknames', [])
+            if nicknames:
+                for nickname in nicknames:
+                    guild_nicknames[nickname.lower()] = player_name
+        
+        logging.info(f"🔍 Database lookup ready: {len(guild_names)} guild members, {len(guild_nicknames)} nicknames")
+        
         players = []
         i = 0
         
-        while i < len(tokens):
-            # Skip tokens that are clearly standalone scores
-            if tokens[i].isdigit() and 1 <= int(tokens[i]) <= 180:
-                i += 1
-                continue
+        def find_guild_member_in_token(token: str) -> str:
+            """Check if token contains a guild member name or nickname."""
+            token_lower = token.lower()
             
-            # Check for corrupted token containing both name and score (like "GO IDiceyBIG RIC69")
-            if len(tokens[i]) > 8:  # Long tokens are more likely to be corrupted
-                embedded_score = self._extract_score_from_corrupted_token(tokens[i])
-                if embedded_score:
-                    # Found embedded score, treat whole token as name-score pair
-                    players.append((tokens[i], embedded_score))
-                    logging.info(f"🔍 Found corrupted token with embedded score: '{tokens[i]}' contains score {embedded_score}")
+            # Check exact match first
+            if token_lower in guild_names:
+                return token_lower
+                
+            # Check nickname match
+            if token_lower in guild_nicknames:
+                return guild_nicknames[token_lower]
+                
+            # Check substring matches (for corrupted OCR like 'IDiceyBIG')
+            for name in guild_names:
+                if len(name) >= 3 and name in token_lower:
+                    return name
+                    
+            # Check nickname substrings
+            for nickname, real_name in guild_nicknames.items():
+                if len(nickname) >= 3 and nickname in token_lower:
+                    return real_name
+                    
+            return None
+        
+        while i < len(tokens):
+            current_token = tokens[i]
+            
+            # Case 1: Current token is a standalone score - look ahead for name
+            if current_token.isdigit() and 1 <= int(current_token) <= 180:
+                score = int(current_token)
+                
+                # Look ahead for name in next token
+                if i < len(tokens) - 1:
+                    next_token = tokens[i + 1]
+                    guild_member = find_guild_member_in_token(next_token)
+                    
+                    if guild_member:
+                        # Found guild member after score - reversed pattern like "93 vee"
+                        players.append((next_token, score))
+                        logging.info(f"🔍 Found reversed pattern (guild): '{current_token} {next_token}' -> {next_token}: {score}")
+                        i += 2
+                        continue
+                    else:
+                        # Not a guild member, but still extract as opponent
+                        players.append((next_token, score))
+                        logging.info(f"🔍 Found reversed pattern (opponent): '{current_token} {next_token}' -> {next_token}: {score}")
+                        i += 2
+                        continue
+                else:
+                    # No next token, skip standalone score
+                    logging.warning(f"⚠️ Standalone score '{current_token}' at end of tokens")
                     i += 1
                     continue
             
-            # Check for 2-word name pattern: "Nick F." 90
-            if (i < len(tokens) - 2 and 
-                not tokens[i].isdigit() and 
-                not tokens[i + 1].isdigit() and 
-                tokens[i + 2].isdigit() and 
-                1 <= int(tokens[i + 2]) <= 180):
-                # Found 2-word name followed by valid score
-                player_name = f"{tokens[i]} {tokens[i + 1]}"
-                score = int(tokens[i + 2])
-                players.append((player_name, score))
-                logging.info(f"🔍 Found 2-word name: '{player_name}' with score {score}")
-                i += 3  # Skip both name parts and score
-                continue
+            # Case 2: Current token contains letters - check for guild member
+            if not current_token.isdigit():
+                guild_member = find_guild_member_in_token(current_token)
+                
+                if guild_member:
+                    # Found guild member - look for score
+                    score = None
+                    consumed_tokens = 1
+                    
+                    # First check if current token has embedded score
+                    embedded_score = self._extract_score_from_corrupted_token(current_token)
+                    if embedded_score:
+                        score = embedded_score
+                        logging.info(f"🔍 Found guild member with embedded score: '{current_token}' -> {guild_member}: {score}")
+                    else:
+                        # Look ahead for score in next tokens
+                        for lookahead in range(1, min(3, len(tokens) - i)):
+                            next_token = tokens[i + lookahead]
+                            
+                            # Check if next token is a pure score
+                            if next_token.isdigit() and 1 <= int(next_token) <= 180:
+                                score = int(next_token)
+                                consumed_tokens += lookahead
+                                logging.info(f"🔍 Found guild member with following score: '{current_token}' -> {guild_member}: {score}")
+                                break
+                            
+                            # Check if next token has embedded score
+                            embedded_score = self._extract_score_from_corrupted_token(next_token)
+                            if embedded_score:
+                                score = embedded_score
+                                consumed_tokens += lookahead
+                                logging.info(f"🔍 Found guild member with embedded score in next token: '{current_token} {next_token}' -> {guild_member}: {score}")
+                                break
+                    
+                    if score:
+                        players.append((current_token, score))
+                        i += consumed_tokens
+                        continue
+                    else:
+                        logging.warning(f"⚠️ Guild member '{current_token}' found but no score located")
+                        i += 1
+                        continue
+                
+                # Case 3: Not a guild member - check for opponent player patterns
+                
+                # Try standard name-score pattern
+                if (i < len(tokens) - 1 and 
+                    tokens[i + 1].isdigit() and 
+                    1 <= int(tokens[i + 1]) <= 180):
+                    score = int(tokens[i + 1])
+                    players.append((current_token, score))
+                    logging.info(f"🔍 Found opponent player: '{current_token}' -> {current_token}: {score}")
+                    i += 2
+                    continue
+                
+                # Try 2-word opponent pattern
+                if (i < len(tokens) - 2 and 
+                    not tokens[i + 1].isdigit() and
+                    tokens[i + 2].isdigit() and 
+                    1 <= int(tokens[i + 2]) <= 180):
+                    opponent_name = f"{current_token} {tokens[i + 1]}"
+                    score = int(tokens[i + 2])
+                    players.append((opponent_name, score))
+                    logging.info(f"🔍 Found 2-word opponent: '{opponent_name}' -> {opponent_name}: {score}")
+                    i += 3
+                    continue
+                
+                # Check for embedded score in current token
+                embedded_score = self._extract_score_from_corrupted_token(current_token)
+                if embedded_score:
+                    players.append((current_token, embedded_score))
+                    logging.info(f"🔍 Found opponent with embedded score: '{current_token}' -> {current_token}: {embedded_score}")
+                    i += 1
+                    continue
             
-            # Check for single-word name pattern: "Hero" 134
-            if (i < len(tokens) - 1 and
-                tokens[i + 1].isdigit() and 
-                1 <= int(tokens[i + 1]) <= 180 and 
-                not tokens[i].isdigit()):
-                # Found single word name followed by valid score
-                player_name = tokens[i]
-                score = int(tokens[i + 1])
-                players.append((player_name, score))
-                logging.info(f"🔍 Found 1-word name: '{player_name}' with score {score}")
-                i += 2  # Skip name and score
-                continue
-            
-            # No valid pattern found, move to next token
+            # Case 4: No pattern found - skip token
+            logging.debug(f"🔍 No pattern found for token '{current_token}', skipping")
             i += 1
         
         logging.info(f"🔍 Extracted {len(players)} player-score pairs: {[f'{name}:{score}' for name, score in players]}")
