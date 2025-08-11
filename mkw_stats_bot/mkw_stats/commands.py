@@ -1892,6 +1892,80 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error renaming team", ephemeral=True)
 
+    async def _add_ocr_confirmation(self, message, processed_results, guild_id: int, user_id: int):
+        """Add confirmation reactions to OCR results for database submission."""
+        try:
+            # Add confirmation embed
+            confirmation_embed = discord.Embed(
+                title="💾 Save Results to Database?",
+                description="React with ✅ to save these results as a war, or ❌ to cancel.",
+                color=0xffaa00
+            )
+            
+            # Show what will be saved
+            results_summary = "\n".join([
+                f"• {result['name']}: {result['score']} points"
+                for result in processed_results
+            ])
+            
+            confirmation_embed.add_field(
+                name=f"📊 {len(processed_results)} Players Ready to Save",
+                value=results_summary,
+                inline=False
+            )
+            
+            confirmation_embed.set_footer(text="This confirmation expires in 60 seconds")
+            
+            # Edit message to add confirmation
+            await message.edit(embed=confirmation_embed, view=None)
+            
+            # Add reaction buttons
+            await message.add_reaction("✅")  
+            await message.add_reaction("❌")
+            
+            # Store pending confirmation data (using the pattern from bot.py)
+            if not hasattr(self.bot, 'pending_confirmations'):
+                self.bot.pending_confirmations = {}
+                
+            confirmation_data = {
+                'type': 'ocr_war_submission',
+                'results': processed_results,
+                'guild_id': guild_id,
+                'user_id': user_id,
+                'channel_id': message.channel.id
+            }
+            
+            self.bot.pending_confirmations[str(message.id)] = confirmation_data
+            
+            # Start timeout task in background
+            asyncio.create_task(self._handle_ocr_confirmation_timeout(message.id, 60))
+            
+        except Exception as e:
+            logging.error(f"Error adding OCR confirmation: {e}")
+
+    async def _handle_ocr_confirmation_timeout(self, message_id: int, timeout_seconds: int):
+        """Handle timeout for OCR confirmation."""
+        await asyncio.sleep(timeout_seconds)
+        
+        # Check if still pending and remove
+        if str(message_id) in self.bot.pending_confirmations:
+            del self.bot.pending_confirmations[str(message_id)]
+            
+            try:
+                # Get the message and update it to show expired
+                channel = self.bot.get_channel(self.bot.pending_confirmations.get(str(message_id), {}).get('channel_id'))
+                if channel:
+                    message = await channel.fetch_message(message_id)
+                    expired_embed = discord.Embed(
+                        title="⏰ Confirmation Expired",
+                        description="The confirmation period has expired. Results were not saved.",
+                        color=0x808080
+                    )
+                    await message.edit(embed=expired_embed)
+                    await message.clear_reactions()
+            except:
+                pass
+
     @app_commands.command(name="runocr", description="Run OCR on the most recent image uploaded to this channel")
     @require_guild_setup
     async def runocr(self, interaction: discord.Interaction):
@@ -2039,11 +2113,15 @@ class MarioKartCommands(commands.Cog):
                     except:
                         pass
                 
-                # Send response with embed and files
+                # Send response with embed and files, then add confirmation if results found
                 if files_to_send:
-                    await interaction.followup.send(embed=embed, files=files_to_send)
+                    response_msg = await interaction.followup.send(embed=embed, files=files_to_send)
                 else:
-                    await interaction.followup.send(embed=embed)
+                    response_msg = await interaction.followup.send(embed=embed)
+                
+                # Add confirmation workflow if we have processed results
+                if processed_results:
+                    await self._add_ocr_confirmation(response_msg, processed_results, guild_id, interaction.user.id)
                 
             finally:
                 # Clean up temporary files

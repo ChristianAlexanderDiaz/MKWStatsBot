@@ -255,8 +255,15 @@ class MarioKartBot(commands.Bot):
     async def handle_confirmation_accept(self, message: discord.Message, confirmation_data: Dict):
         """Handle accepted confirmation."""
         try:
+            confirmation_type = confirmation_data.get('type', 'standard')
             results = confirmation_data['results']
             
+            if confirmation_type == 'ocr_war_submission':
+                # Handle OCR war submission
+                success = await self.handle_ocr_war_submission(message, confirmation_data)
+                return
+            
+            # Standard race results handling
             # Add message ID to results for tracking
             for result in results:
                 result['message_id'] = confirmation_data['original_message_id']
@@ -305,6 +312,137 @@ class MarioKartBot(commands.Bot):
                 color=0xff0000
             )
             await message.edit(embed=embed)
+
+    async def handle_ocr_war_submission(self, message: discord.Message, confirmation_data: Dict):
+        """Handle OCR war submission to database."""
+        try:
+            results = confirmation_data['results']
+            guild_id = confirmation_data['guild_id']
+            
+            # Convert OCR results to war format
+            player_scores = []
+            for result in results:
+                player_name = result['name']
+                score = result['score']
+                player_scores.append(f"{player_name}: {score}")
+            
+            # Join all player scores into the format expected by addwar
+            player_scores_str = ", ".join(player_scores)
+            
+            # Get the commands cog to call addwar logic
+            commands_cog = self.get_cog('MarioKartCommands')
+            if not commands_cog:
+                raise Exception("Commands cog not found")
+            
+            # Use the addwar processing logic directly
+            from datetime import datetime
+            import pytz
+            
+            # Create a mock interaction-like object for processing
+            class MockInteraction:
+                def __init__(self, guild_id, user_id, channel_id):
+                    self.guild_id = guild_id
+                    self.user = type('User', (), {'id': user_id})()
+                    self.channel = type('Channel', (), {'id': channel_id})()
+                    
+            mock_interaction = MockInteraction(
+                guild_id, 
+                confirmation_data['user_id'], 
+                confirmation_data['channel_id']
+            )
+            
+            # Process war submission using existing logic
+            try:
+                # Parse player scores using existing addwar logic
+                parsed_results = []
+                
+                # Split by comma and clean up spaces
+                parts = [p.strip() for p in player_scores_str.split(',')]
+                
+                for part in parts:
+                    if ':' in part:
+                        name, score_str = part.split(':', 1)
+                        name = name.strip()
+                        score = int(score_str.strip())
+                        
+                        # Resolve player name using database
+                        resolved_name = commands_cog.database.resolve_player_name(name, guild_id)
+                        if resolved_name:
+                            parsed_results.append({
+                                'name': resolved_name,
+                                'original_name': name,
+                                'score': score,
+                                'races': 12,  # Default race count for OCR wars
+                                'date': datetime.now(pytz.UTC).strftime('%Y-%m-%d'),
+                                'time': datetime.now(pytz.UTC).strftime('%H:%M:%S'),
+                                'war_type': '6v6',
+                                'notes': 'Auto-processed via OCR'
+                            })
+                
+                if not parsed_results:
+                    raise Exception("No valid players found for war submission")
+                
+                # Add war to database
+                war_success = commands_cog.database.add_war(parsed_results, guild_id)
+                
+                if war_success:
+                    # Create success embed
+                    embed = discord.Embed(
+                        title="✅ War Results Saved!",
+                        description=f"Successfully saved war results for {len(parsed_results)} players.",
+                        color=0x00ff00
+                    )
+                    
+                    # Add player summary
+                    results_text = "\n".join([
+                        f"**{result['name']}**: {result['score']} points" 
+                        for result in parsed_results
+                    ])
+                    
+                    embed.add_field(
+                        name=f"📊 War Results ({len(parsed_results)} players)", 
+                        value=results_text, 
+                        inline=False
+                    )
+                    embed.add_field(
+                        name="📈 Database Updated",
+                        value="Player statistics and averages have been updated.",
+                        inline=False
+                    )
+                    embed.set_footer(text="War added via OCR • Type: 6v6 • Races: 12")
+                    
+                else:
+                    embed = discord.Embed(
+                        title="❌ Database Error",
+                        description="Failed to save war to database. Please try manual submission.",
+                        color=0xff0000
+                    )
+                
+            except Exception as parse_error:
+                logger.error(f"Error parsing OCR results for war submission: {parse_error}")
+                embed = discord.Embed(
+                    title="❌ Processing Error",
+                    description=f"Error processing OCR results: {str(parse_error)}",
+                    color=0xff0000
+                )
+            
+            # Update message with result
+            await message.edit(embed=embed)
+            await message.clear_reactions()
+            
+            # Clean up pending confirmation
+            self.cleanup_confirmation(str(message.id))
+            
+        except Exception as e:
+            logger.error(f"Error in OCR war submission: {e}")
+            embed = discord.Embed(
+                title="❌ Submission Error", 
+                description=f"Failed to submit war: {str(e)}",
+                color=0xff0000
+            )
+            await message.edit(embed=embed)
+            await message.clear_reactions()
+            self.cleanup_confirmation(str(message.id))
     
     async def handle_confirmation_reject(self, message: discord.Message, confirmation_data: Dict):
         """Handle rejected confirmation."""
