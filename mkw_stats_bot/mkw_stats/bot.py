@@ -428,7 +428,11 @@ class MarioKartBot(commands.Bot):
             
             # Update message with result
             await message.edit(embed=embed)
-            await message.clear_reactions()
+            try:
+                await message.clear_reactions()
+            except discord.errors.Forbidden:
+                # Bot doesn't have permission to clear reactions, that's okay
+                pass
             
             # Clean up pending confirmation
             self.cleanup_confirmation(str(message.id))
@@ -441,7 +445,11 @@ class MarioKartBot(commands.Bot):
                 color=0xff0000
             )
             await message.edit(embed=embed)
-            await message.clear_reactions()
+            try:
+                await message.clear_reactions()
+            except discord.errors.Forbidden:
+                # Bot doesn't have permission to clear reactions, that's okay
+                pass
             self.cleanup_confirmation(str(message.id))
     
     async def handle_confirmation_reject(self, message: discord.Message, confirmation_data: Dict):
