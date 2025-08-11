@@ -271,11 +271,24 @@ class OCRProcessor:
             opponent_players = all_detected_scores - guild_players_found
             
             # Check for 6v6 team splitting scenario
+            logging.info(f"🚨 DEBUG: 6v6 Check - all_detected_scores={all_detected_scores}, guild_players_found={guild_players_found}")
+            logging.info(f"🚨 DEBUG: 6v6 Condition: all_detected_scores == 12? {all_detected_scores == 12}")
+            logging.info(f"🚨 DEBUG: 6v6 Condition: guild_players_found > 6? {guild_players_found > 6}")
+            
             if all_detected_scores == 12 and guild_players_found > 6:
                 logging.info(f"🔀 6v6 Split Detection: {guild_players_found} guild players in 12-player match")
+                logging.info(f"🚨 DEBUG: CALLING _apply_6v6_team_splitting() with {len(results)} guild results")
+                
+                results_before = len(results)
                 results = self._apply_6v6_team_splitting(results, tokens, guild_id)
+                results_after = len(results)
+                
+                logging.info(f"🚨 DEBUG: 6v6 splitting returned {results_after} results (was {results_before})")
+                
                 guild_players_found = len(results)  # Update count after splitting
                 opponent_players = all_detected_scores - guild_players_found
+            else:
+                logging.info(f"🚨 DEBUG: 6v6 splitting SKIPPED - conditions not met")
             
             logging.info(f"🎯 OCR Results: {guild_players_found} guild players found, {opponent_players} opponent players detected")
             
@@ -293,34 +306,63 @@ class OCRProcessor:
     def _apply_6v6_team_splitting(self, guild_results: List[Dict], tokens: List[str], guild_id: int) -> List[Dict]:
         """Apply 6v6 team splitting using majority rule based on player positions in raw OCR."""
         try:
+            logging.info("🚨 DEBUG: === STARTING 6v6 TEAM SPLITTING DEBUG ===")
+            logging.info(f"🚨 DEBUG: Input guild_results count: {len(guild_results)}")
+            for i, result in enumerate(guild_results):
+                logging.info(f"🚨 DEBUG: Input[{i}]: {result['name']} (score: {result['score']}, raw: {result.get('raw_name', 'N/A')})")
+            
             # Extract all player-score pairs from tokens in order to determine positioning
             all_players = self._extract_all_players_from_tokens(tokens)
+            logging.info(f"🚨 DEBUG: all_players extracted: {len(all_players)} players")
+            for i, (name, score) in enumerate(all_players):
+                logging.info(f"🚨 DEBUG: all_players[{i}]: '{name}' -> {score}")
             
             if len(all_players) != 12:
                 logging.warning(f"⚠️ Expected 12 players for 6v6 split, found {len(all_players)}. Skipping split.")
+                logging.info(f"🚨 DEBUG: RETURNING ORIGINAL guild_results (count: {len(guild_results)})")
                 return guild_results
             
             # Create position mapping for guild members by matching their raw names and scores
             guild_member_positions = {}
+            logging.info("🚨 DEBUG: === POSITION MAPPING PHASE ===")
+            
             for result in guild_results:
                 result_name = result['name']
                 result_score = result['score']
                 result_raw = result.get('raw_name', result_name)
+                logging.info(f"🚨 DEBUG: Looking for guild member '{result_name}' (score: {result_score}, raw: '{result_raw}')")
                 
+                found = False
                 # Find this guild member's position in the all_players list
                 for pos, (player_name, score) in enumerate(all_players):
                     # Match by score and name (handle different raw name formats)
-                    if (score == result_score and 
-                        (player_name.lower() == result_raw.lower() or 
-                         player_name.lower() == result_name.lower() or
-                         result_name.lower() in player_name.lower())):
+                    score_match = (score == result_score)
+                    name_match1 = (player_name.lower() == result_raw.lower())
+                    name_match2 = (player_name.lower() == result_name.lower())
+                    name_match3 = (result_name.lower() in player_name.lower())
+                    
+                    logging.info(f"🚨 DEBUG:   Checking pos[{pos}]: '{player_name}' score={score}")
+                    logging.info(f"🚨 DEBUG:     score_match: {score_match}")
+                    logging.info(f"🚨 DEBUG:     name_match1 (raw): '{player_name}'.lower() == '{result_raw}'.lower() -> {name_match1}")
+                    logging.info(f"🚨 DEBUG:     name_match2 (official): '{player_name}'.lower() == '{result_name}'.lower() -> {name_match2}")
+                    logging.info(f"🚨 DEBUG:     name_match3 (substring): '{result_name}'.lower() in '{player_name}'.lower() -> {name_match3}")
+                    
+                    if (score_match and (name_match1 or name_match2 or name_match3)):
                         guild_member_positions[result_name] = pos
-                        logging.info(f"🔍 Found guild member {result_name} at position {pos}")
+                        logging.info(f"🚨 DEBUG: ✅ MATCHED! {result_name} found at position {pos}")
+                        found = True
                         break
+                
+                if not found:
+                    logging.info(f"🚨 DEBUG: ❌ NO MATCH found for {result_name}")
+            
+            logging.info(f"🚨 DEBUG: Final position mapping: {guild_member_positions}")
             
             # Split guild members into two teams based on their positions
             team1_guild_members = []  # Positions 0-5
             team2_guild_members = []  # Positions 6-11
+            
+            logging.info("🚨 DEBUG: === TEAM ASSIGNMENT PHASE ===")
             
             for result in guild_results:
                 member_name = result['name']
@@ -328,28 +370,44 @@ class OCRProcessor:
                     pos = guild_member_positions[member_name]
                     if pos < 6:
                         team1_guild_members.append(result)
+                        logging.info(f"🚨 DEBUG: {member_name} (pos {pos}) -> TEAM 1")
                     else:
                         team2_guild_members.append(result)
+                        logging.info(f"🚨 DEBUG: {member_name} (pos {pos}) -> TEAM 2")
                 else:
                     logging.warning(f"⚠️ Could not find position for guild member {member_name}")
+                    logging.info(f"🚨 DEBUG: {member_name} (no pos) -> TEAM 1 (default)")
                     # Default to team1 if position unknown
                     team1_guild_members.append(result)
             
             team1_guild_count = len(team1_guild_members)
             team2_guild_count = len(team2_guild_members)
             
+            logging.info("🚨 DEBUG: === TEAM COMPOSITION ===")
+            logging.info(f"🚨 DEBUG: Team 1 ({team1_guild_count} members):")
+            for member in team1_guild_members:
+                logging.info(f"🚨 DEBUG:   - {member['name']} ({member['score']})")
+            
+            logging.info(f"🚨 DEBUG: Team 2 ({team2_guild_count} members):")
+            for member in team2_guild_members:
+                logging.info(f"🚨 DEBUG:   - {member['name']} ({member['score']})")
+            
             # Apply majority rule
+            logging.info("🚨 DEBUG: === MAJORITY RULE DECISION ===")
             if team1_guild_count > team2_guild_count:
                 winning_team = team1_guild_members
                 excluded_team = team2_guild_members
                 winning_team_num = 1
+                logging.info(f"🚨 DEBUG: Team 1 WINS ({team1_guild_count} > {team2_guild_count})")
             elif team2_guild_count > team1_guild_count:
                 winning_team = team2_guild_members
                 excluded_team = team1_guild_members
                 winning_team_num = 2
+                logging.info(f"🚨 DEBUG: Team 2 WINS ({team2_guild_count} > {team1_guild_count})")
             else:
                 # Tie scenario - return all players and let user manually decide
                 logging.info(f"🤝 Team split tie: {team1_guild_count} vs {team2_guild_count} guild members.")
+                logging.info(f"🚨 DEBUG: TIE SCENARIO - returning all guild_results (count: {len(guild_results)})")
                 logging.info(f"TODO: Implement user choice for tie scenarios. Recording all players for now.")
                 return guild_results
             
@@ -359,15 +417,23 @@ class OCRProcessor:
             if winning_team:
                 winning_summary = ", ".join([f"{result['name']} {result['score']}" for result in winning_team])
                 logging.info(f"✅ Recording team {winning_team_num}: {winning_summary}")
+                logging.info(f"🚨 DEBUG: RETURNING winning team (count: {len(winning_team)})")
+                for i, member in enumerate(winning_team):
+                    logging.info(f"🚨 DEBUG: Returning[{i}]: {member['name']} ({member['score']})")
             
             if excluded_team:
                 excluded_summary = ", ".join([f"{result['name']} {result['score']}" for result in excluded_team])
                 logging.info(f"❌ Excluded team: {excluded_summary} (opposing team)")
+                logging.info(f"🚨 DEBUG: EXCLUDED team (count: {len(excluded_team)})")
+                for i, member in enumerate(excluded_team):
+                    logging.info(f"🚨 DEBUG: Excluded[{i}]: {member['name']} ({member['score']})")
             
+            logging.info("🚨 DEBUG: === END 6v6 TEAM SPLITTING DEBUG ===")
             return winning_team  # Return only the winning team results
             
         except Exception as e:
             logging.error(f"❌ Error applying 6v6 team splitting: {e}")
+            logging.error(f"🚨 DEBUG: EXCEPTION - returning original guild_results (count: {len(guild_results)})")
             return guild_results  # Return original results if splitting fails
     
     def _extract_score_from_corrupted_token(self, token: str) -> int:
