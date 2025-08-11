@@ -383,9 +383,20 @@ class MarioKartBot(commands.Bot):
                     raise Exception("No valid players found for war submission")
                 
                 # Add war to database
-                war_success = commands_cog.bot.db.add_war(parsed_results, guild_id)
+                war_id = commands_cog.bot.db.add_race_results(parsed_results, 12, guild_id)
                 
-                if war_success:
+                if war_id is not None:
+                    # Update player statistics
+                    for result in parsed_results:
+                        commands_cog.bot.db.update_player_stats(
+                            result['name'], 
+                            result['score'], 
+                            12,  # race_count 
+                            1.0, # war_participation (full participation)
+                            datetime.now(pytz.timezone('America/New_York')).isoformat(),
+                            guild_id
+                        )
+                    
                     # Create success embed
                     embed = discord.Embed(
                         title="✅ War Results Saved!",
