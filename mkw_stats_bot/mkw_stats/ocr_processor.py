@@ -500,12 +500,12 @@ class OCRProcessor:
                 
             # Check substring matches (for corrupted OCR like 'IDiceyBIG')
             for name in guild_names:
-                if len(name) >= 3 and name in token_lower:
+                if len(name) >= 2 and name in token_lower:
                     return name
                     
             # Check nickname substrings
             for nickname, real_name in guild_nicknames.items():
-                if len(nickname) >= 3 and nickname in token_lower:
+                if len(nickname) >= 2 and nickname in token_lower:
                     return real_name
                     
             return None
