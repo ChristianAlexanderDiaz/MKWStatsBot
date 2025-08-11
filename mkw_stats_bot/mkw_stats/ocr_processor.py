@@ -293,36 +293,50 @@ class OCRProcessor:
     def _apply_6v6_team_splitting(self, guild_results: List[Dict], tokens: List[str], guild_id: int) -> List[Dict]:
         """Apply 6v6 team splitting using majority rule based on player positions in raw OCR."""
         try:
-            # Extract all player-score pairs from tokens in order
+            # Extract all player-score pairs from tokens in order to determine positioning
             all_players = self._extract_all_players_from_tokens(tokens)
             
             if len(all_players) != 12:
                 logging.warning(f"⚠️ Expected 12 players for 6v6 split, found {len(all_players)}. Skipping split.")
                 return guild_results
             
-            # Split into two teams of 6
-            team1_players = all_players[:6]   # First 6 positions
-            team2_players = all_players[6:]   # Last 6 positions
+            # Create position mapping for guild members by matching their raw names and scores
+            guild_member_positions = {}
+            for result in guild_results:
+                result_name = result['name']
+                result_score = result['score']
+                result_raw = result.get('raw_name', result_name)
+                
+                # Find this guild member's position in the all_players list
+                for pos, (player_name, score) in enumerate(all_players):
+                    # Match by score and name (handle different raw name formats)
+                    if (score == result_score and 
+                        (player_name.lower() == result_raw.lower() or 
+                         player_name.lower() == result_name.lower() or
+                         result_name.lower() in player_name.lower())):
+                        guild_member_positions[result_name] = pos
+                        logging.info(f"🔍 Found guild member {result_name} at position {pos}")
+                        break
             
-            # Count guild members in each team
-            team1_guild_count = 0
-            team2_guild_count = 0
-            team1_guild_members = []
-            team2_guild_members = []
+            # Split guild members into two teams based on their positions
+            team1_guild_members = []  # Positions 0-5
+            team2_guild_members = []  # Positions 6-11
             
-            # Check team 1
-            for player_name, score in team1_players:
-                resolved_name = self.db_manager.resolve_player_name(player_name, guild_id, log_level='none')
-                if resolved_name:
-                    team1_guild_count += 1
-                    team1_guild_members.append({'name': resolved_name, 'score': score, 'raw_name': player_name})
+            for result in guild_results:
+                member_name = result['name']
+                if member_name in guild_member_positions:
+                    pos = guild_member_positions[member_name]
+                    if pos < 6:
+                        team1_guild_members.append(result)
+                    else:
+                        team2_guild_members.append(result)
+                else:
+                    logging.warning(f"⚠️ Could not find position for guild member {member_name}")
+                    # Default to team1 if position unknown
+                    team1_guild_members.append(result)
             
-            # Check team 2
-            for player_name, score in team2_players:
-                resolved_name = self.db_manager.resolve_player_name(player_name, guild_id, log_level='none')
-                if resolved_name:
-                    team2_guild_count += 1
-                    team2_guild_members.append({'name': resolved_name, 'score': score, 'raw_name': player_name})
+            team1_guild_count = len(team1_guild_members)
+            team2_guild_count = len(team2_guild_members)
             
             # Apply majority rule
             if team1_guild_count > team2_guild_count:
@@ -334,8 +348,7 @@ class OCRProcessor:
                 excluded_team = team1_guild_members
                 winning_team_num = 2
             else:
-                # TODO: Tie scenario - implement user choice via Discord reactions
-                # For now, return all players and let user manually decide
+                # Tie scenario - return all players and let user manually decide
                 logging.info(f"🤝 Team split tie: {team1_guild_count} vs {team2_guild_count} guild members.")
                 logging.info(f"TODO: Implement user choice for tie scenarios. Recording all players for now.")
                 return guild_results
@@ -344,28 +357,14 @@ class OCRProcessor:
             logging.info(f"🏆 Team {winning_team_num} wins: {len(winning_team)} guild members vs {len(excluded_team)}")
             
             if winning_team:
-                winning_summary = ", ".join([f"{p['name']} {p['score']}" for p in winning_team])
+                winning_summary = ", ".join([f"{result['name']} {result['score']}" for result in winning_team])
                 logging.info(f"✅ Recording team {winning_team_num}: {winning_summary}")
             
             if excluded_team:
-                excluded_summary = ", ".join([f"{p['name']} {p['score']}" for p in excluded_team])
+                excluded_summary = ", ".join([f"{result['name']} {result['score']}" for result in excluded_team])
                 logging.info(f"❌ Excluded team: {excluded_summary} (opposing team)")
             
-            # Return winning team with proper format matching original results
-            formatted_results = []
-            for member in winning_team:
-                # Match the format of the original results
-                formatted_results.append({
-                    'name': member['name'],
-                    'raw_name': member['raw_name'],
-                    'score': member['score'],
-                    'raw_line': f"{member['raw_name']} {member['score']}",
-                    'preset_used': 'database_validated',
-                    'confidence': 1.0,
-                    'is_roster_member': True
-                })
-            
-            return formatted_results
+            return winning_team  # Return only the winning team results
             
         except Exception as e:
             logging.error(f"❌ Error applying 6v6 team splitting: {e}")
