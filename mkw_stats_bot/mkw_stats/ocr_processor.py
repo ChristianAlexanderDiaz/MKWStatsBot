@@ -371,16 +371,42 @@ class OCRProcessor:
             logging.error(f"❌ Error applying 6v6 team splitting: {e}")
             return guild_results  # Return original results if splitting fails
     
+    def _extract_score_from_corrupted_token(self, token: str) -> int:
+        """Extract score (1-180) from a corrupted token containing mixed text and numbers."""
+        import re
+        # Find all numbers in the token
+        numbers = re.findall(r'\d+', token)
+        
+        for num_str in numbers:
+            try:
+                num = int(num_str)
+                if 1 <= num <= 180:  # Valid Mario Kart score range
+                    return num
+            except ValueError:
+                continue
+        
+        return None
+
     def _extract_all_players_from_tokens(self, tokens: List[str]) -> List[tuple]:
-        """Extract all player-score pairs from raw OCR tokens in order."""
+        """Extract all player-score pairs from raw OCR tokens, handling corrupted OCR."""
         players = []
         i = 0
         
-        while i < len(tokens) - 1:  # Need at least 2 tokens (name + score)
-            # Skip tokens that are clearly scores
+        while i < len(tokens):
+            # Skip tokens that are clearly standalone scores
             if tokens[i].isdigit() and 1 <= int(tokens[i]) <= 180:
                 i += 1
                 continue
+            
+            # Check for corrupted token containing both name and score (like "GO IDiceyBIG RIC69")
+            if len(tokens[i]) > 8:  # Long tokens are more likely to be corrupted
+                embedded_score = self._extract_score_from_corrupted_token(tokens[i])
+                if embedded_score:
+                    # Found embedded score, treat whole token as name-score pair
+                    players.append((tokens[i], embedded_score))
+                    logging.info(f"🔍 Found corrupted token with embedded score: '{tokens[i]}' contains score {embedded_score}")
+                    i += 1
+                    continue
             
             # Check for 2-word name pattern: "Nick F." 90
             if (i < len(tokens) - 2 and 
@@ -397,7 +423,8 @@ class OCRProcessor:
                 continue
             
             # Check for single-word name pattern: "Hero" 134
-            if (tokens[i + 1].isdigit() and 
+            if (i < len(tokens) - 1 and
+                tokens[i + 1].isdigit() and 
                 1 <= int(tokens[i + 1]) <= 180 and 
                 not tokens[i].isdigit()):
                 # Found single word name followed by valid score
@@ -542,8 +569,48 @@ class OCRProcessor:
             logging.error(f"❌ Error creating debug overlay: {e}")
             return None
     
+    def _find_guild_name_in_substring(self, corrupted_token: str, guild_id: int) -> tuple:
+        """Find guild member names as substrings within corrupted OCR tokens."""
+        try:
+            if not self.db_manager:
+                return None, None
+            
+            # Get all guild player names
+            guild_players = self.db_manager.get_all_players_for_guild(guild_id)
+            if not guild_players:
+                return None, None
+            
+            # Check each guild member name as substring (case-insensitive)
+            best_match = None
+            best_match_name = None
+            longest_length = 0
+            
+            for player in guild_players:
+                player_name = player.get('player_name', '')
+                # Also check nicknames
+                nicknames = player.get('nicknames', [])
+                all_names = [player_name] + (nicknames if nicknames else [])
+                
+                for name in all_names:
+                    if len(name) >= 3 and name.lower() in corrupted_token.lower():
+                        # Prefer longer matches to avoid false positives
+                        if len(name) > longest_length:
+                            best_match = player_name  # Always return official name
+                            best_match_name = name    # But track which variant matched
+                            longest_length = len(name)
+            
+            if best_match:
+                logging.info(f"🔍 Substring match: Found '{best_match}' (via '{best_match_name}') in corrupted token '{corrupted_token}'")
+                return best_match, best_match_name
+            
+            return None, None
+            
+        except Exception as e:
+            logging.error(f"❌ Error in substring matching: {e}")
+            return None, None
+
     def _find_valid_names_with_window(self, tokens: List[str], guild_id: int) -> List[tuple]:
-        """Find valid player names using sliding window approach for 1-word and 2-word combinations."""
+        """Find valid player names using sliding window approach with substring fallback for corrupted OCR."""
         valid_names = []
         i = 0
         
@@ -565,13 +632,23 @@ class OCRProcessor:
                 else:
                     logging.debug(f"Player '{two_word}' not found in guild roster (likely opponent)")
             
-            # Try single word
+            # Try single word exact match
             resolved = self.db_manager.resolve_player_name(tokens[i], guild_id, log_level='debug')
             if resolved:
                 valid_names.append((i, resolved, tokens[i]))
                 logging.info(f"✅ Found 1-word name: '{tokens[i]}' → '{resolved}' at position {i}")
             else:
-                logging.debug(f"Player '{tokens[i]}' not found in guild roster (likely opponent)")
+                # Fallback: Try substring matching for corrupted OCR tokens
+                # Only try this for longer tokens that might contain corrupted names
+                if len(tokens[i]) >= 5:  # Avoid false positives on short tokens
+                    substring_match, _ = self._find_guild_name_in_substring(tokens[i], guild_id)
+                    if substring_match:
+                        valid_names.append((i, substring_match, tokens[i]))
+                        logging.info(f"✅ Found substring match: '{tokens[i]}' contains '{substring_match}' at position {i}")
+                    else:
+                        logging.debug(f"Player '{tokens[i]}' not found in guild roster (likely opponent)")
+                else:
+                    logging.debug(f"Player '{tokens[i]}' not found in guild roster (likely opponent)")
             
             i += 1
         
