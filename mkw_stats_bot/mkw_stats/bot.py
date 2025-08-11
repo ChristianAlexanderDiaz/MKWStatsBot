@@ -366,7 +366,7 @@ class MarioKartBot(commands.Bot):
                         score = int(score_str.strip())
                         
                         # Resolve player name using database
-                        resolved_name = commands_cog.database.resolve_player_name(name, guild_id)
+                        resolved_name = commands_cog.bot.db.resolve_player_name(name, guild_id)
                         if resolved_name:
                             parsed_results.append({
                                 'name': resolved_name,
@@ -383,7 +383,7 @@ class MarioKartBot(commands.Bot):
                     raise Exception("No valid players found for war submission")
                 
                 # Add war to database
-                war_success = commands_cog.database.add_war(parsed_results, guild_id)
+                war_success = commands_cog.bot.db.add_war(parsed_results, guild_id)
                 
                 if war_success:
                     # Create success embed

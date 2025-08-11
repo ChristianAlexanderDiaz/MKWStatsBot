@@ -2092,32 +2092,8 @@ class MarioKartCommands(commands.Cog):
                     inline=True
                 )
                 
-                # Prepare files to send
-                files_to_send = []
-                
-                # Add visualization image (original with crop region highlighted)
-                if "visual_path" in ocr_result and ocr_result["visual_path"] != temp_path:
-                    try:
-                        visual_file = discord.File(ocr_result["visual_path"], filename="crop_region_visual.png")
-                        files_to_send.append(visual_file)
-                        embed.set_image(url="attachment://crop_region_visual.png")
-                    except:
-                        pass
-                
-                # Add cropped image
-                if "cropped_path" in ocr_result and ocr_result["cropped_path"] != temp_path:
-                    try:
-                        cropped_file = discord.File(ocr_result["cropped_path"], filename="cropped_for_ocr.png")
-                        files_to_send.append(cropped_file)
-                        embed.set_thumbnail(url="attachment://cropped_for_ocr.png")
-                    except:
-                        pass
-                
-                # Send response with embed and files, then add confirmation if results found
-                if files_to_send:
-                    response_msg = await interaction.followup.send(embed=embed, files=files_to_send)
-                else:
-                    response_msg = await interaction.followup.send(embed=embed)
+                # Send response with embed (no debug images)
+                response_msg = await interaction.followup.send(embed=embed)
                 
                 # Add confirmation workflow if we have processed results
                 if processed_results:
