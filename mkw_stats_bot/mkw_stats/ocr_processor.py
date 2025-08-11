@@ -576,7 +576,7 @@ class OCRProcessor:
                 return None, None
             
             # Get all guild player names
-            guild_players = self.db_manager.get_all_players_for_guild(guild_id)
+            guild_players = self.db_manager.get_all_players_stats(guild_id)
             if not guild_players:
                 return None, None
             
