@@ -2019,73 +2019,21 @@ class MarioKartCommands(commands.Cog):
                 return
             
             try:
-                # Use bot's OCR processor (initialized at startup)
-                ocr = self.bot.ocr
-                
-                # Get guild ID for database validation
+                # Use shared OCR processing logic
                 guild_id = self.get_guild_id_from_interaction(interaction)
                 
-                # Perform OCR (raw results)
-                ocr_result = ocr.perform_ocr_on_file(temp_path)
+                success, embed, processed_results = await self.bot.process_ocr_image(
+                    temp_path, guild_id, recent_image.filename, original_message
+                )
                 
-                if not ocr_result["success"]:
-                    await interaction.followup.send(f"❌ OCR failed: {ocr_result.get('error', 'Unknown error')}")
-                    return
-                
-                # Format raw OCR results for Discord
-                if not ocr_result["text"].strip():
-                    await interaction.followup.send("✅ OCR completed, but no text was detected in the image.")
-                    return
-                
-                # Process OCR results for database validation
-                extracted_texts = [{'text': ocr_result["text"], 'confidence': 0.9}]
-                processed_results = ocr._parse_mario_kart_results(extracted_texts, guild_id)
-                
-                # Add confirmation workflow if we have processed results
-                if processed_results:
-                    # Create clean confirmation embed without debug info
-                    embed = discord.Embed(
-                        title="🏁 Mario Kart Results Detected",
-                        description=f"Found {len(processed_results)} players in {recent_image.filename}",
-                        color=0x00ff00
-                    )
-                    
-                    # Show detected players
-                    players_text = "\n".join([
-                        f"• {result['name']}" + (f" ({result.get('races', 12)})" if result.get('races', 12) != 12 else "") + f": {result['score']} points"
-                        for result in processed_results
-                    ])
-                    
-                    embed.add_field(
-                        name="📊 Detected Players",
-                        value=players_text,
-                        inline=False
-                    )
-                    
-                    embed.add_field(
-                        name="❓ Confirmation Required",
-                        value="React with ✅ to save these results or ❌ to cancel.",
-                        inline=False
-                    )
-                    
-                    embed.set_footer(text="This confirmation expires in 60 seconds")
-                    
-                    # Send clean confirmation message
-                    response_msg = await interaction.followup.send(embed=embed)
-                    await self._add_ocr_confirmation(response_msg, processed_results, guild_id, interaction.user.id, original_message)
-                else:
-                    # No results found
-                    embed = discord.Embed(
-                        title="❌ No Results Found",
-                        description=f"No clan members detected in {recent_image.filename}",
-                        color=0xff4444
-                    )
-                    embed.add_field(
-                        name="Try:",
-                        value="• Make sure the image shows a clear results table\n• Check that player names match your roster\n• Use `/addwar` for manual entry",
-                        inline=False
-                    )
+                if not success:
+                    # Show error embed
                     await interaction.followup.send(embed=embed)
+                    return
+                
+                # Success - show confirmation embed and add reactions
+                response_msg = await interaction.followup.send(embed=embed)
+                await self._add_ocr_confirmation(response_msg, processed_results, guild_id, interaction.user.id, original_message)
                 
             finally:
                 # Clean up temporary files
@@ -2093,18 +2041,9 @@ class MarioKartCommands(commands.Cog):
                     os.unlink(temp_path)
                 except:
                     pass
-                
-                # Clean up visualization files if they were created
-                if 'ocr_result' in locals() and isinstance(ocr_result, dict):
-                    for path_key in ['cropped_path', 'visual_path']:
-                        if path_key in ocr_result and ocr_result[path_key] != temp_path:
-                            try:
-                                os.unlink(ocr_result[path_key])
-                            except:
-                                pass
                     
         except Exception as e:
-            logging.error(f"Error in runocr command: {e}")
+            logging.error(f"Error in scanimage command: {e}")
             logging.error(traceback.format_exc())
             await interaction.followup.send(f"❌ An error occurred: {str(e)}")
 

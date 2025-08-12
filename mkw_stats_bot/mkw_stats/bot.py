@@ -114,8 +114,111 @@ class MarioKartBot(commands.Bot):
                 if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
                     await self.process_race_results_image(message, attachment)
     
+    async def process_ocr_image(self, temp_path: str, guild_id: int, filename: str, original_message):
+        """Shared OCR processing logic for both automatic and manual scanning."""
+        try:
+            # Check if an OCR channel is configured for this guild
+            configured_channel_id = self.db.get_ocr_channel(guild_id)
+            if not configured_channel_id:
+                embed = discord.Embed(
+                    title="❌ No OCR Channel Set",
+                    description="You need to configure an OCR channel before using image scanning.",
+                    color=0xff4444
+                )
+                embed.add_field(
+                    name="🔧 Setup Required",
+                    value="Use `/setchannel #your-channel` to enable automatic and manual OCR processing.",
+                    inline=False
+                )
+                embed.add_field(
+                    name="📖 How it works",
+                    value="• Set a channel with `/setchannel`\n• Upload images there for automatic scanning\n• Use `/scanimage` in that channel as backup",
+                    inline=False
+                )
+                return False, embed, None
+            
+            # Use bot's OCR processor (initialized at startup)
+            ocr = self.ocr
+            
+            # Perform OCR (raw results)
+            ocr_result = ocr.perform_ocr_on_file(temp_path)
+            
+            if not ocr_result["success"]:
+                embed = discord.Embed(
+                    title="❌ OCR Failed",
+                    description=f"OCR processing failed: {ocr_result.get('error', 'Unknown error')}",
+                    color=0xff4444
+                )
+                return False, embed, None
+                
+            # Format raw OCR results for Discord
+            if not ocr_result["text"].strip():
+                embed = discord.Embed(
+                    title="❌ No Text Detected",
+                    description="OCR completed, but no text was detected in the image.",
+                    color=0xff4444
+                )
+                return False, embed, None
+                
+            # Process OCR results for database validation
+            extracted_texts = [{'text': ocr_result["text"], 'confidence': 0.9}]
+            processed_results = ocr._parse_mario_kart_results(extracted_texts, guild_id)
+            
+            # Add confirmation workflow if we have processed results
+            if processed_results:
+                # Create clean confirmation embed without debug info
+                embed = discord.Embed(
+                    title="🏁 Mario Kart Results Detected",
+                    description=f"Found {len(processed_results)} players in {filename}",
+                    color=0x00ff00
+                )
+                
+                # Show detected players
+                players_text = "\n".join([
+                    f"• {result['name']}" + (f" ({result.get('races', 12)})" if result.get('races', 12) != 12 else "") + f": {result['score']} points"
+                    for result in processed_results
+                ])
+                
+                embed.add_field(
+                    name="📊 Detected Players",
+                    value=players_text,
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="❓ Confirmation Required",
+                    value="React with ✅ to save these results or ❌ to cancel.",
+                    inline=False
+                )
+                
+                embed.set_footer(text="This confirmation expires in 60 seconds")
+                
+                return True, embed, processed_results
+            else:
+                # No results found
+                embed = discord.Embed(
+                    title="❌ No Results Found",
+                    description=f"No clan members detected in {filename}",
+                    color=0xff4444
+                )
+                embed.add_field(
+                    name="Try:",
+                    value="• Make sure the image shows a clear results table\n• Check that player names match your roster\n• Use `/addwar` for manual entry",
+                    inline=False
+                )
+                return False, embed, None
+                
+        except Exception as e:
+            logging.error(f"Error in shared OCR processing: {e}")
+            embed = discord.Embed(
+                title="❌ Processing Error",
+                description=f"An error occurred while processing the image: {str(e)}",
+                color=0xff4444
+            )
+            return False, embed, None
+
     async def process_race_results_image(self, message: discord.Message, attachment: discord.Attachment):
-        """Process an image attachment for Mario Kart race results."""
+        """Process an image attachment for Mario Kart race results using shared OCR logic."""
         try:
             # Send initial processing message
             processing_msg = await message.channel.send("🔍 Processing race results image...")
@@ -130,97 +233,42 @@ class MarioKartBot(commands.Bot):
                     # Get the path to the temporary file
                     temp_file_path = temp_file.name
                 
-                # Process the image with OCR using preset if available, including message timestamp
-                if config.DEFAULT_TABLE_PRESET and config.DEFAULT_TABLE_PRESET in config.TABLE_PRESETS:
-                    results = self.ocr.process_image_with_preset(temp_file_path, config.DEFAULT_TABLE_PRESET)
-                    # Add timestamp to results
-                    if results['success'] and results['results']:
-                        war_metadata = self.ocr.create_default_war_metadata(message.created_at)
-                        for result in results['results']:
-                            result.update(war_metadata)
-                        results['war_metadata'] = war_metadata
-                # If no preset is available, process the image without a preset
-                else:
-                    results = self.ocr.process_image(temp_file_path, message.created_at)
-                # If the image processing was not successful, send an error message
-                if not results['success']:
-                    await processing_msg.edit(
-                        content=f"❌ **Error processing image:**\n{results['error']}"
-                    )
+                # Use shared OCR processing logic
+                guild_id = message.guild.id if message.guild else None
+                if not guild_id:
+                    await processing_msg.edit(content="❌ **Error:** Could not determine guild ID.")
                     return
                 
-                # If no results were found, send an error message
-                if not results['results']:
-                    await processing_msg.edit(
-                        content="❌ **No clan member results found in this image.**\n"
-                               "Make sure the image contains a clear table with clan member names and scores."
-                    )
+                success, embed, processed_results = await self.process_ocr_image(
+                    temp_file_path, guild_id, attachment.filename, message
+                )
+                
+                if not success:
+                    # Show error embed
+                    await processing_msg.edit(content="", embed=embed)
                     return
                 
-                # Check validation results
-                validation = results.get('validation', {})
-                # If the validation was not successful, send an error message
-                if not validation.get('is_valid', True):
-                    validation_errors = '\n'.join(validation.get('errors', []))
-                    validation_warnings = '\n'.join(validation.get('warnings', []))
-                    
-                    error_text = "❌ **Validation Issues Found:**\n"
-                    if validation_errors:
-                        error_text += f"**Errors:**\n{validation_errors}\n"
-                    if validation_warnings:
-                        error_text += f"**Warnings:**\n{validation_warnings}\n"
-                    error_text += "\nPlease check the image and try again, or use manual entry."
-                    
-                    await processing_msg.edit(content=error_text)
-                    return
-                
-                # Format results for confirmation
-                confirmation_text = self.format_enhanced_confirmation(
-                    results['results'], 
-                    validation, 
-                    results.get('war_metadata')
-                )
-                
-                # Create confirmation embed
-                embed = discord.Embed(
-                    title="🏁 Mario Kart Results Detected",
-                    description=confirmation_text,
-                    color=0x00ff00
-                )
-                # Add a field to the embed
-                embed.add_field(
-                    name="❓ Confirmation Required",
-                    value="React with ✅ to save these results or ❌ to cancel.",
-                    inline=False
-                )
-                # Set the footer of the embed
-                embed.set_footer(text=f"This confirmation expires in {config.CONFIRMATION_TIMEOUT} seconds")
-                
-                # Edit the processing message with confirmation
+                # Success - show confirmation embed and add reactions
                 await processing_msg.edit(content="", embed=embed)
                 
                 # Add reaction buttons
                 await processing_msg.add_reaction("✅")
                 await processing_msg.add_reaction("❌")
-                await processing_msg.add_reaction("✏️")
                 
-                # Store pending confirmation data
+                # Store pending confirmation data with original message reference
                 confirmation_data = {
-                    'results': results['results'],
-                    'original_message_id': str(message.id),
+                    'type': 'ocr_war_submission',
+                    'results': processed_results,
+                    'guild_id': guild_id,
                     'user_id': message.author.id,
-                    'channel_id': message.channel.id
+                    'channel_id': message.channel.id,
+                    'original_message_obj': message
                 }
                 
                 self.pending_confirmations[str(processing_msg.id)] = confirmation_data
-                # Note: New v2 database doesn't need pending confirmations table
                 
-                # Set up timeout
-                await asyncio.sleep(config.CONFIRMATION_TIMEOUT)
-                
-                # Check if still pending
-                if str(processing_msg.id) in self.pending_confirmations:
-                    await self.handle_confirmation_timeout(processing_msg)
+                # Start timeout - use same countdown logic as other confirmations
+                asyncio.create_task(self._countdown_and_delete_message(processing_msg, embed, 60))
                 
             finally:
                 # Clean up temp file
