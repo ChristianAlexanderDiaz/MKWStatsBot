@@ -304,6 +304,9 @@ class MarioKartBot(commands.Bot):
             # Clean up pending confirmation
             self.cleanup_confirmation(str(message.id))
             
+            # Auto-delete after 60 seconds
+            asyncio.create_task(self._auto_delete_message(message, 60))
+            
         except Exception as e:
             logger.error(f"Error handling confirmation accept: {e}")
             embed = discord.Embed(
@@ -312,6 +315,9 @@ class MarioKartBot(commands.Bot):
                 color=0xff0000
             )
             await message.edit(embed=embed)
+            
+            # Auto-delete after 60 seconds even on error
+            asyncio.create_task(self._auto_delete_message(message, 60))
 
     async def handle_ocr_war_submission(self, message: discord.Message, confirmation_data: Dict):
         """Handle OCR war submission to database."""
@@ -422,6 +428,9 @@ class MarioKartBot(commands.Bot):
             # Clean up pending confirmation
             self.cleanup_confirmation(str(message.id))
             
+            # Auto-delete after 60 seconds
+            asyncio.create_task(self._auto_delete_message(message, 60))
+            
         except Exception as e:
             logger.error(f"Error in OCR war submission: {e}")
             embed = discord.Embed(
@@ -436,6 +445,9 @@ class MarioKartBot(commands.Bot):
                 # Bot doesn't have permission to clear reactions, that's okay
                 pass
             self.cleanup_confirmation(str(message.id))
+            
+            # Auto-delete after 60 seconds
+            asyncio.create_task(self._auto_delete_message(message, 60))
     
     async def handle_confirmation_reject(self, message: discord.Message, confirmation_data: Dict):
         """Handle rejected confirmation."""
@@ -453,6 +465,9 @@ class MarioKartBot(commands.Bot):
         
         # Clean up pending confirmation
         self.cleanup_confirmation(str(message.id))
+        
+        # Auto-delete after 60 seconds
+        asyncio.create_task(self._auto_delete_message(message, 60))
 
     async def handle_confirmation_edit(self, message: discord.Message, confirmation_data: Dict):
         """Handle manual edit request."""
@@ -532,6 +547,18 @@ class MarioKartBot(commands.Bot):
         if message_id in self.pending_confirmations:
             del self.pending_confirmations[message_id]
         # Note: v2 database stores confirmations in memory only, no database cleanup needed
+    
+    async def _auto_delete_message(self, message: discord.Message, delay_seconds: int):
+        """Auto-delete a message after the specified delay."""
+        await asyncio.sleep(delay_seconds)
+        try:
+            await message.delete()
+        except discord.errors.NotFound:
+            # Message already deleted
+            pass
+        except discord.errors.Forbidden:
+            # Bot doesn't have permission to delete messages
+            pass
     
     def format_enhanced_confirmation(self, results: List[Dict], validation: Dict, war_metadata: Dict = None) -> str:
         """Format extracted results with validation info and war metadata for confirmation."""

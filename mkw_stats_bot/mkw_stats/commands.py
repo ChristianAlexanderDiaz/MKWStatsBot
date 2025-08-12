@@ -1896,31 +1896,7 @@ class MarioKartCommands(commands.Cog):
     async def _add_ocr_confirmation(self, message, processed_results, guild_id: int, user_id: int):
         """Add confirmation reactions to OCR results for database submission."""
         try:
-            # Add confirmation embed
-            confirmation_embed = discord.Embed(
-                title="💾 Save Results to Database?",
-                description="React with ✅ to save these results as a war, or ❌ to cancel.",
-                color=0xffaa00
-            )
-            
-            # Show what will be saved
-            results_summary = "\n".join([
-                f"• {result['name']} ({result.get('races', 12)}): {result['score']} points"
-                for result in processed_results
-            ])
-            
-            confirmation_embed.add_field(
-                name=f"📊 {len(processed_results)} Players Ready to Save",
-                value=results_summary,
-                inline=False
-            )
-            
-            confirmation_embed.set_footer(text="This confirmation expires in 60 seconds")
-            
-            # Edit message to add confirmation
-            await message.edit(embed=confirmation_embed, view=None)
-            
-            # Add reaction buttons
+            # Add reaction buttons (embed is already set by runocr command)
             await message.add_reaction("✅")  
             await message.add_reaction("❌")
             
@@ -2032,73 +2008,51 @@ class MarioKartCommands(commands.Cog):
                 extracted_texts = [{'text': ocr_result["text"], 'confidence': 0.9}]
                 processed_results = ocr._parse_mario_kart_results(extracted_texts, guild_id)
                 
-                # Create embed for results
-                embed = discord.Embed(
-                    title="🔍 OCR Results",
-                    color=0x00ff00,
-                    description=f"**Source:** {recent_image.filename}"
-                )
-                
-                # Add crop region info
-                if "crop_coords" in ocr_result:
-                    x1, y1, x2, y2 = ocr_result["crop_coords"]
-                    embed.add_field(
-                        name="📐 Crop Region",
-                        value=f"X: {x1} to {x2}\nY: {y1} to {y2}\nSize: {x2-x1}×{y2-y1}px",
-                        inline=True
-                    )
-                
-                # Truncate text if too long for Discord
-                text_content = ocr_result["text"]
-                if len(text_content) > 3500:
-                    text_content = text_content[:3500] + "...\n*(text truncated)*"
-                
-                embed.add_field(
-                    name="📝 Raw OCR Text",
-                    value=f"```\n{text_content}\n```" if text_content else "*(No text detected)*",
-                    inline=False
-                )
-                
-                # Add processed database results
+                # Add confirmation workflow if we have processed results
                 if processed_results:
-                    processed_text = "\n".join([
-                        f"👤 {result['name']}: {result['score']} points ✅"
-                        + (f" (raw: {result['raw_name']})" if result['raw_name'] != result['name'] else "")
+                    # Create clean confirmation embed without debug info
+                    embed = discord.Embed(
+                        title="🏁 Mario Kart Results Detected",
+                        description=f"Found {len(processed_results)} players in {recent_image.filename}",
+                        color=0x00ff00
+                    )
+                    
+                    # Show detected players
+                    players_text = "\n".join([
+                        f"• {result['name']} ({result.get('races', 12)}): {result['score']} points"
                         for result in processed_results
                     ])
                     
-                    if len(processed_text) > 1000:
-                        processed_text = processed_text[:1000] + "...\n*(truncated)*"
+                    embed.add_field(
+                        name="📊 Detected Players",
+                        value=players_text,
+                        inline=False
+                    )
                     
                     embed.add_field(
-                        name="👥 Processed Database Results",
-                        value=processed_text if processed_text else "*(No validated players found)*",
+                        name="❓ Confirmation Required",
+                        value="React with ✅ to save these results or ❌ to cancel.",
                         inline=False
                     )
-                else:
-                    embed.add_field(
-                        name="👥 Processed Database Results",
-                        value="❌ No players found in database",
-                        inline=False
-                    )
-                
-                # Add processing statistics
-                raw_tokens = len(ocr_result["text"].split())
-                players_found = len(processed_results)
-                avg_confidence = sum(r["confidence"] for r in ocr_result["results"]) / len(ocr_result["results"]) if ocr_result["results"] else 0.0
-                
-                embed.add_field(
-                    name="📊 Processing Stats",
-                    value=f"Raw tokens: {raw_tokens}\nPlayers validated: {players_found}\nOCR confidence: {avg_confidence:.2f}",
-                    inline=True
-                )
-                
-                # Send response with embed (no debug images)
-                response_msg = await interaction.followup.send(embed=embed)
-                
-                # Add confirmation workflow if we have processed results
-                if processed_results:
+                    
+                    embed.set_footer(text="This confirmation expires in 60 seconds")
+                    
+                    # Send clean confirmation message
+                    response_msg = await interaction.followup.send(embed=embed)
                     await self._add_ocr_confirmation(response_msg, processed_results, guild_id, interaction.user.id)
+                else:
+                    # No results found
+                    embed = discord.Embed(
+                        title="❌ No Results Found",
+                        description=f"No clan members detected in {recent_image.filename}",
+                        color=0xff4444
+                    )
+                    embed.add_field(
+                        name="Try:",
+                        value="• Make sure the image shows a clear results table\n• Check that player names match your roster\n• Use `/addwar` for manual entry",
+                        inline=False
+                    )
+                    await interaction.followup.send(embed=embed)
                 
             finally:
                 # Clean up temporary files
