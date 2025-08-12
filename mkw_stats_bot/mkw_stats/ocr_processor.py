@@ -255,6 +255,26 @@ class OCRProcessor:
             # Find all valid scores (1-180)
             score_positions = []
             for i, token in enumerate(tokens):
+                # Skip race count tokens like (5), (3), etc.
+                race_count_patterns = [
+                    r'^\((\d+)\)$',  # (5)
+                    r'^\((\d+)$',    # (5
+                    r'^(\d+)\)$'     # 5)
+                ]
+                
+                is_race_count_token = False
+                for pattern in race_count_patterns:
+                    match = re.match(pattern, token.strip())
+                    if match:
+                        race_num = int(match.group(1))
+                        if 1 <= race_num <= 11:  # Valid race count range
+                            is_race_count_token = True
+                            logging.info(f"🏁 Skipping race count token '{token}' in score detection")
+                            break
+                
+                if is_race_count_token:
+                    continue
+                    
                 if token.isdigit() and 1 <= int(token) <= 180:
                     score_positions.append(i)
                     logging.info(f"📊 Found score: {token} at position {i}")
