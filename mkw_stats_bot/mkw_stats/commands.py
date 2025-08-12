@@ -103,9 +103,10 @@ class MarioKartCommands(commands.Cog):
     @app_commands.command(name="setup", description="Initialize guild for Mario Kart stats tracking")
     @app_commands.describe(
         teamname="Name for the first team",
-        players="Players to add (comma-separated): 'Player1, Player2, Player3'"
+        players="Players to add (comma-separated): 'Player1, Player2, Player3'",
+        results_channel="Channel where /runocr will be used (e.g., #results)"
     )
-    async def setup_guild(self, interaction: discord.Interaction, teamname: str, players: str):
+    async def setup_guild(self, interaction: discord.Interaction, teamname: str, players: str, results_channel: discord.TextChannel):
         """Initialize guild with basic setup."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
@@ -2119,6 +2120,81 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error in runocr command: {e}")
             logging.error(traceback.format_exc())
             await interaction.followup.send(f"❌ An error occurred: {str(e)}")
+
+    @app_commands.command(name="checkpermissions", description="Check bot permissions in a channel for OCR functionality")
+    @app_commands.describe(channel="Channel to check permissions for (defaults to current channel)")
+    async def check_permissions(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        """Check bot permissions in the specified channel for OCR functionality."""
+        try:
+            # Use specified channel or default to current channel
+            target_channel = channel if channel else interaction.channel
+            
+            # Get bot member in this guild
+            bot_member = interaction.guild.get_member(self.bot.user.id)
+            if not bot_member:
+                await interaction.response.send_message("❌ Unable to get bot member information.", ephemeral=True)
+                return
+            
+            # Get channel permissions for the bot
+            channel_perms = target_channel.permissions_for(bot_member)
+            
+            # Required permissions for OCR functionality
+            required_perms = {
+                'view_channel': channel_perms.view_channel,
+                'send_messages': channel_perms.send_messages,
+                'read_message_history': channel_perms.read_message_history,
+                'add_reactions': channel_perms.add_reactions,
+                'manage_messages': channel_perms.manage_messages,
+                'use_application_commands': channel_perms.use_application_commands
+            }
+            
+            # Create embed showing permission status
+            embed = discord.Embed(
+                title="🔐 Bot Permissions Check",
+                description=f"Checking permissions in #{target_channel.name}",
+                color=0x00ff00 if all(required_perms.values()) else 0xff4444
+            )
+            
+            # Show each required permission
+            perms_text = ""
+            for perm_name, has_perm in required_perms.items():
+                status = "✅" if has_perm else "❌"
+                display_name = perm_name.replace('_', ' ').title()
+                perms_text += f"{status} {display_name}\n"
+            
+            embed.add_field(
+                name="Required Permissions",
+                value=perms_text,
+                inline=False
+            )
+            
+            # Overall status
+            missing_perms = [name for name, has_perm in required_perms.items() if not has_perm]
+            if missing_perms:
+                embed.add_field(
+                    name="❌ Status",
+                    value=f"Missing {len(missing_perms)} required permissions.\nThe `/runocr` command may not work properly.",
+                    inline=False
+                )
+                embed.add_field(
+                    name="Missing Permissions",
+                    value="\n".join([f"• {name.replace('_', ' ').title()}" for name in missing_perms]),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="✅ Status",
+                    value="All required permissions are available!\nThe `/runocr` command should work properly.",
+                    inline=False
+                )
+            
+            embed.set_footer(text="These permissions are required for OCR image processing and war submission")
+            
+            await interaction.response.send_message(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"Error checking permissions: {e}")
+            await interaction.response.send_message(f"❌ Error checking permissions: {str(e)}", ephemeral=True)
    
 
 async def setup(bot):
