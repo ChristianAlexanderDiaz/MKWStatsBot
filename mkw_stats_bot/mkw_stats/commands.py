@@ -1904,7 +1904,7 @@ class MarioKartCommands(commands.Cog):
             
             # Show what will be saved
             results_summary = "\n".join([
-                f"• {result['name']}: {result['score']} points"
+                f"• {result['name']} ({result.get('races', 12)}): {result['score']} points"
                 for result in processed_results
             ])
             
