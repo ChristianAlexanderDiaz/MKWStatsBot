@@ -1962,7 +1962,7 @@ class MarioKartCommands(commands.Cog):
                     value="• Set a channel with `/setchannel`\n• Upload images there for automatic scanning\n• Use `/scanimage` in that channel as backup",
                     inline=False
                 )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.followup.send(embed=embed, ephemeral=True)
                 return
             
             # Check if current channel is the configured OCR channel
@@ -1980,7 +1980,7 @@ class MarioKartCommands(commands.Cog):
                     value=f"• Use `/scanimage` in {channel_mention}\n• Change OCR channel with `/setchannel #new-channel`",
                     inline=False
                 )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.followup.send(embed=embed, ephemeral=True)
                 return
             
             # Search for the most recent image in the channel
