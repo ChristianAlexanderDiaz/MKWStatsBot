@@ -117,26 +117,6 @@ class MarioKartBot(commands.Bot):
     async def process_ocr_image(self, temp_path: str, guild_id: int, filename: str, original_message):
         """Shared OCR processing logic for both automatic and manual scanning."""
         try:
-            # Check if an OCR channel is configured for this guild
-            configured_channel_id = self.db.get_ocr_channel(guild_id)
-            if not configured_channel_id:
-                embed = discord.Embed(
-                    title="❌ No OCR Channel Set",
-                    description="You need to configure an OCR channel before using image scanning.",
-                    color=0xff4444
-                )
-                embed.add_field(
-                    name="🔧 Setup Required",
-                    value="Use `/setchannel #your-channel` to enable automatic and manual OCR processing.",
-                    inline=False
-                )
-                embed.add_field(
-                    name="📖 How it works",
-                    value="• Set a channel with `/setchannel`\n• Upload images there for automatic scanning\n• Use `/scanimage` in that channel as backup",
-                    inline=False
-                )
-                return False, embed, None
-            
             # Use bot's OCR processor (initialized at startup)
             ocr = self.ocr
             
@@ -209,7 +189,7 @@ class MarioKartBot(commands.Bot):
                 return False, embed, None
                 
         except Exception as e:
-            logging.error(f"Error in shared OCR processing: {e}")
+            logger.error(f"Error in shared OCR processing: {e}")
             embed = discord.Embed(
                 title="❌ Processing Error",
                 description=f"An error occurred while processing the image: {str(e)}",
@@ -233,12 +213,52 @@ class MarioKartBot(commands.Bot):
                     # Get the path to the temporary file
                     temp_file_path = temp_file.name
                 
-                # Use shared OCR processing logic
+                # Get guild ID and validate channel
                 guild_id = message.guild.id if message.guild else None
                 if not guild_id:
                     await processing_msg.edit(content="❌ **Error:** Could not determine guild ID.")
                     return
                 
+                # Check if an OCR channel is configured for this guild
+                configured_channel_id = self.db.get_ocr_channel(guild_id)
+                if not configured_channel_id:
+                    embed = discord.Embed(
+                        title="❌ No OCR Channel Set",
+                        description="You need to configure an OCR channel before automatic image scanning will work.",
+                        color=0xff4444
+                    )
+                    embed.add_field(
+                        name="🔧 Setup Required",
+                        value="Use `/setchannel #your-channel` to enable automatic OCR processing in that channel.",
+                        inline=False
+                    )
+                    embed.add_field(
+                        name="📖 How it works",
+                        value="• Run `/setchannel #results` to set your OCR channel\n• Upload images there for automatic scanning\n• Use `/scanimage` in that channel as backup",
+                        inline=False
+                    )
+                    await processing_msg.edit(content="", embed=embed)
+                    return
+                
+                # Check if current channel is the configured OCR channel  
+                if message.channel.id != configured_channel_id:
+                    configured_channel = self.get_channel(configured_channel_id)
+                    channel_mention = configured_channel.mention if configured_channel else f"<#{configured_channel_id}>"
+                    
+                    embed = discord.Embed(
+                        title="❌ Wrong Channel for OCR",
+                        description=f"Automatic image scanning only works in {channel_mention}",
+                        color=0xff4444
+                    )
+                    embed.add_field(
+                        name="🔧 Options",
+                        value=f"• Upload your image to {channel_mention} for automatic processing\n• Use `/scanimage` in {channel_mention} for manual scanning\n• Change OCR channel with `/setchannel #new-channel`",
+                        inline=False
+                    )
+                    await processing_msg.edit(content="", embed=embed)
+                    return
+                
+                # Use shared OCR processing logic (validation already done)
                 success, embed, processed_results = await self.process_ocr_image(
                     temp_file_path, guild_id, attachment.filename, message
                 )
