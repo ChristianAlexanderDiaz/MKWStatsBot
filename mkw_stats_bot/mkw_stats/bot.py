@@ -100,10 +100,13 @@ class MarioKartBot(commands.Bot):
         
         # Check if message has attachments (images)
         if message.attachments:
-            # Check if we're in the configured channel(s) (if set)
-            if config.ALLOWED_CHANNELS and message.channel.id not in config.ALLOWED_CHANNELS:
+            # Get the configured OCR channel for this guild
+            guild_id = message.guild.id if message.guild else None
+            if not guild_id:
                 return
-            elif config.CHANNEL_ID and message.channel.id != config.CHANNEL_ID:
+                
+            configured_channel_id = self.db.get_ocr_channel(guild_id)
+            if not configured_channel_id or message.channel.id != configured_channel_id:
                 return
             
             # Process each image attachment

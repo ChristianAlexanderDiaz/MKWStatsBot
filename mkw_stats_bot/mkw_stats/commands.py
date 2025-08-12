@@ -1934,14 +1934,14 @@ class MarioKartCommands(commands.Cog):
             except:
                 pass
 
-    @app_commands.command(name="runocr", description="Run OCR on the most recent image uploaded to this channel")
+    @app_commands.command(name="scanimage", description="Manually scan the most recent image in this channel (backup for when automatic OCR misses)")
     @require_guild_setup
-    async def runocr(self, interaction: discord.Interaction):
-        """Run OCR on the most recent image uploaded to the channel."""
+    async def scanimage(self, interaction: discord.Interaction):
+        """Manually scan the most recent image uploaded to the channel."""
         await interaction.response.defer(thinking=True)
         
         try:
-            logging.info(f"🔍 Starting OCR command for user {interaction.user.name}")
+            logging.info(f"🔍 Starting manual image scan for user {interaction.user.name}")
             
             # Search for the most recent image in the channel
             recent_image = None
@@ -2142,6 +2142,68 @@ class MarioKartCommands(commands.Cog):
         except Exception as e:
             logging.error(f"Error checking permissions: {e}")
             await interaction.response.send_message(f"❌ Error checking permissions: {str(e)}", ephemeral=True)
+
+    @app_commands.command(name="setchannel", description="Set the channel for automatic OCR processing of uploaded images")
+    @app_commands.describe(channel="Channel where images will be automatically scanned for Mario Kart results")
+    @require_guild_setup
+    async def set_ocr_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        """Set the channel for automatic OCR processing."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            
+            # Get bot member to check permissions
+            bot_member = interaction.guild.get_member(self.bot.user.id)
+            if not bot_member:
+                await interaction.response.send_message("❌ Unable to get bot member information.", ephemeral=True)
+                return
+            
+            # Check permissions in the target channel
+            channel_perms = channel.permissions_for(bot_member)
+            required_perms = {
+                'view_channel': channel_perms.view_channel,
+                'send_messages': channel_perms.send_messages,
+                'read_message_history': channel_perms.read_message_history,
+                'add_reactions': channel_perms.add_reactions,
+                'manage_messages': channel_perms.manage_messages,
+                'use_application_commands': channel_perms.use_application_commands
+            }
+            
+            missing_perms = [name for name, has_perm in required_perms.items() if not has_perm]
+            if missing_perms:
+                missing_list = "\n".join([f"• {name.replace('_', ' ').title()}" for name in missing_perms])
+                await interaction.response.send_message(
+                    f"❌ **Missing required permissions in {channel.mention}:**\n{missing_list}\n\n"
+                    f"Please grant these permissions and try again, or use `/checkpermissions {channel.mention}` to verify.",
+                    ephemeral=True
+                )
+                return
+            
+            # Update the database with the OCR channel
+            success = self.bot.db.set_ocr_channel(guild_id, channel.id)
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ OCR Channel Set!",
+                    description=f"Automatic image scanning is now enabled in {channel.mention}",
+                    color=0x00ff00
+                )
+                embed.add_field(
+                    name="📷 How it works",
+                    value="• Upload a PNG image to the configured channel\n• Bot automatically scans for Mario Kart results\n• Confirm or cancel the detected scores\n• Use `/scanimage` as backup if auto-scan misses something",
+                    inline=False
+                )
+                embed.add_field(
+                    name="🔧 Management",
+                    value=f"• Current channel: {channel.mention}\n• Change channel: `/setchannel #new-channel`\n• Check permissions: `/checkpermissions {channel.mention}`",
+                    inline=False
+                )
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message("❌ Failed to set OCR channel. Please try again.", ephemeral=True)
+                
+        except Exception as e:
+            logging.error(f"Error setting OCR channel: {e}")
+            await interaction.response.send_message(f"❌ Error setting OCR channel: {str(e)}", ephemeral=True)
    
 
 async def setup(bot):

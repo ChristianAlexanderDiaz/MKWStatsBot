@@ -188,6 +188,48 @@ class DatabaseManager:
             logging.error(f"❌ Error initializing PostgreSQL database: {e}")
             raise
     
+    def set_ocr_channel(self, guild_id: int, channel_id: int) -> bool:
+        """Set the OCR channel for automatic image processing in a guild."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Update or insert guild config with OCR channel
+                cursor.execute("""
+                    INSERT INTO guild_configs (guild_id, ocr_channel_id, is_active)
+                    VALUES (%s, %s, TRUE)
+                    ON CONFLICT (guild_id) DO UPDATE SET
+                        ocr_channel_id = EXCLUDED.ocr_channel_id,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (guild_id, channel_id))
+                
+                conn.commit()
+                logging.info(f"✅ Set OCR channel {channel_id} for guild {guild_id}")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error setting OCR channel: {e}")
+            return False
+    
+    def get_ocr_channel(self, guild_id: int) -> Optional[int]:
+        """Get the OCR channel ID for a guild."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT ocr_channel_id 
+                    FROM guild_configs 
+                    WHERE guild_id = %s AND is_active = TRUE
+                """, (guild_id,))
+                
+                result = cursor.fetchone()
+                return result[0] if result and result[0] else None
+                
+        except Exception as e:
+            logging.error(f"❌ Error getting OCR channel: {e}")
+            return None
+    
     def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0, log_level: str = 'error') -> Optional[str]:
         """Resolve a name or nickname to players table player name.
         
