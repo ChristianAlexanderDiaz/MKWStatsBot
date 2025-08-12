@@ -1941,7 +1941,47 @@ class MarioKartCommands(commands.Cog):
         await interaction.response.defer(thinking=True)
         
         try:
+            guild_id = self.get_guild_id(interaction)
             logging.info(f"🔍 Starting manual image scan for user {interaction.user.name}")
+            
+            # Check if an OCR channel is configured for this guild
+            configured_channel_id = self.bot.db.get_ocr_channel(guild_id)
+            if not configured_channel_id:
+                embed = discord.Embed(
+                    title="❌ No OCR Channel Set",
+                    description="You need to configure an OCR channel before using image scanning.",
+                    color=0xff4444
+                )
+                embed.add_field(
+                    name="🔧 Setup Required",
+                    value="Use `/setchannel #your-channel` to enable automatic and manual OCR processing.",
+                    inline=False
+                )
+                embed.add_field(
+                    name="📖 How it works",
+                    value="• Set a channel with `/setchannel`\n• Upload images there for automatic scanning\n• Use `/scanimage` in that channel as backup",
+                    inline=False
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            
+            # Check if current channel is the configured OCR channel
+            if interaction.channel.id != configured_channel_id:
+                configured_channel = self.bot.get_channel(configured_channel_id)
+                channel_mention = configured_channel.mention if configured_channel else f"<#{configured_channel_id}>"
+                
+                embed = discord.Embed(
+                    title="❌ Wrong Channel",
+                    description=f"Image scanning is only available in {channel_mention}",
+                    color=0xff4444
+                )
+                embed.add_field(
+                    name="🔧 Options",
+                    value=f"• Use `/scanimage` in {channel_mention}\n• Change OCR channel with `/setchannel #new-channel`",
+                    inline=False
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
             
             # Search for the most recent image in the channel
             recent_image = None
@@ -2119,7 +2159,7 @@ class MarioKartCommands(commands.Cog):
             if missing_perms:
                 embed.add_field(
                     name="❌ Status",
-                    value=f"Missing {len(missing_perms)} required permissions.\nThe `/runocr` command may not work properly.",
+                    value=f"Missing {len(missing_perms)} required permissions.\nAutomatic OCR and `/scanimage` may not work properly.",
                     inline=False
                 )
                 embed.add_field(
@@ -2130,11 +2170,11 @@ class MarioKartCommands(commands.Cog):
             else:
                 embed.add_field(
                     name="✅ Status",
-                    value="All required permissions are available!\nThe `/runocr` command should work properly.",
+                    value="All required permissions are available!\nAutomatic OCR and `/scanimage` will work properly.",
                     inline=False
                 )
             
-            embed.set_footer(text="These permissions are required for OCR image processing and war submission")
+            embed.set_footer(text="These permissions are required for OCR image processing (no manage_messages needed)")
             
             await interaction.response.send_message(embed=embed)
             
