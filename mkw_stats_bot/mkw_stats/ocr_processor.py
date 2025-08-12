@@ -746,20 +746,109 @@ class OCRProcessor:
             # Try 2-word combination first (for "No name", "kyle christian")
             if i < len(tokens) - 1:
                 two_word = f"{tokens[i]} {tokens[i+1]}"
-                resolved = self.db_manager.resolve_player_name(two_word, guild_id, log_level='debug')
+                race_count_2word = 12  # Default
+                two_word_to_check = two_word
+                raw_name_2word = two_word
+                tokens_consumed_2word = 2
+                
+                # Check if the 2-word combination has race count patterns
+                race_patterns = [
+                    r'^(.+?)\s*\((\d+)\)$',  # Name (5)
+                    r'^(.+?)\s*\((\d+)$',    # Name (5
+                    r'^(.+?)\s*(\d+)\)$'     # Name 5)
+                ]
+                
+                for pattern in race_patterns:
+                    match = re.match(pattern, two_word.strip())
+                    if match:
+                        clean_2word_name = match.group(1).strip()
+                        extracted_races = int(match.group(2))
+                        if 1 <= extracted_races <= 11:
+                            two_word_to_check = clean_2word_name
+                            race_count_2word = extracted_races
+                            logging.info(f"🏁 Extracted race count from 2-word token '{two_word}': {clean_2word_name} → {race_count_2word} races")
+                        break
+                
+                # If no race count in 2-word combo, check if next token (i+2) has race count
+                if race_count_2word == 12 and i < len(tokens) - 2:
+                    next_token = tokens[i + 2]
+                    pair_patterns = [
+                        r'^\((\d+)\)$',  # (5)
+                        r'^\((\d+)$',    # (5
+                        r'^(\d+)\)$'     # 5)
+                    ]
+                    
+                    for pattern in pair_patterns:
+                        match = re.match(pattern, next_token.strip())
+                        if match:
+                            extracted_races = int(match.group(1))
+                            if 1 <= extracted_races <= 11:
+                                race_count_2word = extracted_races
+                                raw_name_2word = f"{two_word} {next_token}"
+                                tokens_consumed_2word = 3
+                                logging.info(f"🏁 Extracted race count from 2-word + token '{two_word}' + '{next_token}': {two_word_to_check} → {race_count_2word} races")
+                            break
+                
+                resolved = self.db_manager.resolve_player_name(two_word_to_check, guild_id, log_level='debug')
                 if resolved:
-                    valid_names.append((i, resolved, two_word))
-                    logging.info(f"✅ Found 2-word name: '{two_word}' → '{resolved}' at position {i}")
-                    i += 2  # Skip next token
+                    valid_names.append((i, resolved, raw_name_2word, None, race_count_2word))
+                    logging.info(f"✅ Found 2-word name: '{raw_name_2word}' → '{resolved}' at position {i} ({race_count_2word} races)")
+                    i += tokens_consumed_2word  # Skip consumed tokens
                     continue
                 else:
                     logging.debug(f"Player '{two_word}' not found in guild roster (likely opponent)")
             
-            # Try single word exact match
-            resolved = self.db_manager.resolve_player_name(tokens[i], guild_id, log_level='debug')
+            # Try single word exact match (check for race count patterns first)
+            token_to_check = tokens[i]
+            race_count = 12  # Default race count
+            raw_name = tokens[i]
+            tokens_consumed = 1
+            
+            # Check current token for race count patterns like "Cynical (5)" or "Cynical (5"
+            race_patterns = [
+                r'^(.+?)\s*\((\d+)\)$',  # Name (5)
+                r'^(.+?)\s*\((\d+)$',    # Name (5
+                r'^(.+?)\s*(\d+)\)$'     # Name 5)
+            ]
+            
+            for pattern in race_patterns:
+                match = re.match(pattern, token_to_check.strip())
+                if match:
+                    clean_name = match.group(1).strip()
+                    extracted_races = int(match.group(2))
+                    if 1 <= extracted_races <= 11:
+                        token_to_check = clean_name
+                        race_count = extracted_races
+                        logging.info(f"🏁 Extracted race count from token '{raw_name}': {clean_name} → {race_count} races")
+                    break
+            
+            # If no race count in current token, check if next token has race count pattern
+            if race_count == 12 and i < len(tokens) - 1:
+                next_token = tokens[i + 1]
+                pair_patterns = [
+                    r'^\((\d+)\)$',  # (5)
+                    r'^\((\d+)$',    # (5
+                    r'^(\d+)\)$'     # 5)
+                ]
+                
+                for pattern in pair_patterns:
+                    match = re.match(pattern, next_token.strip())
+                    if match:
+                        extracted_races = int(match.group(1))
+                        if 1 <= extracted_races <= 11:
+                            race_count = extracted_races
+                            raw_name = f"{tokens[i]} {next_token}"
+                            tokens_consumed = 2
+                            logging.info(f"🏁 Extracted race count from token pair '{tokens[i]}' + '{next_token}': {token_to_check} → {race_count} races")
+                        break
+            
+            # Now try to resolve the clean name
+            resolved = self.db_manager.resolve_player_name(token_to_check, guild_id, log_level='debug')
             if resolved:
-                valid_names.append((i, resolved, tokens[i]))
-                logging.info(f"✅ Found 1-word name: '{tokens[i]}' → '{resolved}' at position {i}")
+                valid_names.append((i, resolved, raw_name, None, race_count))
+                logging.info(f"✅ Found 1-word name: '{raw_name}' → '{resolved}' at position {i} ({race_count} races)")
+                if tokens_consumed == 2:
+                    i += 1  # Skip the next token if we consumed it
             else:
                 # Fallback: Try substring matching for corrupted OCR tokens
                 # Only try this for longer tokens that might contain corrupted names
@@ -789,13 +878,14 @@ class OCRProcessor:
                         
                         # Store the match with embedded score info if found
                         raw_name = " ".join(raw_name_parts)
-                        match_info = (i, substring_match, raw_name)
                         if embedded_score:
-                            # Add embedded score info to the match tuple  
-                            match_info = (i, substring_match, raw_name, embedded_score)
-                            logging.info(f"✅ Found multi-token corrupted match: '{raw_name}' → '{substring_match}' with embedded score {embedded_score}")
+                            # Embedded score found - use it directly
+                            match_info = (i, substring_match, raw_name, embedded_score, 12)
+                            logging.info(f"✅ Found multi-token corrupted match: '{raw_name}' → '{substring_match}' with embedded score {embedded_score} (12 races)")
                         else:
-                            logging.info(f"✅ Found substring match: '{tokens[i]}' contains '{substring_match}' at position {i}")
+                            # No embedded score - will need score pairing
+                            match_info = (i, substring_match, raw_name, None, 12)
+                            logging.info(f"✅ Found substring match: '{tokens[i]}' contains '{substring_match}' at position {i} (12 races)")
                         
                         valid_names.append(match_info)
                         i += consumed_tokens  # Skip the consumed tokens
@@ -818,25 +908,24 @@ class OCRProcessor:
         valid_names_sorted = sorted(valid_names, key=lambda x: x[0])
         
         for name_match in valid_names_sorted:
-            # Handle both regular matches (3 elements) and multi-token matches (4 elements) 
-            if len(name_match) == 4:
-                name_pos, official_name, raw_name, embedded_score = name_match
+            # All matches are now 5-element tuples: (pos, name, raw_name, embedded_score, race_count)
+            name_pos, official_name, raw_name, embedded_score, race_count = name_match
+            
+            if embedded_score is not None:
                 # Use the embedded score directly for multi-token corrupted sequences
                 score = embedded_score
                 results.append({
                     'name': official_name,
                     'raw_name': raw_name,
                     'score': score,
+                    'races': race_count,
                     'raw_line': f"{raw_name} {score}",
                     'preset_used': 'database_validated',
                     'confidence': 1.0,  # Database validated = highest confidence
                     'is_roster_member': True  # All results are validated against roster
                 })
-                logging.info(f"🎯 Used embedded score: '{official_name}' (raw: '{raw_name}') with embedded score {score}")
+                logging.info(f"🎯 Used embedded score: '{official_name}' (raw: '{raw_name}') with embedded score {score} ({race_count} races)")
                 continue
-            else:
-                # Regular 3-element match - find score using proximity matching
-                name_pos, official_name, raw_name = name_match
             
             # Find the next available score after this name position
             best_score_pos = None
@@ -875,13 +964,14 @@ class OCRProcessor:
                     'name': official_name,
                     'raw_name': raw_name,
                     'score': score,
+                    'races': race_count,
                     'raw_line': f"{raw_name} {score}",
                     'preset_used': 'database_validated',
                     'confidence': 1.0,  # Database validated = highest confidence
                     'is_roster_member': True  # All results are validated against roster
                 })
                 used_scores.add(best_score_pos)
-                logging.info(f"🎯 Paired '{official_name}' (raw: '{raw_name}') at pos {name_pos} with score {score} at pos {best_score_pos}")
+                logging.info(f"🎯 Paired '{official_name}' (raw: '{raw_name}') at pos {name_pos} with score {score} at pos {best_score_pos} ({race_count} races)")
             else:
                 logging.warning(f"⚠️ No available score found for '{official_name}'")
         

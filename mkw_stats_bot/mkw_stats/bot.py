@@ -319,71 +319,45 @@ class MarioKartBot(commands.Bot):
             results = confirmation_data['results']
             guild_id = confirmation_data['guild_id']
             
-            # Convert OCR results to war format
-            player_scores = []
-            for result in results:
-                player_name = result['name']
-                score = result['score']
-                player_scores.append(f"{player_name}: {score}")
-            
-            # Join all player scores into the format expected by addwar
-            player_scores_str = ", ".join(player_scores)
-            
             # Get the commands cog to call addwar logic
             commands_cog = self.get_cog('MarioKartCommands')
             if not commands_cog:
                 raise Exception("Commands cog not found")
             
-            # Use the addwar processing logic directly
+            # Use the detailed OCR results directly (preserving race counts)
             from datetime import datetime
             import pytz
             
-            # Create a mock interaction-like object for processing
-            class MockInteraction:
-                def __init__(self, guild_id, user_id, channel_id):
-                    self.guild_id = guild_id
-                    self.user = type('User', (), {'id': user_id})()
-                    self.channel = type('Channel', (), {'id': channel_id})()
-                    
-            mock_interaction = MockInteraction(
-                guild_id, 
-                confirmation_data['user_id'], 
-                confirmation_data['channel_id']
-            )
-            
-            # Process war submission using existing logic
+            # Process war submission using OCR results directly
             try:
-                # Parse player scores using existing addwar logic
+                # Use OCR results directly instead of re-parsing string
                 parsed_results = []
                 
-                # Split by comma and clean up spaces
-                parts = [p.strip() for p in player_scores_str.split(',')]
-                
-                for part in parts:
-                    if ':' in part:
-                        name, score_str = part.split(':', 1)
-                        name = name.strip()
-                        score = int(score_str.strip())
-                        
-                        # Resolve player name using database
-                        resolved_name = commands_cog.bot.db.resolve_player_name(name, guild_id)
-                        if resolved_name:
-                            parsed_results.append({
-                                'name': resolved_name,
-                                'original_name': name,
-                                'score': score,
-                                'races': 12,  # Default race count for OCR wars
-                                'date': datetime.now(pytz.UTC).strftime('%Y-%m-%d'),
-                                'time': datetime.now(pytz.UTC).strftime('%H:%M:%S'),
-                                'war_type': '6v6',
-                                'notes': 'Auto-processed via OCR'
-                            })
+                for result in results:
+                    player_name = result['name']
+                    score = result['score']
+                    race_count = result.get('races', 12)  # Use extracted race count or default to 12
+                    
+                    # Results from OCR processor are already database-validated names
+                    parsed_results.append({
+                        'name': player_name,
+                        'original_name': result.get('raw_name', player_name),
+                        'score': score,
+                        'races': race_count,  # Use extracted race count
+                        'date': datetime.now(pytz.UTC).strftime('%Y-%m-%d'),
+                        'time': datetime.now(pytz.UTC).strftime('%H:%M:%S'),
+                        'war_type': '6v6',
+                        'notes': 'Auto-processed via OCR'
+                    })
                 
                 if not parsed_results:
                     raise Exception("No valid players found for war submission")
                 
+                # Calculate total race count for the war (use max race count from all players)
+                total_race_count = max(result['races'] for result in parsed_results)
+                
                 # Add war to database
-                war_id = commands_cog.bot.db.add_race_results(parsed_results, 12, guild_id)
+                war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id)
                 
                 if war_id is not None:
                     # Update player statistics
@@ -391,8 +365,8 @@ class MarioKartBot(commands.Bot):
                         commands_cog.bot.db.update_player_stats(
                             result['name'], 
                             result['score'], 
-                            12,  # race_count 
-                            1.0, # war_participation (full participation)
+                            result['races'],  # Use individual race count
+                            result['races'] / total_race_count,  # war_participation (races played / total races)
                             datetime.now(pytz.timezone('America/New_York')).isoformat(),
                             guild_id
                         )
@@ -420,7 +394,7 @@ class MarioKartBot(commands.Bot):
                         value="Player statistics and averages have been updated.",
                         inline=False
                     )
-                    embed.set_footer(text="War added via OCR • Type: 6v6 • Races: 12")
+                    embed.set_footer(text=f"War added via OCR • Type: 6v6 • Races: {total_race_count}")
                     
                 else:
                     embed = discord.Embed(
