@@ -2091,7 +2091,6 @@ class MarioKartCommands(commands.Cog):
                 'send_messages': channel_perms.send_messages,
                 'read_message_history': channel_perms.read_message_history,
                 'add_reactions': channel_perms.add_reactions,
-                'manage_messages': channel_perms.manage_messages,
                 'use_application_commands': channel_perms.use_application_commands
             }
             
@@ -2164,7 +2163,6 @@ class MarioKartCommands(commands.Cog):
                 'send_messages': channel_perms.send_messages,
                 'read_message_history': channel_perms.read_message_history,
                 'add_reactions': channel_perms.add_reactions,
-                'manage_messages': channel_perms.manage_messages,
                 'use_application_commands': channel_perms.use_application_commands
             }
             
