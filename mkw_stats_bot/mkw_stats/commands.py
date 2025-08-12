@@ -2019,7 +2019,7 @@ class MarioKartCommands(commands.Cog):
                     
                     # Show detected players
                     players_text = "\n".join([
-                        f"• {result['name']} ({result.get('races', 12)}): {result['score']} points"
+                        f"• {result['name']}" + (f" ({result.get('races', 12)})" if result.get('races', 12) != 12 else "") + f": {result['score']} points"
                         for result in processed_results
                     ])
                     
