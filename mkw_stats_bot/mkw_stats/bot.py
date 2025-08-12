@@ -304,8 +304,8 @@ class MarioKartBot(commands.Bot):
             # Clean up pending confirmation
             self.cleanup_confirmation(str(message.id))
             
-            # Auto-delete after 60 seconds
-            asyncio.create_task(self._auto_delete_message(message, 60))
+            # Start countdown and delete (using reusable helper)
+            asyncio.create_task(self._countdown_and_delete_message(message, embed))
             
         except Exception as e:
             logger.error(f"Error handling confirmation accept: {e}")
@@ -316,8 +316,8 @@ class MarioKartBot(commands.Bot):
             )
             await message.edit(embed=embed)
             
-            # Auto-delete after 60 seconds even on error
-            asyncio.create_task(self._auto_delete_message(message, 60))
+            # Start countdown and delete even on error (using reusable helper)
+            asyncio.create_task(self._countdown_and_delete_message(message, embed))
 
     async def handle_ocr_war_submission(self, message: discord.Message, confirmation_data: Dict):
         """Handle OCR war submission to database."""
@@ -377,6 +377,13 @@ class MarioKartBot(commands.Bot):
                             guild_id
                         )
                     
+                    # Add checkmark to original image message
+                    if 'original_message_obj' in confirmation_data:
+                        try:
+                            await confirmation_data['original_message_obj'].add_reaction("✅")
+                        except:
+                            pass
+                    
                     # Create success embed
                     embed = discord.Embed(
                         title="✅ War Results Saved!",
@@ -428,8 +435,8 @@ class MarioKartBot(commands.Bot):
             # Clean up pending confirmation
             self.cleanup_confirmation(str(message.id))
             
-            # Auto-delete after 60 seconds
-            asyncio.create_task(self._auto_delete_message(message, 60))
+            # Start countdown and delete (using reusable helper)
+            asyncio.create_task(self._countdown_and_delete_message(message, embed))
             
         except Exception as e:
             logger.error(f"Error in OCR war submission: {e}")
@@ -446,8 +453,8 @@ class MarioKartBot(commands.Bot):
                 pass
             self.cleanup_confirmation(str(message.id))
             
-            # Auto-delete after 60 seconds
-            asyncio.create_task(self._auto_delete_message(message, 60))
+            # Start countdown and delete (using reusable helper)
+            asyncio.create_task(self._countdown_and_delete_message(message, embed))
     
     async def handle_confirmation_reject(self, message: discord.Message, confirmation_data: Dict):
         """Handle rejected confirmation."""
@@ -466,8 +473,8 @@ class MarioKartBot(commands.Bot):
         # Clean up pending confirmation
         self.cleanup_confirmation(str(message.id))
         
-        # Auto-delete after 60 seconds
-        asyncio.create_task(self._auto_delete_message(message, 60))
+        # Start countdown and delete (using reusable helper)
+        asyncio.create_task(self._countdown_and_delete_message(message, embed))
 
     async def handle_confirmation_edit(self, message: discord.Message, confirmation_data: Dict):
         """Handle manual edit request."""
@@ -558,6 +565,41 @@ class MarioKartBot(commands.Bot):
             pass
         except discord.errors.Forbidden:
             # Bot doesn't have permission to delete messages
+            pass
+    
+    async def _countdown_and_delete_message(self, message: discord.Message, embed: discord.Embed, countdown_seconds: int = 30):
+        """Show countdown timer and delete message (for regular discord messages)."""
+        for remaining in range(countdown_seconds, 0, -1):
+            await asyncio.sleep(1)
+            if remaining <= 5:  # Only show countdown for last 5 seconds
+                try:
+                    await message.edit(embed=embed, content=f"Disappearing in {remaining} seconds...")
+                except:
+                    pass
+        
+        # Delete the message
+        try:
+            await message.delete()
+        except:
+            pass
+    
+    async def _countdown_and_delete_interaction(self, interaction: discord.Interaction, embed: discord.Embed, countdown_seconds: int = 30):
+        """Show countdown timer and delete interaction response (for slash command responses)."""
+        for remaining in range(countdown_seconds, 0, -1):
+            await asyncio.sleep(1)
+            if remaining <= 5:  # Only show countdown for last 5 seconds
+                try:
+                    await interaction.edit_original_response(
+                        embed=embed, 
+                        content=f"Disappearing in {remaining} seconds..."
+                    )
+                except:
+                    pass
+        
+        # Delete the message
+        try:
+            await interaction.delete_original_response()
+        except:
             pass
     
     def format_enhanced_confirmation(self, results: List[Dict], validation: Dict, war_metadata: Dict = None) -> str:

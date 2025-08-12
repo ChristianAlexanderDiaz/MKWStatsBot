@@ -1319,18 +1319,8 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.response.send_message(embed=embed)
             
-            # Start countdown timer
-            countdown_seconds = 30
-            for remaining in range(countdown_seconds, 0, -1):
-                await asyncio.sleep(1)
-                if remaining <= 5:  # Only show countdown for last 5 seconds
-                    await interaction.edit_original_response(
-                        embed=embed, 
-                        content=f"Disappearing in {remaining} seconds..."
-                    )
-            
-            # Delete the message
-            await interaction.delete_original_response()
+            # Start countdown and delete (using reusable helper)
+            asyncio.create_task(self.bot._countdown_and_delete_interaction(interaction, embed))
             
         except Exception as e:
             logging.error(f"Error adding war: {e}")
@@ -1893,7 +1883,7 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error renaming team", ephemeral=True)
 
-    async def _add_ocr_confirmation(self, message, processed_results, guild_id: int, user_id: int):
+    async def _add_ocr_confirmation(self, message, processed_results, guild_id: int, user_id: int, original_message):
         """Add confirmation reactions to OCR results for database submission."""
         try:
             # Add reaction buttons (embed is already set by runocr command)
@@ -1909,7 +1899,8 @@ class MarioKartCommands(commands.Cog):
                 'results': processed_results,
                 'guild_id': guild_id,
                 'user_id': user_id,
-                'channel_id': message.channel.id
+                'channel_id': message.channel.id,
+                'original_message_obj': original_message
             }
             
             self.bot.pending_confirmations[str(message.id)] = confirmation_data
@@ -1954,10 +1945,12 @@ class MarioKartCommands(commands.Cog):
             
             # Search for the most recent image in the channel
             recent_image = None
+            original_message = None
             async for message in interaction.channel.history(limit=50):
                 for attachment in message.attachments:
                     if attachment.filename.lower().endswith('.png'):
                         recent_image = attachment
+                        original_message = message  # Store the original message
                         logging.info(f"✅ Found image: {attachment.filename}")
                         break
                 if recent_image:
@@ -2039,7 +2032,7 @@ class MarioKartCommands(commands.Cog):
                     
                     # Send clean confirmation message
                     response_msg = await interaction.followup.send(embed=embed)
-                    await self._add_ocr_confirmation(response_msg, processed_results, guild_id, interaction.user.id)
+                    await self._add_ocr_confirmation(response_msg, processed_results, guild_id, interaction.user.id, original_message)
                 else:
                     # No results found
                     embed = discord.Embed(
