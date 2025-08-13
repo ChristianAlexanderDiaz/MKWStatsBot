@@ -264,8 +264,10 @@ class MarioKartBot(commands.Bot):
                 )
                 
                 if not success:
-                    # Show error embed
+                    # Show error embed briefly then remove it (like addwar does)
                     await processing_msg.edit(content="", embed=embed)
+                    # Auto-delete the embed after 5 seconds to keep channel clean
+                    asyncio.create_task(self._countdown_and_delete_message(processing_msg, embed, 5))
                     return
                 
                 # Success - show confirmation embed and add reactions
