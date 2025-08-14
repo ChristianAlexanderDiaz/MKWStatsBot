@@ -2167,7 +2167,7 @@ class MarioKartCommands(commands.Cog):
                 inline=False
             )
             
-            embed.set_footer(text="Each image will create a separate war entry • This confirmation expires in 60 seconds")
+            embed.set_footer(text="Each image will create a separate war entry • React below to confirm or cancel")
             
             # Send confirmation and add reactions
             confirmation_msg = await interaction.followup.send(embed=embed)
@@ -2186,8 +2186,7 @@ class MarioKartCommands(commands.Cog):
             
             self.bot.pending_confirmations[str(confirmation_msg.id)] = bulk_scan_data
             
-            # Start timeout countdown
-            asyncio.create_task(self._countdown_and_delete_confirmation(confirmation_msg, embed, 60))
+            # No auto-expire - let user decide when to confirm/cancel
             
         except Exception as e:
             logging.error(f"Error in bulkscanimage command: {e}")

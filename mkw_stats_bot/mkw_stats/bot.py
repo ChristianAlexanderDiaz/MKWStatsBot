@@ -465,7 +465,12 @@ class MarioKartBot(commands.Bot):
                     if 'original_message_obj' in confirmation_data:
                         try:
                             await confirmation_data['original_message_obj'].add_reaction("✅")
-                        except:
+                        except discord.errors.NotFound:
+                            # Message was deleted, skip adding reaction
+                            logger.debug(f"Skipping reaction for deleted message")
+                        except Exception as e:
+                            # Log other errors but continue processing
+                            logger.warning(f"Failed to add reaction to original message: {e}")
                             pass
                     
                     # Create success embed
@@ -759,7 +764,12 @@ class MarioKartBot(commands.Bot):
                         # Add checkmark to original image message
                         try:
                             await war_info['message'].add_reaction("✅")
-                        except:
+                        except discord.errors.NotFound:
+                            # Message was deleted, skip adding reaction
+                            logger.debug(f"Skipping reaction for deleted message during bulk scan")
+                        except Exception as e:
+                            # Log other errors but continue processing
+                            logger.warning(f"Failed to add reaction to message: {e}")
                             pass
                     else:
                         save_failures.append({
