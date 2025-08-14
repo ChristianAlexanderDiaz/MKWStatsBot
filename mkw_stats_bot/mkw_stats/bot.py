@@ -822,12 +822,8 @@ class MarioKartBot(commands.Bot):
         # Show saved wars
         if saved_wars:
             wars_text = ""
-            total_players = 0
             
             for war_info in saved_wars:
-                player_count = len(war_info['players'])
-                total_players += player_count
-                
                 # Show brief summary for each war
                 players_summary = ", ".join([
                     f"{p['name']}" + (f"({p['races']})" if p['races'] != war_info['total_race_count'] else "") + f": {p['score']}"
@@ -837,7 +833,7 @@ class MarioKartBot(commands.Bot):
                 if len(players_summary) > 80:  # Truncate if too long
                     players_summary = players_summary[:80] + "..."
                 
-                wars_text += f"**War #{war_info['war_id']} - {war_info['filename']}**\n• {players_summary}\n\n"
+                wars_text += f"**War #{war_info['war_id']}**\n• {players_summary}\n\n"
             
             # Truncate if too long for Discord
             if len(wars_text) > 1000:
@@ -851,7 +847,7 @@ class MarioKartBot(commands.Bot):
             
             embed.add_field(
                 name="📊 Summary",
-                value=f"• **Wars Created**: {success_count}\n• **Total Players**: {total_players}\n• **Database Updated**: All player statistics refreshed",
+                value=f"• **Wars Created**: {success_count}\n• **Database Updated**: All player statistics refreshed",
                 inline=False
             )
         
@@ -859,11 +855,17 @@ class MarioKartBot(commands.Bot):
         if save_failures or failed_images:
             all_failures = save_failures + failed_images
             failures_text = ""
-            for failure in all_failures[:5]:  # Show first 5
-                failures_text += f"• **{failure['filename']}**: {failure['error']}\n"
             
-            if len(all_failures) > 5:
-                failures_text += f"• *(... and {len(all_failures) - 5} more failures)*\n"
+            # Show all failures unless it would exceed Discord's character limit
+            for i, failure in enumerate(all_failures):
+                failure_line = f"• {failure['error']}\n"
+                
+                # Check if adding this failure would exceed Discord's field limit (~1000 chars)
+                if len(failures_text + failure_line) > 1000:
+                    failures_text += f"• *(... and {len(all_failures) - i} more failures)*\n"
+                    break
+                    
+                failures_text += failure_line
             
             embed.add_field(
                 name=f"❌ Failed ({total_failures})",
@@ -881,8 +883,8 @@ class MarioKartBot(commands.Bot):
         
         await message.edit(embed=embed)
         
-        # Auto-delete after 2 minutes
-        asyncio.create_task(self._countdown_and_delete_message(message, embed, 120))
+        # Auto-delete after 60 seconds
+        asyncio.create_task(self._countdown_and_delete_message(message, embed, 60))
 
     async def create_bulk_scan_confirmation_embed(self, message: discord.Message, successful_wars: List[Dict], failed_images: List[Dict], total_images: int, guild_id: int, user_id: int):
         """Create confirmation embed showing all OCR results before saving to database."""
@@ -926,12 +928,8 @@ class MarioKartBot(commands.Bot):
         
         # Show detailed results for each war (same format as individual scanimage)
         wars_text = ""
-        total_players = 0
         
         for i, war_info in enumerate(successful_wars):
-            player_count = len(war_info['players'])
-            total_players += player_count
-            
             # Show players for this war (same detail as /scanimage)
             players_list = []
             for p in war_info['players']:
@@ -940,7 +938,9 @@ class MarioKartBot(commands.Bot):
                 else:
                     players_list.append(f"• {p['name']} ({p['races']}): {p['score']} points")
             
-            war_section = f"📊 **{war_info['filename']}**\n" + "\n".join(players_list) + "\n\n"
+            # Use the message timestamp instead of filename
+            message_time = discord.utils.format_dt(war_info['message'].created_at, style='f')
+            war_section = f"📊 **{message_time}**\n" + "\n".join(players_list) + "\n\n"
             
             # Check if adding this war would exceed Discord's limit
             if len(wars_text + war_section) > 1500:  # Leave room for other fields
@@ -950,7 +950,7 @@ class MarioKartBot(commands.Bot):
             wars_text += war_section
         
         embed.add_field(
-            name=f"📋 Detected Results ({success_count} wars, {total_players} players)",
+            name=f"📋 Detected Results ({success_count} wars)",
             value=wars_text or "See individual war details",
             inline=False
         )
@@ -958,11 +958,17 @@ class MarioKartBot(commands.Bot):
         # Show failed images if any
         if failed_images:
             failures_text = ""
-            for failure in failed_images[:5]:  # Show first 5 failures
-                failures_text += f"• **{failure['filename']}**: {failure['error']}\n"
             
-            if len(failed_images) > 5:
-                failures_text += f"• *(... and {len(failed_images) - 5} more failures)*\n"
+            # Show all failures unless it would exceed Discord's character limit
+            for i, failure in enumerate(failed_images):
+                failure_line = f"• {failure['error']}\n"
+                
+                # Check if adding this failure would exceed Discord's field limit
+                if len(failures_text + failure_line) > 1000:
+                    failures_text += f"• *(... and {len(failed_images) - i} more failures)*\n"
+                    break
+                    
+                failures_text += failure_line
             
             embed.add_field(
                 name=f"❌ Failed Images ({failure_count})",
