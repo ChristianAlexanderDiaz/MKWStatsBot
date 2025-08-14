@@ -2122,6 +2122,9 @@ class MarioKartCommands(commands.Cog):
                 if limit and len(images_found) >= limit:
                     break
             
+            # Reverse the list so we process oldest images first (chronological order)
+            images_found.reverse()
+            
             if not images_found:
                 await interaction.followup.send("❌ No images found in this channel (searched recent messages). Try uploading images first!")
                 return

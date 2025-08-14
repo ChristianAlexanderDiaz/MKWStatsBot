@@ -977,13 +977,20 @@ class MarioKartBot(commands.Bot):
             inline=False
         )
         
-        embed.set_footer(text="Review the OCR results carefully • This confirmation expires in 60 seconds")
+        embed.set_footer(text="Review the OCR results carefully • React below to confirm or cancel")
         
-        await message.edit(embed=embed)
+        # Delete the old processing message and create a new clean confirmation message
+        try:
+            await message.delete()
+        except:
+            pass
         
-        # Add reaction buttons
-        await message.add_reaction("✅")
-        await message.add_reaction("❌")
+        # Send new confirmation message with no previous reactions
+        confirmation_msg = await message.channel.send(embed=embed)
+        
+        # Add fresh reaction buttons
+        await confirmation_msg.add_reaction("✅")
+        await confirmation_msg.add_reaction("❌")
         
         # Store the results for later confirmation handling
         bulk_results_data = {
@@ -995,11 +1002,14 @@ class MarioKartBot(commands.Bot):
             'user_id': user_id  # Pass through the original user who ran the command
         }
         
-        # Store in pending confirmations for reaction handling
-        self.pending_confirmations[str(message.id)] = bulk_results_data
+        # Clean up old confirmation data and store new one
+        if str(message.id) in self.pending_confirmations:
+            del self.pending_confirmations[str(message.id)]
         
-        # Start timeout countdown
-        asyncio.create_task(self._countdown_and_delete_confirmation_bulk(message, embed, 60))
+        # Store in pending confirmations for reaction handling (use new message ID)
+        self.pending_confirmations[str(confirmation_msg.id)] = bulk_results_data
+        
+        # No auto-delete countdown - let user decide when to confirm/cancel
     
     async def _countdown_and_delete_confirmation_bulk(self, message: discord.Message, embed: discord.Embed, countdown_seconds: int = 60):
         """Countdown and delete confirmation for bulk results."""
