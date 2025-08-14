@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     libxext6 \
     libxrender1 \
-    libgl1-mesa-glx \
+    libgl1 \
     libgeos-dev \
     build-essential \
     gcc \
