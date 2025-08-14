@@ -329,6 +329,12 @@ class MarioKartBot(commands.Bot):
         """Handle accepted confirmation."""
         try:
             confirmation_type = confirmation_data.get('type', 'standard')
+            
+            if confirmation_type == 'bulk_scan_confirmation':
+                # Handle bulk scan processing
+                await self.handle_bulk_scan_processing(message, confirmation_data)
+                return
+            
             results = confirmation_data['results']
             
             if confirmation_type == 'ocr_war_submission':
@@ -529,6 +535,279 @@ class MarioKartBot(commands.Bot):
             # Start countdown and delete (using reusable helper)
             asyncio.create_task(self._countdown_and_delete_message(message, embed))
     
+    async def handle_bulk_scan_processing(self, message: discord.Message, confirmation_data: Dict):
+        """Handle bulk scan processing after user confirms."""
+        try:
+            images_found = confirmation_data['images_found']
+            guild_id = confirmation_data['guild_id']
+            total_images = len(images_found)
+            
+            # Clear reactions and show processing message
+            try:
+                await message.clear_reactions()
+            except discord.errors.Forbidden:
+                pass
+            
+            # Create initial processing embed
+            embed = discord.Embed(
+                title="🔄 Processing Bulk Image Scan",
+                description=f"Processing {total_images} image{'s' if total_images != 1 else ''}...",
+                color=0x00ff00
+            )
+            embed.add_field(
+                name="⏳ Status",
+                value="Starting image processing...",
+                inline=False
+            )
+            embed.set_footer(text="This may take several minutes • Processing images sequentially")
+            
+            await message.edit(embed=embed)
+            
+            # Process each image
+            successful_wars = []
+            failed_images = []
+            
+            for i, image_data in enumerate(images_found, 1):
+                try:
+                    # Update progress
+                    progress_embed = discord.Embed(
+                        title="🔄 Processing Bulk Image Scan",
+                        description=f"Processing image {i}/{total_images}: {image_data['attachment'].filename}",
+                        color=0x00ff00
+                    )
+                    progress_embed.add_field(
+                        name="⏳ Progress",
+                        value=f"{'▓' * (i * 20 // total_images)}{'░' * (20 - (i * 20 // total_images))} {i}/{total_images}",
+                        inline=False
+                    )
+                    progress_embed.set_footer(text=f"Estimated time remaining: ~{(total_images - i) * 5} seconds")
+                    
+                    await message.edit(embed=progress_embed)
+                    
+                    # Download and process the image
+                    import tempfile
+                    import aiohttp
+                    import os
+                    
+                    temp_file_path = None
+                    try:
+                        # Download image
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(image_data['attachment'].url) as response:
+                                if response.status == 200:
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                                        temp_file_path = temp_file.name
+                                        image_bytes = await response.read()
+                                        temp_file.write(image_bytes)
+                                else:
+                                    raise Exception(f"Failed to download: HTTP {response.status}")
+                        
+                        # Process OCR using existing shared logic
+                        success, _, processed_results = await self.process_ocr_image(
+                            temp_file_path, guild_id, image_data['attachment'].filename, image_data['message']
+                        )
+                        
+                        if success and processed_results:
+                            # Save to database directly (auto-save for bulk)
+                            from datetime import datetime
+                            import pytz
+                            
+                            # Get the commands cog to call addwar logic
+                            commands_cog = self.get_cog('MarioKartCommands')
+                            if not commands_cog:
+                                raise Exception("Commands cog not found")
+                            
+                            # Process war submission using OCR results
+                            parsed_results = []
+                            for result in processed_results:
+                                player_name = result['name']
+                                score = result['score']
+                                race_count = result.get('races', 12)
+                                
+                                parsed_results.append({
+                                    'name': player_name,
+                                    'original_name': result.get('raw_name', player_name),
+                                    'score': score,
+                                    'races': race_count,
+                                    'date': datetime.now(pytz.UTC).strftime('%Y-%m-%d'),
+                                    'time': datetime.now(pytz.UTC).strftime('%H:%M:%S'),
+                                    'war_type': '6v6',
+                                    'notes': f'Auto-processed via bulk OCR from {image_data["attachment"].filename}'
+                                })
+                            
+                            if parsed_results:
+                                # Calculate total race count
+                                total_race_count = max(result['races'] for result in parsed_results)
+                                
+                                # Add war to database
+                                war_id = self.db.add_race_results(parsed_results, total_race_count, guild_id)
+                                
+                                if war_id is not None:
+                                    # Update player statistics
+                                    for result in parsed_results:
+                                        self.db.update_player_stats(
+                                            result['name'], 
+                                            result['score'], 
+                                            result['races'],
+                                            result['races'] / total_race_count,
+                                            datetime.now(pytz.timezone('America/New_York')).isoformat(),
+                                            guild_id
+                                        )
+                                    
+                                    # Store successful war info
+                                    successful_wars.append({
+                                        'filename': image_data['attachment'].filename,
+                                        'war_id': war_id,
+                                        'players': parsed_results,
+                                        'total_race_count': total_race_count
+                                    })
+                                    
+                                    # Add checkmark to original image message
+                                    try:
+                                        await image_data['message'].add_reaction("✅")
+                                    except:
+                                        pass
+                                else:
+                                    failed_images.append({
+                                        'filename': image_data['attachment'].filename,
+                                        'error': 'Database save failed'
+                                    })
+                            else:
+                                failed_images.append({
+                                    'filename': image_data['attachment'].filename,
+                                    'error': 'No valid players found'
+                                })
+                        else:
+                            failed_images.append({
+                                'filename': image_data['attachment'].filename,
+                                'error': 'OCR processing failed'
+                            })
+                            
+                    finally:
+                        # Clean up temp file
+                        if temp_file_path and os.path.exists(temp_file_path):
+                            try:
+                                os.unlink(temp_file_path)
+                            except:
+                                pass
+                    
+                    # Add small delay to respect rate limits
+                    await asyncio.sleep(1)
+                    
+                except Exception as e:
+                    failed_images.append({
+                        'filename': image_data['attachment'].filename,
+                        'error': str(e)
+                    })
+                    logger.error(f"Error processing {image_data['attachment'].filename}: {e}")
+            
+            # Create final results embed
+            await self.create_bulk_scan_results_embed(message, successful_wars, failed_images, total_images)
+            
+            # Clean up confirmation data
+            self.cleanup_confirmation(str(message.id))
+            
+        except Exception as e:
+            logger.error(f"Error in bulk scan processing: {e}")
+            embed = discord.Embed(
+                title="❌ Bulk Scan Error",
+                description=f"An error occurred during bulk processing: {str(e)}",
+                color=0xff0000
+            )
+            await message.edit(embed=embed)
+            self.cleanup_confirmation(str(message.id))
+    
+    async def create_bulk_scan_results_embed(self, message: discord.Message, successful_wars: List[Dict], failed_images: List[Dict], total_images: int):
+        """Create the final results embed for bulk scan."""
+        success_count = len(successful_wars)
+        failure_count = len(failed_images)
+        
+        if success_count == 0:
+            # All failed
+            embed = discord.Embed(
+                title="❌ Bulk Scan Complete - No Results",
+                description=f"Failed to process all {total_images} images",
+                color=0xff0000
+            )
+        elif failure_count == 0:
+            # All successful
+            embed = discord.Embed(
+                title="✅ Bulk Scan Complete - All Successful!",
+                description=f"Successfully processed all {total_images} images",
+                color=0x00ff00
+            )
+        else:
+            # Mixed results
+            embed = discord.Embed(
+                title="⚠️ Bulk Scan Complete - Partial Success",
+                description=f"Processed {success_count}/{total_images} images successfully",
+                color=0xffa500
+            )
+        
+        # Add successful wars details
+        if successful_wars:
+            wars_text = ""
+            total_players = 0
+            
+            for war_info in successful_wars:
+                player_count = len(war_info['players'])
+                total_players += player_count
+                
+                # Show players for this war
+                players_summary = ", ".join([
+                    f"{p['name']}" + (f"({p['races']})" if p['races'] != war_info['total_race_count'] else "") + f": {p['score']}"
+                    for p in war_info['players']
+                ])
+                
+                if len(players_summary) > 100:  # Truncate if too long
+                    players_summary = players_summary[:100] + "..."
+                
+                wars_text += f"**War #{war_info['war_id']} - {war_info['filename']}**\n• {players_summary}\n\n"
+            
+            # Truncate if too long for Discord
+            if len(wars_text) > 1000:
+                wars_text = wars_text[:1000] + "...\n*(truncated for space)*"
+            
+            embed.add_field(
+                name=f"✅ Successfully Processed ({success_count} wars)",
+                value=wars_text or "See individual war details below",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📊 Summary",
+                value=f"• **Wars Created**: {success_count}\n• **Total Players**: {total_players}\n• **Database Updated**: All player statistics refreshed",
+                inline=False
+            )
+        
+        # Add failed images details
+        if failed_images:
+            failures_text = ""
+            for failure in failed_images:
+                failures_text += f"• **{failure['filename']}**: {failure['error']}\n"
+            
+            if len(failures_text) > 1000:
+                failures_text = failures_text[:1000] + "...\n*(truncated for space)*"
+            
+            embed.add_field(
+                name=f"❌ Failed to Process ({failure_count} images)",
+                value=failures_text,
+                inline=False
+            )
+            
+            embed.add_field(
+                name="💡 Fix Failed Images",
+                value="Use `/addwar` command to manually add results for failed images, or use `/scanimage` to retry individual images.",
+                inline=False
+            )
+        
+        embed.set_footer(text=f"Bulk scan completed • {success_count} successful, {failure_count} failed")
+        
+        await message.edit(embed=embed)
+        
+        # Auto-delete after 2 minutes to keep channel clean
+        asyncio.create_task(self._countdown_and_delete_message(message, embed, 120))
+
     async def handle_confirmation_reject(self, message: discord.Message, confirmation_data: Dict):
         """Handle rejected confirmation."""
         embed = discord.Embed(

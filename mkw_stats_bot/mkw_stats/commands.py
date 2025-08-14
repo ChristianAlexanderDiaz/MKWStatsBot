@@ -2049,6 +2049,169 @@ class MarioKartCommands(commands.Cog):
             logging.error(traceback.format_exc())
             await interaction.followup.send(f"❌ An error occurred: {str(e)}")
 
+    @app_commands.command(name="bulkscanimage", description="Scan all images in this channel and create individual war entries")
+    @app_commands.describe(limit="Maximum number of images to process (default: all images)")
+    @require_guild_setup
+    async def bulkscanimage(self, interaction: discord.Interaction, limit: int = None):
+        """Bulk scan all images in the channel and process them sequentially."""
+        await interaction.response.defer(thinking=True)
+        
+        try:
+            guild_id = self.get_guild_id_from_interaction(interaction)
+            logging.info(f"🔍 Starting bulk image scan for user {interaction.user.name} with limit: {limit}")
+            
+            # Check if an OCR channel is configured for this guild
+            configured_channel_id = self.bot.db.get_ocr_channel(guild_id)
+            if not configured_channel_id:
+                embed = discord.Embed(
+                    title="❌ No OCR Channel Set",
+                    description="You need to configure an OCR channel before using bulk image scanning.",
+                    color=0xff4444
+                )
+                embed.add_field(
+                    name="🔧 Setup Required",
+                    value="Use `/setchannel #your-channel` to enable bulk OCR processing.",
+                    inline=False
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            # Check if current channel is the configured OCR channel
+            if interaction.channel.id != configured_channel_id:
+                configured_channel = self.bot.get_channel(configured_channel_id)
+                channel_mention = configured_channel.mention if configured_channel else f"<#{configured_channel_id}>"
+                
+                embed = discord.Embed(
+                    title="❌ Wrong Channel",
+                    description=f"Bulk image scanning is only available in {channel_mention}",
+                    color=0xff4444
+                )
+                embed.add_field(
+                    name="🔧 Options",
+                    value=f"• Use `/bulkscanimage` in {channel_mention}\n• Change OCR channel with `/setchannel #new-channel`",
+                    inline=False
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            # Search for images in the channel
+            images_found = []
+            oldest_image_msg = None
+            newest_image_msg = None
+            
+            # Determine search limit
+            search_limit = None if limit is None else limit * 10  # Search more messages to find enough images
+            
+            async for message in interaction.channel.history(limit=search_limit):
+                for attachment in message.attachments:
+                    if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+                        if newest_image_msg is None:
+                            newest_image_msg = message  # First found = newest
+                        oldest_image_msg = message  # Keep updating = oldest
+                        
+                        images_found.append({
+                            'message': message,
+                            'attachment': attachment
+                        })
+                        
+                        # Stop if we've reached the limit
+                        if limit and len(images_found) >= limit:
+                            break
+                
+                # Break outer loop too if limit reached
+                if limit and len(images_found) >= limit:
+                    break
+            
+            if not images_found:
+                await interaction.followup.send("❌ No images found in this channel (searched recent messages). Try uploading images first!")
+                return
+            
+            # Create confirmation embed with date range
+            embed = discord.Embed(
+                title="🔍 Bulk Image Scan Ready",
+                description=f"Found {len(images_found)} image{'s' if len(images_found) != 1 else ''} to process" + 
+                           (f" (limited from channel total)" if limit and len(images_found) == limit else ""),
+                color=0x00ff00
+            )
+            
+            # Format date range
+            if oldest_image_msg and newest_image_msg:
+                oldest_time = discord.utils.format_dt(oldest_image_msg.created_at, style='f')
+                newest_time = discord.utils.format_dt(newest_image_msg.created_at, style='f')
+                
+                embed.add_field(
+                    name="📅 Date Range",
+                    value=f"• **Oldest**: {oldest_time}\n• **Newest**: {newest_time}",
+                    inline=False
+                )
+            
+            # Time estimation
+            estimated_minutes = max(1, (len(images_found) * 5) // 60)  # ~5 seconds per image
+            if estimated_minutes == 1:
+                time_str = f"~{len(images_found) * 5} seconds"
+            else:
+                time_str = f"~{estimated_minutes} minute{'s' if estimated_minutes > 1 else ''}"
+            
+            embed.add_field(
+                name="⏱️ Estimated Time",
+                value=time_str,
+                inline=True
+            )
+            
+            embed.add_field(
+                name="❓ Confirmation",
+                value=f"✅ Process {len(images_found)} image{'s' if len(images_found) != 1 else ''} | ❌ Cancel",
+                inline=False
+            )
+            
+            embed.set_footer(text="Each image will create a separate war entry • This confirmation expires in 60 seconds")
+            
+            # Send confirmation and add reactions
+            confirmation_msg = await interaction.followup.send(embed=embed)
+            await confirmation_msg.add_reaction("✅")
+            await confirmation_msg.add_reaction("❌")
+            
+            # Store bulk scan data for confirmation handling
+            bulk_scan_data = {
+                'type': 'bulk_scan_confirmation',
+                'images_found': images_found,
+                'guild_id': guild_id,
+                'user_id': interaction.user.id,
+                'channel_id': interaction.channel.id,
+                'limit': limit
+            }
+            
+            self.bot.pending_confirmations[str(confirmation_msg.id)] = bulk_scan_data
+            
+            # Start timeout countdown
+            asyncio.create_task(self._countdown_and_delete_confirmation(confirmation_msg, embed, 60))
+            
+        except Exception as e:
+            logging.error(f"Error in bulkscanimage command: {e}")
+            logging.error(traceback.format_exc())
+            await interaction.followup.send(f"❌ An error occurred: {str(e)}")
+
+    async def _countdown_and_delete_confirmation(self, message: discord.Message, embed: discord.Embed, countdown_seconds: int = 60):
+        """Countdown and delete confirmation message for bulk scan."""
+        for remaining in range(countdown_seconds, 0, -1):
+            await asyncio.sleep(1)
+            if remaining <= 5:  # Only show countdown for last 5 seconds
+                try:
+                    embed_copy = embed.copy()
+                    embed_copy.set_footer(text=f"This confirmation expires in {remaining} seconds")
+                    await message.edit(embed=embed_copy)
+                except:
+                    pass
+        
+        # Clean up and delete
+        try:
+            message_id = str(message.id)
+            if message_id in self.bot.pending_confirmations:
+                del self.bot.pending_confirmations[message_id]
+            await message.delete()
+        except:
+            pass
+
     @app_commands.command(name="checkpermissions", description="Check bot permissions in a channel for OCR functionality")
     @app_commands.describe(channel="Channel to check permissions for (defaults to current channel)")
     async def check_permissions(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
