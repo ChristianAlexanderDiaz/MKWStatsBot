@@ -516,10 +516,21 @@ class OCRProcessor:
                     logging.info(f"📊 Found score: {token} at position {i}")
                 else:
                     # Check for embedded scores in corrupted tokens (like "RIC69")
-                    embedded_score = self._extract_score_from_corrupted_token(token)
-                    if embedded_score:
-                        score_positions.append(i)
-                        logging.info(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
+                    # But only if this token is NOT followed by another valid score
+                    has_following_score = False
+                    if i < len(tokens) - 1:
+                        next_token = tokens[i + 1]
+                        if next_token.isdigit() and 1 <= int(next_token) <= 180:
+                            has_following_score = True
+                    
+                    # Only treat as embedded score if NO following score exists
+                    if not has_following_score:
+                        embedded_score = self._extract_score_from_corrupted_token(token)
+                        if embedded_score:
+                            score_positions.append(i)
+                            logging.info(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
+                    else:
+                        logging.info(f"🔍 Skipping potential embedded score in '{token}' because followed by valid score '{next_token}'")
             
             # Find all valid player names using sliding window
             valid_names = self._find_valid_names_with_window(tokens, guild_id)
