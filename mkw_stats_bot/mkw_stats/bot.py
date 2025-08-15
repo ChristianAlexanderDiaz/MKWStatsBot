@@ -69,6 +69,25 @@ class MarioKartBot(commands.Bot):
         except Exception as e:
             logger.error(f"❌ Failed to sync slash commands: {e}")
         
+        # Initialize OCR resource management if available
+        try:
+            if hasattr(self.ocr, 'resource_management_enabled') and self.ocr.resource_management_enabled:
+                from .ocr_resource_manager import initialize_ocr_resource_manager
+                from .ocr_performance_monitor import get_ocr_performance_monitor
+                
+                # Start resource management
+                initialize_ocr_resource_manager()
+                
+                # Start performance monitoring
+                performance_monitor = get_ocr_performance_monitor()
+                performance_monitor.start_monitoring()
+                
+                logger.info("🚀 OCR resource management and performance monitoring started")
+            else:
+                logger.info("📝 OCR running in basic mode (no resource management)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize OCR resource management: {e}")
+        
         # Set bot status
         await self.change_presence(
             # Set the bot's status to watching for Mario Kart results
@@ -612,10 +631,22 @@ class MarioKartBot(commands.Bot):
                                 else:
                                     raise Exception(f"Failed to download: HTTP {response.status}")
                         
-                        # Process OCR using existing shared logic
-                        success, _, processed_results = await self.process_ocr_image(
-                            temp_file_path, guild_id, image_data['attachment'].filename, image_data['message']
-                        )
+                        # Process OCR using enhanced async processing if available
+                        if hasattr(self.ocr, 'process_image_async'):
+                            # Use enhanced async processing with resource management
+                            result = await self.ocr.process_image_async(
+                                temp_file_path, 
+                                guild_id, 
+                                image_data['message'].author.id,
+                                image_data['message'].created_at
+                            )
+                            success = result.get('success', False)
+                            processed_results = result.get('results', [])
+                        else:
+                            # Fallback to existing shared logic
+                            success, _, processed_results = await self.process_ocr_image(
+                                temp_file_path, guild_id, image_data['attachment'].filename, image_data['message']
+                            )
                         
                         if success and processed_results:
                             # Store OCR results for later confirmation (don't save to database yet)

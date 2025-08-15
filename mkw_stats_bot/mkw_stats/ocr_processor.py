@@ -2,10 +2,12 @@
 """
 OCR Processor for MKW Stats Bot
 Based on working Discord bot PaddleOCR implementation
+Enhanced with Railway-optimized resource management
 """
 
 import os
 import gc
+import asyncio
 import threading
 import tempfile
 import logging
@@ -19,7 +21,18 @@ import numpy as np
 # PaddleOCR imports
 from paddleocr import PaddleOCR
 
-# Thread lock for OCR operations
+# Enhanced resource management imports (optional - falls back gracefully)
+try:
+    from .ocr_config_manager import get_ocr_config, OCRPriority
+    from .ocr_resource_manager import get_ocr_resource_manager
+    from .ocr_performance_monitor import get_ocr_performance_monitor
+    RESOURCE_MANAGEMENT_AVAILABLE = True
+except ImportError:
+    RESOURCE_MANAGEMENT_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.info("Resource management modules not available - using basic OCR processing")
+
+# Thread lock for OCR operations (preserved for compatibility)
 ocr_lock = threading.Lock()
 
 class OCRProcessor:
@@ -34,9 +47,25 @@ class OCRProcessor:
     }
     
     def __init__(self, db_manager=None):
-        """Initialize PaddleOCR processor with memory optimization."""
+        """Initialize PaddleOCR processor with memory optimization and optional resource management."""
         self.db_manager = db_manager
         self.ocr = None
+        
+        # Initialize resource management if available
+        self.resource_management_enabled = RESOURCE_MANAGEMENT_AVAILABLE
+        if self.resource_management_enabled:
+            try:
+                self.config_manager = get_ocr_config()
+                self.resource_manager = get_ocr_resource_manager()
+                self.performance_monitor = get_ocr_performance_monitor()
+                logging.info("✅ OCR Processor initialized with resource management")
+            except Exception as e:
+                logging.warning(f"Failed to initialize resource management: {e}")
+                self.resource_management_enabled = False
+        
+        if not self.resource_management_enabled:
+            logging.info("📝 OCR Processor initialized in basic mode (no resource management)")
+        
         self._initialize_ocr()
     
     def _initialize_ocr(self):
@@ -237,6 +266,213 @@ class OCRProcessor:
                 'success': False,
                 'error': f'OCR processing failed: {str(e)}',
                 'results': []
+            }
+    
+    async def process_image_async(self, image_path: str, guild_id: int, user_id: int,
+                                 message_timestamp=None) -> Dict:
+        """
+        Async process image with resource management and priority allocation.
+        Falls back to sync processing if resource management is unavailable.
+        """
+        if not self.resource_management_enabled:
+            # Fallback to synchronous processing
+            return self.process_image(image_path, message_timestamp, guild_id)
+        
+        try:
+            # Create resource request
+            request = self.resource_manager.create_request(
+                image_count=1,
+                guild_id=guild_id,
+                user_id=user_id
+            )
+            
+            # Track operation performance
+            async with self.performance_monitor.track_operation(
+                request.request_id, request.priority, 1, guild_id, user_id
+            ) as operation_profile:
+                
+                # Acquire resources with priority allocation
+                async with self.resource_manager.acquire_resources(request) as context:
+                    self.performance_monitor.mark_operation_started(request.request_id)
+                    
+                    # Perform OCR processing in executor to avoid blocking
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(
+                        None, 
+                        self.process_image, 
+                        image_path, 
+                        message_timestamp, 
+                        guild_id
+                    )
+                    
+                    # Update performance metrics
+                    if result.get('success'):
+                        players_detected = len(result.get('results', []))
+                        # Calculate average confidence from results
+                        all_confidences = [r.get('confidence', 0.0) for r in result.get('results', []) 
+                                         if 'confidence' in r]
+                        avg_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
+                        
+                        self.performance_monitor.update_operation_results(
+                            request.request_id, players_detected, avg_confidence
+                        )
+                    
+                    # Add resource management metadata
+                    if result.get('success'):
+                        result['resource_priority'] = request.priority.value
+                        result['processing_engine'] = 'paddleocr_with_resource_management'
+                        result['wait_time_seconds'] = context.wait_time
+                    
+                    return result
+                    
+        except Exception as e:
+            logging.error(f"Error in async OCR processing: {e}")
+            # Fallback to synchronous processing on error
+            return self.process_image(image_path, message_timestamp, guild_id)
+    
+    async def process_bulk_images_async(self, image_data_list: List[Dict], guild_id: int, 
+                                       user_id: int) -> List[Dict]:
+        """
+        Process multiple images with intelligent batching and resource management.
+        Falls back to individual sync processing if resource management is unavailable.
+        """
+        if not self.resource_management_enabled:
+            # Fallback to individual synchronous processing
+            results = []
+            for image_data in image_data_list:
+                result = self.process_image(
+                    image_data['path'], 
+                    image_data.get('timestamp'), 
+                    guild_id
+                )
+                results.append(result)
+            return results
+        
+        try:
+            image_count = len(image_data_list)
+            
+            # Create resource request for bulk processing
+            request = self.resource_manager.create_request(
+                image_count=image_count,
+                guild_id=guild_id,
+                user_id=user_id
+            )
+            
+            # Track bulk operation performance
+            async with self.performance_monitor.track_operation(
+                request.request_id, request.priority, image_count, guild_id, user_id
+            ) as operation_profile:
+                
+                # Acquire resources with priority allocation
+                async with self.resource_manager.acquire_resources(request) as context:
+                    self.performance_monitor.mark_operation_started(request.request_id)
+                    
+                    # Process images based on batch size configuration
+                    batch_size = getattr(self.config_manager.config, 'batch_size', 3)
+                    results = []
+                    
+                    for i in range(0, image_count, batch_size):
+                        batch = image_data_list[i:i + batch_size]
+                        
+                        # Process batch in executor
+                        loop = asyncio.get_event_loop()
+                        batch_tasks = []
+                        
+                        for image_data in batch:
+                            task = loop.run_in_executor(
+                                None,
+                                self.process_image,
+                                image_data['path'],
+                                image_data.get('timestamp'),
+                                guild_id
+                            )
+                            batch_tasks.append(task)
+                        
+                        # Wait for batch completion
+                        batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+                        
+                        # Handle any exceptions in batch results
+                        for j, result in enumerate(batch_results):
+                            if isinstance(result, Exception):
+                                logging.error(f"Error processing image in batch: {result}")
+                                results.append({
+                                    'success': False,
+                                    'error': str(result),
+                                    'results': []
+                                })
+                            else:
+                                # Add resource management metadata
+                                if result.get('success'):
+                                    result['resource_priority'] = request.priority.value
+                                    result['processing_engine'] = 'paddleocr_bulk_with_resource_management'
+                                    result['batch_number'] = i // batch_size + 1
+                                results.append(result)
+                        
+                        # Memory cleanup between batches
+                        if i + batch_size < image_count:
+                            self.cleanup_memory()
+                            await asyncio.sleep(0.1)  # Brief pause for cleanup
+                    
+                    # Update performance metrics
+                    successful_results = [r for r in results if r.get('success')]
+                    total_players = sum(len(r.get('results', [])) for r in successful_results)
+                    
+                    # Calculate bulk average confidence
+                    all_confidences = []
+                    for result in successful_results:
+                        for player_result in result.get('results', []):
+                            if 'confidence' in player_result:
+                                all_confidences.append(player_result['confidence'])
+                    
+                    avg_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
+                    
+                    self.performance_monitor.update_operation_results(
+                        request.request_id, total_players, avg_confidence
+                    )
+                    
+                    return results
+                    
+        except Exception as e:
+            logging.error(f"Error in bulk async OCR processing: {e}")
+            # Fallback to individual synchronous processing
+            results = []
+            for image_data in image_data_list:
+                try:
+                    result = self.process_image(
+                        image_data['path'], 
+                        image_data.get('timestamp'), 
+                        guild_id
+                    )
+                    results.append(result)
+                except Exception as individual_error:
+                    results.append({
+                        'success': False,
+                        'error': str(individual_error),
+                        'results': []
+                    })
+            return results
+    
+    def get_performance_stats(self) -> Dict:
+        """Get current performance statistics from the processor."""
+        if not self.resource_management_enabled:
+            return {
+                'resource_management': False,
+                'status': 'basic_mode'
+            }
+        
+        try:
+            return {
+                'resource_management': True,
+                'configuration': self.config_manager.export_configuration(),
+                'resource_stats': self.resource_manager.get_current_stats(),
+                'performance_stats': self.performance_monitor.get_current_stats()
+            }
+        except Exception as e:
+            logging.error(f"Error getting performance stats: {e}")
+            return {
+                'resource_management': True,
+                'status': 'error',
+                'error': str(e)
             }
     
     def _parse_mario_kart_results(self, extracted_texts: List[Dict], guild_id: int = 0) -> List[Dict]:

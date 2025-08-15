@@ -236,3 +236,172 @@ All prefix commands (!mk*) have been converted to modern slash commands or remov
   - MINOR: New features, backwards compatible
   - PATCH: Bug fixes, backwards compatible
 - **Pre-release**: Use -alpha/-beta/-rc suffixes during development
+
+## OCR Optimization System (Railway Environment Variables)
+
+### Overview
+The enhanced OCR system provides priority-based resource allocation, dynamic load balancing, and Railway-optimized performance for Mario Kart image processing.
+
+### Key Features
+- **Priority-based Processing**: EXPRESS (single images), STANDARD (small bulk), BACKGROUND (large bulk)
+- **Dynamic Resource Borrowing**: Higher priority operations can borrow unused resources
+- **Adaptive Mode Switching**: Auto-adjusts between bulk_heavy, single_focused, and balanced modes
+- **Performance Monitoring**: Real-time metrics collection and optimization recommendations
+- **Railway Optimization**: Specifically tuned for Railway's 8GB RAM / 8 vCPU environment
+
+### Railway Environment Variables
+
+#### Core OCR Settings
+```bash
+OCR_MODE=balanced                      # Options: bulk_heavy, single_focused, balanced
+OCR_MAX_CONCURRENT=2                   # Base concurrent operations limit
+OCR_ENABLE_PRIORITY_BORROWING=true     # Enable resource borrowing between priority tiers
+OCR_ENABLE_USAGE_ADAPTATION=true       # Auto-adapt mode based on usage patterns
+```
+
+#### Priority-based Resource Limits
+```bash
+OCR_EXPRESS_MAX_CONCURRENT=4           # Express priority (single images)
+OCR_STANDARD_MAX_CONCURRENT=2          # Standard priority (small bulk scans 2-10 images)
+OCR_BACKGROUND_MAX_CONCURRENT=1        # Background priority (large bulk scans 10+ images)
+OCR_BORROWING_THRESHOLD=0.8            # 80% utilization threshold for borrowing
+```
+
+#### PaddleOCR Performance Settings
+```bash
+OCR_PADDLE_CPU_THREADS=4               # CPU threads for PaddleOCR processing
+OCR_MEMORY_LIMIT_MB=2048               # Memory limit per OCR operation
+OCR_BATCH_SIZE=3                       # Batch size for bulk processing operations
+```
+
+#### Advanced Optimizations (Optional)
+```bash
+OCR_ENABLE_ADVANCED_OPTIMIZATIONS=false  # Enable additional Railway optimizations
+OCR_ENABLE_PERFORMANCE_LOGGING=true      # Enable performance monitoring
+OCR_METRICS_INTERVAL=30                  # Performance metrics collection interval (seconds)
+OCR_USAGE_WINDOW_MINUTES=60             # Time window for usage pattern analysis
+OCR_BULK_OPERATION_THRESHOLD=10         # Images count to classify as bulk operation
+```
+
+#### Railway Environment Limits
+```bash
+RAILWAY_MAX_CPU_CORES=8                # Railway CPU core limit
+RAILWAY_MAX_MEMORY_GB=8                # Railway memory limit
+```
+
+### OCR Modes
+
+#### bulk_heavy Mode
+- **When**: Heavy bulk scanning periods (e.g., initial setup)
+- **Optimization**: Maximizes background processing resources
+- **Best for**: Processing 50+ images, historical data imports
+
+#### single_focused Mode  
+- **When**: Mostly single image processing (e.g., steady state)
+- **Optimization**: Prioritizes fast response times for individual images
+- **Best for**: Real-time war result processing (~hourly)
+
+#### balanced Mode (Default)
+- **When**: Mixed usage patterns
+- **Optimization**: Balanced resource allocation across all priority levels
+- **Best for**: General purpose usage with varying workloads
+
+### Resource Borrowing Logic
+
+The system implements intelligent resource borrowing:
+
+1. **EXPRESS Operations**: Can borrow from STANDARD and BACKGROUND when needed
+2. **STANDARD Operations**: Can borrow from BACKGROUND when EXPRESS isn't using resources
+3. **BACKGROUND Operations**: Uses dedicated resources, no borrowing capability
+
+Borrowing is triggered when:
+- Target priority tier is at capacity
+- Source tier utilization is below threshold (default 80%)
+- Higher priority operation is waiting
+
+### Performance Monitoring
+
+When `OCR_ENABLE_PERFORMANCE_LOGGING=true`:
+
+- Real-time resource utilization tracking
+- Average wait times and processing times
+- Success rates and error tracking  
+- Automatic mode switching recommendations
+- Memory usage and cleanup optimization
+
+### Usage Examples
+
+#### Development/Testing
+```bash
+OCR_MODE=single_focused
+OCR_MAX_CONCURRENT=1
+OCR_ENABLE_PERFORMANCE_LOGGING=true
+```
+
+#### Launch Period (Heavy Bulk Scanning)
+```bash
+OCR_MODE=bulk_heavy
+OCR_BACKGROUND_MAX_CONCURRENT=3
+OCR_BATCH_SIZE=5
+OCR_ENABLE_USAGE_ADAPTATION=true
+```
+
+#### Steady State Operation
+```bash
+OCR_MODE=single_focused
+OCR_EXPRESS_MAX_CONCURRENT=6
+OCR_ENABLE_PRIORITY_BORROWING=true
+```
+
+#### Balanced Production
+```bash
+OCR_MODE=balanced
+OCR_ENABLE_PRIORITY_BORROWING=true
+OCR_ENABLE_USAGE_ADAPTATION=true
+OCR_ENABLE_PERFORMANCE_LOGGING=true
+```
+
+### Architecture Components
+
+#### New Files
+- `ocr_config_manager.py`: Railway environment variable configuration management
+- `ocr_resource_manager.py`: Priority-based semaphore system with resource borrowing  
+- `ocr_performance_monitor.py`: Real-time performance tracking and adaptive optimization
+
+#### Enhanced Files
+- `ocr_processor.py`: Added async processing methods with resource management integration
+- `bot.py`: Enhanced bulk scan processing with priority-based resource allocation
+- `config.py`: Extended with OCR optimization environment variables
+
+### Backwards Compatibility
+
+All existing functionality is preserved:
+- Existing `/bulkscanimage` command works unchanged
+- Synchronous OCR processing methods remain functional
+- Graceful fallback to basic mode if resource management unavailable
+- No breaking changes to database operations or user experience
+
+### Monitoring and Debugging
+
+Use the following to monitor OCR performance:
+- Check bot logs for resource utilization messages
+- Monitor Railway CPU and memory usage
+- Review performance metrics in Discord bot logs
+- Adjust environment variables based on usage patterns
+
+### Troubleshooting
+
+#### High Wait Times
+- Increase `OCR_MAX_CONCURRENT` or priority-specific limits
+- Enable `OCR_ENABLE_PRIORITY_BORROWING=true`
+- Consider switching to `bulk_heavy` mode for bulk operations
+
+#### Memory Issues  
+- Reduce `OCR_MEMORY_LIMIT_MB`
+- Decrease `OCR_BATCH_SIZE`
+- Lower concurrent operation limits
+
+#### Low Performance
+- Enable `OCR_ENABLE_ADVANCED_OPTIMIZATIONS=true`
+- Increase `OCR_PADDLE_CPU_THREADS` (max 8 for Railway)
+- Monitor performance logs for optimization suggestions
