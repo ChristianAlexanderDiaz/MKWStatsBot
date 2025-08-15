@@ -1135,13 +1135,24 @@ class OCRProcessor:
                             if len(next_token) < 3 or next_token.lower() in ['go', 'and', 'vs']:
                                 continue
                                 
-                            potential_score = self._extract_score_from_corrupted_token(next_token)
-                            if potential_score:
-                                logging.info(f"🔍 Multi-token corrupted sequence detected: '{tokens[i]}' + '{next_token}' contains score {potential_score}")
-                                embedded_score = potential_score
-                                raw_name_parts.append(next_token)
-                                consumed_tokens += lookahead
-                                break
+                            # Apply same context-based logic: only treat as embedded score 
+                            # if this token is NOT followed by another valid score
+                            token_has_following_score = False
+                            if i + lookahead < len(tokens) - 1:
+                                following_token = tokens[i + lookahead + 1]
+                                if following_token.isdigit() and 1 <= int(following_token) <= 180:
+                                    token_has_following_score = True
+                            
+                            if not token_has_following_score:
+                                potential_score = self._extract_score_from_corrupted_token(next_token)
+                                if potential_score:
+                                    logging.info(f"🔍 Multi-token corrupted sequence detected: '{tokens[i]}' + '{next_token}' contains score {potential_score}")
+                                    embedded_score = potential_score
+                                    raw_name_parts.append(next_token)
+                                    consumed_tokens += lookahead
+                                    break
+                            else:
+                                logging.info(f"🔍 Skipping multi-token sequence for '{next_token}' because followed by valid score '{following_token}'")
                         
                         # Store the match with embedded score info if found
                         raw_name = " ".join(raw_name_parts)
