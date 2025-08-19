@@ -12,6 +12,7 @@ import threading
 import tempfile
 import logging
 import re
+from enum import Enum
 from typing import List, Dict, Optional
 from pathlib import Path
 from PIL import Image, ImageDraw
@@ -35,16 +36,37 @@ except ImportError:
 # Thread lock for OCR operations (preserved for compatibility)
 ocr_lock = threading.Lock()
 
+class TableFormat(Enum):
+    """Enumeration of supported Mario Kart table formats."""
+    LARGE = "large"
+    SMALL = "small"
+
+# Table format definitions with crop coordinates and width-based detection
+TABLE_FORMATS = {
+    TableFormat.LARGE: {
+        'name': 'Large Format',
+        'expected_width': 1720,  # Used for format detection
+        'crop_coords': {
+            'start_x': 576,
+            'start_y': 100,
+            'end_x': 1068,
+            # end_y: dynamic (set to img_height in crop_image_to_target_region)
+        }
+    },
+    TableFormat.SMALL: {
+        'name': 'Small Format',
+        'expected_width': 860,   # Used for format detection
+        'crop_coords': {
+            'start_x': 284,
+            'start_y': 51,
+            'end_x': 534,
+            # end_y: dynamic (set to img_height in crop_image_to_target_region)
+        }
+    }
+}
+
 class OCRProcessor:
     """PaddleOCR processor for Mario Kart race result images."""
-    
-    # Fixed coordinates for Mario Kart table region (from working Discord bot)
-    CROP_COORDS = {
-        'start_x': 576,
-        'start_y': 100,
-        'end_x': 1068,
-        # end_y will be set to full image height dynamically
-    }
     
     def __init__(self, db_manager=None):
         """Initialize PaddleOCR processor with memory optimization and optional resource management."""
@@ -95,6 +117,29 @@ class OCRProcessor:
         """Force garbage collection to free memory."""
         gc.collect()
     
+    def detect_table_format(self, img_width: int, img_height: int) -> TableFormat:
+        """Detect table format based on image width. Height varies with player count."""
+        # Find the closest matching format by width
+        best_match = None
+        smallest_diff = float('inf')
+        
+        for format_type, format_data in TABLE_FORMATS.items():
+            expected_width = format_data['expected_width']
+            width_diff = abs(img_width - expected_width)
+            
+            if width_diff < smallest_diff:
+                smallest_diff = width_diff
+                best_match = format_type
+        
+        if best_match:
+            format_name = TABLE_FORMATS[best_match]['name']
+            logging.info(f"🎯 Detected table format: {format_name} (image: {img_width}x{img_height})")
+            return best_match
+        else:
+            # Fallback to large format if no good match
+            logging.warning(f"⚠️ Unknown image size {img_width}x{img_height}, defaulting to Large Format")
+            return TableFormat.LARGE
+    
     def crop_image_to_target_region(self, image_path: str) -> tuple[str, str, tuple]:
         """Crop image to target region and create visualization - returns (cropped_path, visual_path, crop_coords)"""
         try:
@@ -102,11 +147,15 @@ class OCRProcessor:
             image = Image.open(image_path)
             img_width, img_height = image.size
             
-            # Fixed coordinates from working Discord bot
-            start_x = self.CROP_COORDS['start_x']
-            start_y = self.CROP_COORDS['start_y']
-            end_x = self.CROP_COORDS['end_x']
-            end_y = img_height  # Extend to full height of current image
+            # Detect table format based on image size
+            table_format = self.detect_table_format(img_width, img_height)
+            crop_coords = TABLE_FORMATS[table_format]['crop_coords']
+            
+            # Get coordinates for detected format
+            start_x = crop_coords['start_x']
+            start_y = crop_coords['start_y']
+            end_x = crop_coords['end_x']
+            end_y = img_height  # Extend to full height of current image (preserves dynamic behavior)
             
             # Ensure coordinates are within bounds
             start_x = max(0, min(start_x, img_width))
@@ -137,7 +186,8 @@ class OCRProcessor:
             cropped_image.save(cropped_path)
             visual_image.save(visual_path)
             
-            logging.info(f"✂️ Cropped image {img_width}x{img_height} to region ({start_x},{start_y}) to ({end_x},{end_y})")
+            format_name = TABLE_FORMATS[table_format]['name']
+            logging.info(f"✂️ Cropped image {img_width}x{img_height} to region ({start_x},{start_y}) to ({end_x},{end_y}) using {format_name}")
             
             return cropped_path, visual_path, crop_coords
             
@@ -906,10 +956,13 @@ class OCRProcessor:
             img_width, img_height = image.size
             draw = ImageDraw.Draw(image)
             
-            # Draw crop region
-            start_x = self.CROP_COORDS['start_x']
-            start_y = self.CROP_COORDS['start_y']
-            end_x = self.CROP_COORDS['end_x']
+            # Draw crop region using format detection
+            table_format = self.detect_table_format(img_width, img_height)
+            crop_coords = TABLE_FORMATS[table_format]['crop_coords']
+            
+            start_x = crop_coords['start_x']
+            start_y = crop_coords['start_y']
+            end_x = crop_coords['end_x']
             end_y = img_height
             
             # Draw ROI boundaries
