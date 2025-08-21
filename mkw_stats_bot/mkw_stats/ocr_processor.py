@@ -594,7 +594,7 @@ class OCRProcessor:
             opponent_players = all_detected_scores - guild_players_found
             
             # Check for 6v6 team splitting scenario
-            if all_detected_scores == 12 and guild_players_found > 6:
+            if all_detected_scores == 12:
                 logging.info(f"🔀 6v6 Split Detection: {guild_players_found} guild players in 12-player match")
                 results = self._apply_6v6_team_splitting(results, tokens, guild_id)
                 guild_players_found = len(results)  # Update count after splitting
