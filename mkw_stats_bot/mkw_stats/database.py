@@ -1393,7 +1393,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT guild_id, guild_name, team_names, allowed_channels, is_active, created_at, updated_at
+                    SELECT guild_id, guild_name, team_names, is_active, created_at, updated_at
                     FROM guild_configs WHERE guild_id = %s
                 """, (guild_id,))
                 
@@ -1405,17 +1405,16 @@ class DatabaseManager:
                     'guild_id': result[0],
                     'guild_name': result[1],
                     'team_names': result[2] if result[2] else [],
-                    'allowed_channels': result[3] if result[3] else [],
-                    'is_active': result[4],
-                    'created_at': result[5].isoformat() if result[5] else None,
-                    'updated_at': result[6].isoformat() if result[6] else None
+                    'is_active': result[3],
+                    'created_at': result[4].isoformat() if result[4] else None,
+                    'updated_at': result[5].isoformat() if result[5] else None
                 }
                 
         except Exception as e:
             logging.error(f"❌ Error getting guild config: {e}")
             return None
     
-    def create_guild_config(self, guild_id: int, guild_name: str = None, team_names: List[str] = None, allowed_channels: List[int] = None) -> bool:
+    def create_guild_config(self, guild_id: int, guild_name: str = None, team_names: List[str] = None) -> bool:
         """Create a new guild configuration."""
         try:
             with self.get_connection() as conn:
@@ -1424,19 +1423,16 @@ class DatabaseManager:
                 # Set defaults
                 if team_names is None:
                     team_names = []
-                if allowed_channels is None:
-                    allowed_channels = []
                 
                 cursor.execute("""
-                    INSERT INTO guild_configs (guild_id, guild_name, team_names, allowed_channels)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO guild_configs (guild_id, guild_name, team_names)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT (guild_id) DO UPDATE SET
                         guild_name = EXCLUDED.guild_name,
                         team_names = EXCLUDED.team_names,
-                        allowed_channels = EXCLUDED.allowed_channels,
                         is_active = TRUE,
                         updated_at = CURRENT_TIMESTAMP
-                """, (guild_id, guild_name, json.dumps(team_names), json.dumps(allowed_channels)))
+                """, (guild_id, guild_name, json.dumps(team_names)))
                 
                 conn.commit()
                 logging.info(f"✅ Created/updated guild config for {guild_id}")
@@ -1457,8 +1453,8 @@ class DatabaseManager:
                 values = []
                 
                 for key, value in kwargs.items():
-                    if key in ['guild_name', 'team_names', 'allowed_channels', 'is_active']:
-                        if key in ['team_names', 'allowed_channels']:
+                    if key in ['guild_name', 'team_names', 'is_active']:
+                        if key in ['team_names']:
                             update_fields.append(f"{key} = %s")
                             values.append(json.dumps(value))
                         else:
@@ -1491,14 +1487,9 @@ class DatabaseManager:
     
     def is_channel_allowed(self, guild_id: int, channel_id: int) -> bool:
         """Check if a channel is allowed for bot commands."""
-        config = self.get_guild_config(guild_id)
-        if config:
-            allowed_channels = config.get('allowed_channels', [])
-            # If no channels configured, allow all channels
-            if not allowed_channels:
-                return True
-            return channel_id in allowed_channels
-        return True  # Default to allowing all channels
+        # allowed_channels functionality deprecated in favor of ocr_channel_id
+        # Default to allowing all channels
+        return True
     
     # Team Management Methods
     def add_guild_team(self, guild_id: int, team_name: str) -> bool:

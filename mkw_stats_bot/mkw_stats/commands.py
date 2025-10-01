@@ -133,13 +133,13 @@ class MarioKartCommands(commands.Cog):
                 
                 # 1. Create guild config
                 cursor.execute("""
-                    INSERT INTO guild_configs (guild_id, guild_name, team_names, allowed_channels, is_active)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO guild_configs (guild_id, guild_name, team_names, is_active)
+                    VALUES (%s, %s, %s, %s)
                     ON CONFLICT (guild_id) DO UPDATE SET
                         guild_name = EXCLUDED.guild_name,
                         is_active = EXCLUDED.is_active,
                         updated_at = CURRENT_TIMESTAMP
-                """, (guild_id, servername, json.dumps([teamname]), json.dumps([]), True))
+                """, (guild_id, servername, json.dumps([teamname]), True))
                 
                 # 2. Add all players to players table
                 added_players = []
