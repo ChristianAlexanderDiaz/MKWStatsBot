@@ -1120,7 +1120,7 @@ class OCRProcessor:
             
             # Try single word exact match (check for race count patterns first)
             token_to_check = tokens[i]
-            race_count = 12  # Default race count
+            race_count = 12  # Default race coun
             raw_name = tokens[i]
             tokens_consumed = 1
             
