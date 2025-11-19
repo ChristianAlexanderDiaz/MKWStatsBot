@@ -1071,6 +1071,23 @@ class DatabaseManager:
                 highest_score = score_stats[0] if score_stats and score_stats[0] is not None else 0
                 lowest_score = score_stats[1] if score_stats and score_stats[1] is not None else 0
 
+                # Calculate win/loss/tie record from team differentials
+                cursor.execute("""
+                    SELECT COUNT(CASE WHEN w.team_differential > 0 THEN 1 END),
+                           COUNT(CASE WHEN w.team_differential < 0 THEN 1 END),
+                           COUNT(CASE WHEN w.team_differential = 0 THEN 1 END)
+                    FROM player_war_performances pwp
+                    JOIN wars w ON pwp.war_id = w.id
+                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                """, (player_id, guild_id))
+
+                record_stats = cursor.fetchone()
+                wins = record_stats[0] if record_stats else 0
+                losses = record_stats[1] if record_stats else 0
+                ties = record_stats[2] if record_stats else 0
+                total_wars = wins + losses + ties
+                win_percentage = (wins / total_wars * 100) if total_wars > 0 else 0.0
+
                 return {
                     'player_name': player_name,
                     'total_score': result[1],
@@ -1085,7 +1102,11 @@ class DatabaseManager:
                     'added_by': result[10],
                     'total_team_differential': result[11] if result[11] is not None else 0,
                     'highest_score': highest_score,
-                    'lowest_score': lowest_score
+                    'lowest_score': lowest_score,
+                    'wins': wins,
+                    'losses': losses,
+                    'ties': ties,
+                    'win_percentage': win_percentage
                 }
                 
         except Exception as e:

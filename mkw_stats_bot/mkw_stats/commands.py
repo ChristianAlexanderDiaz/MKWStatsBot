@@ -313,7 +313,13 @@ class MarioKartCommands(commands.Cog):
                             diff_emoji = "⚖️"
                             diff_text = "Balanced"
 
-                        differential_text = f"```\n{diff_symbol}{total_diff}\n```\n*{diff_text}*"
+                        # Get win/loss/tie record and percentage
+                        wins = stats.get('wins', 0)
+                        losses = stats.get('losses', 0)
+                        ties = stats.get('ties', 0)
+                        win_pct = stats.get('win_percentage', 0.0)
+
+                        differential_text = f"```\n{diff_symbol}{total_diff}\n{wins}-{losses}-{ties} ({win_pct:.1f}%)\n```\n*{diff_text}*"
                         embed.add_field(name=f"{diff_emoji} Differential", value=differential_text, inline=True)
 
                     # Activity Stats (war count, races, last war)
