@@ -258,58 +258,81 @@ class MarioKartCommands(commands.Cog):
                     stats = self.bot.db.get_player_stats(resolved_player, guild_id)
                 
                 if stats:
-                    # Create an embed for the player's stats
+                    # Modern minimalistic embed design
+                    from datetime import datetime
+
+                    # Determine title and color based on context
                     if lastxwars is not None:
-                        total_races = stats.get('total_races', 0)
-                        title = f"📊 Last {lastxwars} Wars Stats for {stats['player_name']} ({total_races} total races)"
-                        footer_text = f"Last {lastxwars} war events • {total_races} total races"
+                        title_text = f"{stats['player_name']}"
+                        scope_text = f"Last {lastxwars} Wars"
                     else:
-                        title = f"📊 Stats for {stats['player_name']}"
-                        footer_text = "All-time stats"
-                    
-                    embed = discord.Embed(
-                        title=title,
-                        color=0x00ff00
-                    )
-                    
-                    # Player info section
+                        title_text = f"{stats['player_name']}"
+                        scope_text = "Career Statistics"
+
+                    # Dynamic color based on team differential
+                    total_diff = stats.get('total_team_differential', 0)
+                    if total_diff is not None and total_diff > 0:
+                        color = 0x00ff88  # Green for positive
+                    elif total_diff is not None and total_diff < 0:
+                        color = 0xff6b6b  # Red for negative
+                    else:
+                        color = 0x95a5a6  # Gray for neutral
+
+                    # Build description with player info
                     team_name = stats.get('team', 'Unassigned')
-                    embed.add_field(name="Team", value=team_name, inline=True)
-                    
-                    # Optional nicknames - only show if they exist
+                    description_parts = [f"**{team_name}**"]
+
                     if stats.get('nicknames'):
-                        embed.add_field(name="Nicknames", value=", ".join(stats['nicknames']), inline=True)
-                    
-                    # Average score (most important stat first)
-                    embed.add_field(name="Average Score", value=f"{stats.get('average_score', 0.0):.1f} points", inline=True)
-                    
-                    # War statistics
+                        nicknames_str = ", ".join(stats['nicknames'])
+                        description_parts.append(f"*aka {nicknames_str}*")
+
+                    embed = discord.Embed(
+                        title=title_text,
+                        description="\n".join(description_parts),
+                        color=color
+                    )
+
+                    # Performance Overview (main stats in clean format)
                     war_count = float(stats.get('war_count', 0))
-                    if war_count == 1.0:
-                        wars_text = f"{war_count:.1f} war"
-                    else:
-                        wars_text = f"{war_count:.1f} wars"
-                    
-                    embed.add_field(name="Wars Played", value=wars_text, inline=True)
-                    embed.add_field(name="Total Score", value=f"{stats.get('total_score', 0):,} points", inline=True)
-                    embed.add_field(name="Total Races", value=str(stats.get('total_races', 0)), inline=True)
-                    
-                    # Format date to human readable format
+                    avg_score = stats.get('average_score', 0.0)
+                    total_score = stats.get('total_score', 0)
+
+                    performance_text = f"```\nAvg Score:  {avg_score:.1f}\nWar Count:  {war_count:.1f}\nTotal:      {total_score:,}\n```"
+                    embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
+
+                    # Team Differential (highlight wins/losses)
+                    if total_diff is not None:
+                        diff_symbol = "+" if total_diff >= 0 else ""
+                        if total_diff > 0:
+                            diff_emoji = "📈"
+                            diff_text = "Winning"
+                        elif total_diff < 0:
+                            diff_emoji = "📉"
+                            diff_text = "Fighting"
+                        else:
+                            diff_emoji = "⚖️"
+                            diff_text = "Balanced"
+
+                        differential_text = f"```\n{diff_symbol}{total_diff}\n```\n*{diff_text}*"
+                        embed.add_field(name=f"{diff_emoji} Differential", value=differential_text, inline=True)
+
+                    # Activity Stats
+                    total_races = stats.get('total_races', 0)
                     if stats.get('last_war_date'):
-                        from datetime import datetime
                         try:
-                            # Parse the date and format it nicely
                             date_obj = datetime.strptime(stats['last_war_date'], '%Y-%m-%d')
-                            formatted_date = date_obj.strftime('%b %d, %Y')
-                            embed.add_field(name="Last War", value=formatted_date, inline=True)
+                            last_war = date_obj.strftime('%b %d, %Y')
                         except:
-                            # Fallback to original format if parsing fails
-                            embed.add_field(name="Last War", value=stats['last_war_date'], inline=True)
+                            last_war = stats['last_war_date']
                     else:
-                        embed.add_field(name="Last War", value="No wars yet", inline=True)
-                    
-                    # Set footer to indicate data source
-                    embed.set_footer(text=footer_text)
+                        last_war = "Never"
+
+                    activity_text = f"```\nRaces:      {total_races}\nLast War:   {last_war}\n```"
+                    embed.add_field(name="📅 Activity", value=activity_text, inline=True)
+
+                    # Footer
+                    embed.set_footer(text=f"Guild-Specific {scope_text}")
+
                     await interaction.response.send_message(embed=embed)
                 else:
                     # Check if player exists in players table but has no stats yet
@@ -1258,17 +1281,23 @@ class MarioKartCommands(commands.Cog):
             # Update player statistics
             import datetime
             current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+
+            # Calculate team differential for player stats
+            team_score = sum(r['score'] for r in resolved_results)
+            team_differential = team_score - 492  # Breakeven for 12-race wars
+
             stats_updated = []
             stats_failed = []
-            
+
             for result in resolved_results:
                 success = self.bot.db.update_player_stats(
-                    result['name'], 
-                    result['score'], 
+                    result['name'],
+                    result['score'],
                     result['races_played'],
                     result['war_participation'],
                     current_date,
-                    guild_id
+                    guild_id,
+                    team_differential
                 )
                 if success:
                     stats_updated.append(result['name'])
@@ -1544,15 +1573,20 @@ class MarioKartCommands(commands.Cog):
                 if str(reaction.emoji) == "✅":
                     import datetime
                     current_date = datetime.datetime.now().strftime('%Y-%m-%d')
-                    
+
                     # Append players to war using new database method
                     success = self.bot.db.append_players_to_war_by_id(war_id, new_players, guild_id)
-                    
+
                     if success:
+                        # Get the updated war to get the new team_differential
+                        updated_war = self.bot.db.get_war_by_id(war_id, guild_id)
+                        team_score = sum(p['score'] for p in updated_war.get('results', []))
+                        team_differential = team_score - 492  # Breakeven for 12-race wars
+
                         # Add statistics for new players only
                         stats_added = []
                         stats_failed = []
-                        
+
                         for new_player in new_players:
                             stats_success = self.bot.db.update_player_stats(
                                 new_player['name'],
@@ -1560,7 +1594,8 @@ class MarioKartCommands(commands.Cog):
                                 new_player['races_played'],
                                 new_player['war_participation'],
                                 current_date,
-                                guild_id
+                                guild_id,
+                                team_differential
                             )
                             if stats_success:
                                 stats_added.append(new_player['name'])

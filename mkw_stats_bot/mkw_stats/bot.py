@@ -467,17 +467,22 @@ class MarioKartBot(commands.Bot):
                 
                 # Add war to database
                 war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id)
-                
+
                 if war_id is not None:
+                    # Calculate team differential for player stats
+                    team_score = sum(r['score'] for r in parsed_results)
+                    team_differential = team_score - 492  # Breakeven for 12-race wars
+
                     # Update player statistics
                     for result in parsed_results:
                         commands_cog.bot.db.update_player_stats(
-                            result['name'], 
-                            result['score'], 
+                            result['name'],
+                            result['score'],
                             result['races'],  # Use individual race count
                             result['races'] / total_race_count,  # war_participation (races played / total races)
                             datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                            guild_id
+                            guild_id,
+                            team_differential
                         )
                     
                     # Add checkmark to original image message
@@ -771,17 +776,22 @@ class MarioKartBot(commands.Bot):
                 try:
                     # Add war to database
                     war_id = self.db.add_race_results(war_info['players'], war_info['total_race_count'], guild_id)
-                    
+
                     if war_id is not None:
+                        # Calculate team differential for player stats
+                        team_score = sum(p['score'] for p in war_info['players'])
+                        team_differential = team_score - 492  # Breakeven for 12-race wars
+
                         # Update player statistics
                         for result in war_info['players']:
                             self.db.update_player_stats(
-                                result['name'], 
-                                result['score'], 
+                                result['name'],
+                                result['score'],
                                 result['races'],
                                 result['races'] / war_info['total_race_count'],
                                 datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                                guild_id
+                                guild_id,
+                                team_differential
                             )
                         
                         # Store successful save info

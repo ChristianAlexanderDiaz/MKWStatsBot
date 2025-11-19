@@ -427,16 +427,22 @@ class DatabaseManager:
                     # Use a simple EST offset (this won't handle DST automatically)
                     eastern_tz = timezone(timedelta(hours=-5))  # EST
                     eastern_now = datetime.now(eastern_tz)
-                
+
+                # Calculate team score and differential
+                team_score = sum(result.get('score', 0) for result in results)
+                team_differential = team_score - 492  # Breakeven for 12-race wars
+
                 cursor.execute("""
-                    INSERT INTO wars (war_date, race_count, players_data, guild_id)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO wars (war_date, race_count, players_data, guild_id, team_score, team_differential)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """, (
                     eastern_now.date(),
                     race_count,
                     json.dumps(session_data),
-                    guild_id
+                    guild_id,
+                    team_score,
+                    team_differential
                 ))
                 
                 war_id = cursor.fetchone()[0]
@@ -910,67 +916,69 @@ class DatabaseManager:
             return False
 
     # Player Statistics Management Methods
-    def update_player_stats(self, player_name: str, score: int, races_played: int, war_participation: float, war_date: str, guild_id: int = 0) -> bool:
+    def update_player_stats(self, player_name: str, score: int, races_played: int, war_participation: float, war_date: str, guild_id: int = 0, team_differential: int = 0) -> bool:
         """Update player statistics when a war is added with fractional war support."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 # Check if player exists and get current stats
                 cursor.execute("""
-                    SELECT total_score, total_races, war_count 
+                    SELECT total_score, total_races, war_count, total_team_differential
                     FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
-                
+
                 result = cursor.fetchone()
                 if result:
                     # Player has existing stats - UPDATE
                     new_total_score = result[0] + score
                     new_total_races = result[1] + races_played
                     new_war_count = float(result[2]) + war_participation  # Support fractional wars
+                    new_total_differential = (result[3] or 0) + team_differential
                     # Correct average calculation: total_score / war_count (preserves per-war average)
                     new_average = round(new_total_score / new_war_count, 2)
-                    
+
                     cursor.execute("""
-                        UPDATE players 
-                        SET total_score = %s, total_races = %s, war_count = %s, 
-                            average_score = %s, last_war_date = %s, updated_at = CURRENT_TIMESTAMP
+                        UPDATE players
+                        SET total_score = %s, total_races = %s, war_count = %s,
+                            average_score = %s, last_war_date = %s, total_team_differential = %s,
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE player_name = %s AND guild_id = %s
-                    """, (new_total_score, new_total_races, new_war_count, new_average, war_date, player_name, guild_id))
+                    """, (new_total_score, new_total_races, new_war_count, new_average, war_date, new_total_differential, player_name, guild_id))
                 else:
                     # Player doesn't exist - this shouldn't happen if /setup was used properly
                     logging.error(f"Player {player_name} not found in players table for guild {guild_id}")
                     return False
-                
+
                 conn.commit()
-                logging.info(f"✅ Updated stats for {player_name}: +{score} points, +{races_played} races, +{war_participation} wars")
+                logging.info(f"✅ Updated stats for {player_name}: +{score} points, +{races_played} races, +{war_participation} wars, differential: {team_differential:+d}")
                 return True
-                
+
         except Exception as e:
             logging.error(f"❌ Error updating player stats: {e}")
             return False
     
 
-    def remove_player_stats_with_participation(self, player_name: str, score: int, races_played: int, war_participation: float, guild_id: int = 0) -> bool:
+    def remove_player_stats_with_participation(self, player_name: str, score: int, races_played: int, war_participation: float, guild_id: int = 0, team_differential: int = 0) -> bool:
         """Remove player statistics when a war is removed, accounting for war participation."""
         logging.info(f"🔍 Attempting to remove stats for player: {player_name}, guild_id: {guild_id}")
-        logging.info(f"    Score to remove: {score}, Races: {races_played}, War participation: {war_participation}")
-        
+        logging.info(f"    Score to remove: {score}, Races: {races_played}, War participation: {war_participation}, Differential: {team_differential}")
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 # Get current stats with debug logging
                 logging.info(f"🔍 Querying for player: {player_name} in guild {guild_id}")
                 cursor.execute("""
-                    SELECT total_score, total_races, war_count 
+                    SELECT total_score, total_races, war_count, total_team_differential
                     FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
-                
+
                 result = cursor.fetchone()
                 if not result:
                     logging.warning(f"❌ No stats found for {player_name} in guild {guild_id} (or player inactive)")
-                    
+
                     # Additional debug: check if player exists at all
                     cursor.execute("SELECT player_name, guild_id, is_active FROM players WHERE player_name = %s", (player_name,))
                     all_matches = cursor.fetchall()
@@ -979,37 +987,38 @@ class DatabaseManager:
                     else:
                         logging.warning(f"🔍 Player '{player_name}' does not exist in players table at all")
                     return False
-                
+
                 # Log current stats
-                current_total_score, current_total_races, current_war_count = result
-                logging.info(f"✅ Found player {player_name}: current stats = {current_total_score} points, {current_total_races} races, {current_war_count} wars")
-                
+                current_total_score, current_total_races, current_war_count, current_total_differential = result
+                logging.info(f"✅ Found player {player_name}: current stats = {current_total_score} points, {current_total_races} races, {current_war_count} wars, differential: {current_total_differential}")
+
                 # Convert Decimal to float for calculations (PostgreSQL NUMERIC returns Decimal)
                 current_war_count = float(current_war_count)
-                
+
                 # Calculate new stats with safety checks
                 new_total_score = max(0, current_total_score - score)
                 new_total_races = max(0, current_total_races - races_played)
                 new_war_count = max(0.0, current_war_count - war_participation)
-                
-                logging.info(f"🔍 Calculated new stats: {new_total_score} points, {new_total_races} races, {new_war_count} wars")
-                
+                new_total_differential = (current_total_differential or 0) - team_differential
+
+                logging.info(f"🔍 Calculated new stats: {new_total_score} points, {new_total_races} races, {new_war_count} wars, differential: {new_total_differential}")
+
                 # Safe average calculation - avoid division by zero
                 if new_war_count > 0:
                     new_average = round(new_total_score / new_war_count, 2)
                 else:
                     new_average = 0.0
-                
+
                 logging.info(f"🔍 New average score: {new_average}")
-                
+
                 # Execute UPDATE with debug logging
                 logging.info(f"🔍 Executing UPDATE for player {player_name}")
                 cursor.execute("""
-                    UPDATE players 
-                    SET total_score = %s, total_races = %s, war_count = %s, 
-                        average_score = %s, updated_at = CURRENT_TIMESTAMP
+                    UPDATE players
+                    SET total_score = %s, total_races = %s, war_count = %s,
+                        average_score = %s, total_team_differential = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE player_name = %s AND guild_id = %s
-                """, (new_total_score, new_total_races, new_war_count, new_average, player_name, guild_id))
+                """, (new_total_score, new_total_races, new_war_count, new_average, new_total_differential, player_name, guild_id))
                 
                 # Check if UPDATE affected any rows
                 rows_affected = cursor.rowcount
@@ -1353,10 +1362,12 @@ class DatabaseManager:
                 
                 # Handle data format - results should be in war['results']
                 players_data = war.get('results', [])
+                team_differential = war.get('team_differential', 0)
                 logging.info(f"🔍 War data retrieved: {war}")
                 logging.info(f"🔍 Players data from war: {players_data}")
                 logging.info(f"🔍 Number of players to process: {len(players_data)}")
-                
+                logging.info(f"🔍 Team differential to remove: {team_differential}")
+
                 # Update player stats by removing this war's contribution
                 stats_reverted = 0
                 for i, result in enumerate(players_data):
@@ -1365,16 +1376,16 @@ class DatabaseManager:
                     score = result.get('score', 0)
                     races_played = result.get('races_played', war.get('race_count', 12))
                     war_participation = result.get('war_participation', 1.0)
-                    
+
                     if not player_name:
                         continue
-                    
+
                     # Resolve player name in case the war used a nickname
                     resolved_player = self.resolve_player_name(player_name, guild_id)
                     if resolved_player:
                         # Remove stats using war participation
                         success = self.remove_player_stats_with_participation(
-                            resolved_player, score, races_played, war_participation, guild_id
+                            resolved_player, score, races_played, war_participation, guild_id, team_differential
                         )
                         if success:
                             stats_reverted += 1
@@ -1772,27 +1783,31 @@ class DatabaseManager:
                 
                 # Append new players to existing results
                 combined_results = existing_results + new_players
-                
+
+                # Calculate new team score and differential
+                new_team_score = sum(p.get('score', 0) for p in combined_results)
+                new_team_differential = new_team_score - 492  # Breakeven for 12-race wars
+
                 # Format data in the expected dict structure
                 war_data = {
                     "results": combined_results,
                     "timestamp": datetime.now().isoformat(),
                     "race_count": existing_war.get('race_count', 12)
                 }
-                
-                # Update the war with combined data
+
+                # Update the war with combined data and new differential
                 cursor.execute("""
-                    UPDATE wars 
-                    SET players_data = %s
+                    UPDATE wars
+                    SET players_data = %s, team_score = %s, team_differential = %s
                     WHERE id = %s AND guild_id = %s
-                """, (json.dumps(war_data), war_id, guild_id))
-                
+                """, (json.dumps(war_data), new_team_score, new_team_differential, war_id, guild_id))
+
                 if cursor.rowcount == 0:
                     logging.error(f"No war found with ID {war_id} in guild {guild_id}")
                     return False
-                
+
                 conn.commit()
-                logging.info(f"✅ Appended {len(new_players)} players to war {war_id}")
+                logging.info(f"✅ Appended {len(new_players)} players to war {war_id}, new differential: {new_team_differential:+d}")
                 return True
                 
         except Exception as e:
