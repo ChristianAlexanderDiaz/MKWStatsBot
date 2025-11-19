@@ -284,7 +284,7 @@ class MarioKartCommands(commands.Cog):
 
                     if stats.get('nicknames'):
                         nicknames_str = ", ".join(stats['nicknames'])
-                        description_parts.append(f"*aka {nicknames_str}*")
+                        description_parts.append(f"*{nicknames_str}*")
 
                     embed = discord.Embed(
                         title=title_text,
@@ -292,12 +292,12 @@ class MarioKartCommands(commands.Cog):
                         color=color
                     )
 
-                    # Performance Overview (main stats in clean format)
-                    war_count = float(stats.get('war_count', 0))
+                    # Performance Overview (highest, average, lowest scores)
+                    highest_score = stats.get('highest_score', 0)
                     avg_score = stats.get('average_score', 0.0)
-                    total_score = stats.get('total_score', 0)
+                    lowest_score = stats.get('lowest_score', 0)
 
-                    performance_text = f"```\nAvg Score:  {avg_score:.1f}\nWar Count:  {war_count:.1f}\nTotal:      {total_score:,}\n```"
+                    performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
                     embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
 
                     # Team Differential (highlight wins/losses)
@@ -316,7 +316,8 @@ class MarioKartCommands(commands.Cog):
                         differential_text = f"```\n{diff_symbol}{total_diff}\n```\n*{diff_text}*"
                         embed.add_field(name=f"{diff_emoji} Differential", value=differential_text, inline=True)
 
-                    # Activity Stats
+                    # Activity Stats (war count, races, last war)
+                    war_count = float(stats.get('war_count', 0))
                     total_races = stats.get('total_races', 0)
                     if stats.get('last_war_date'):
                         try:
@@ -327,7 +328,7 @@ class MarioKartCommands(commands.Cog):
                     else:
                         last_war = "Never"
 
-                    activity_text = f"```\nRaces:      {total_races}\nLast War:   {last_war}\n```"
+                    activity_text = f"```\nWars:       {war_count:.1f}\nRaces:      {total_races}\nLast War:   {last_war}\n```"
                     embed.add_field(name="📅 Activity", value=activity_text, inline=True)
 
                     # Footer

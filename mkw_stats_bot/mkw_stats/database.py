@@ -1044,30 +1044,48 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Get player basic stats
                 cursor.execute("""
-                    SELECT total_score, total_races, war_count, average_score, 
+                    SELECT id, total_score, total_races, war_count, average_score,
                            last_war_date, created_at, updated_at,
-                           team, nicknames, added_by
+                           team, nicknames, added_by, total_team_differential
                     FROM players
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
-                
+
                 result = cursor.fetchone()
                 if not result:
                     return None
-                
+
+                player_id = result[0]
+
+                # Get highest and lowest scores from player_war_performances
+                cursor.execute("""
+                    SELECT MAX(pwp.score), MIN(pwp.score)
+                    FROM player_war_performances pwp
+                    JOIN wars w ON pwp.war_id = w.id
+                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                """, (player_id, guild_id))
+
+                score_stats = cursor.fetchone()
+                highest_score = score_stats[0] if score_stats and score_stats[0] is not None else 0
+                lowest_score = score_stats[1] if score_stats and score_stats[1] is not None else 0
+
                 return {
                     'player_name': player_name,
-                    'total_score': result[0],
-                    'total_races': result[1],
-                    'war_count': result[2],
-                    'average_score': float(result[3]) if result[3] else 0.0,
-                    'last_war_date': result[4].isoformat() if result[4] else None,
-                    'stats_created_at': result[5].isoformat() if result[5] else None,
-                    'stats_updated_at': result[6].isoformat() if result[6] else None,
-                    'team': result[7] if result[7] else 'Unassigned',
-                    'nicknames': result[8] if result[8] else [],
-                    'added_by': result[9]
+                    'total_score': result[1],
+                    'total_races': result[2],
+                    'war_count': result[3],
+                    'average_score': float(result[4]) if result[4] else 0.0,
+                    'last_war_date': result[5].isoformat() if result[5] else None,
+                    'stats_created_at': result[6].isoformat() if result[6] else None,
+                    'stats_updated_at': result[7].isoformat() if result[7] else None,
+                    'team': result[8] if result[8] else 'Unassigned',
+                    'nicknames': result[9] if result[9] else [],
+                    'added_by': result[10],
+                    'total_team_differential': result[11] if result[11] is not None else 0,
+                    'highest_score': highest_score,
+                    'lowest_score': lowest_score
                 }
                 
         except Exception as e:
