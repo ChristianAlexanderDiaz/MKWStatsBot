@@ -221,8 +221,13 @@ class MarioKartCommands(commands.Cog):
     @app_commands.describe(
         player="Player name to view stats for (optional - shows leaderboard if empty)",
         lastxwars="Show stats for last X wars only (optional - shows all-time if empty)",
-        sortby="Leaderboard sort method: 'average' (default) or 'winrate'"
+        sortby="Leaderboard sort method"
     )
+    @app_commands.choices(sortby=[
+        app_commands.Choice(name="Average Score", value="average"),
+        app_commands.Choice(name="Win Rate", value="winrate"),
+        app_commands.Choice(name="Average Differential", value="avgdiff")
+    ])
     @require_guild_setup
     async def stats_slash(self, interaction: discord.Interaction, player: str = None, lastxwars: int = None, sortby: str = None):
         """View statistics for a specific player or all players."""
@@ -396,6 +401,12 @@ class MarioKartCommands(commands.Cog):
                 # Sort players with stats by sortby parameter (default: average score)
                 if sortby and sortby.lower() == 'winrate':
                     players_with_stats.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
+                elif sortby and sortby.lower() == 'avgdiff':
+                    # Sort by average differential (total_team_differential / war_count)
+                    players_with_stats.sort(
+                        key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 0) > 0 else 0,
+                        reverse=True
+                    )
                 else:
                     players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
                 
@@ -417,6 +428,9 @@ class MarioKartCommands(commands.Cog):
                         avg_score = player.get('average_score', 0.0)
                         war_count = float(player.get('war_count', 0))
                         win_pct = player.get('win_percentage', 0.0)
+                        total_diff = player.get('total_team_differential', 0)
+                        avg_diff = total_diff / war_count if war_count > 0 else 0
+                        diff_symbol = "+" if avg_diff >= 0 else ""
 
                         # Format war count with 1 decimal place and proper singular/plural
                         if war_count == 1.0:
@@ -424,7 +438,7 @@ class MarioKartCommands(commands.Cog):
                         else:
                             war_display = f"{war_count:.1f} wars"
 
-                        leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({war_display}, {win_pct:.1f}%)")
+                        leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({diff_symbol}{avg_diff:.1f} diff) ({war_display}, {win_pct:.1f}%)")
                     else:
                         leaderboard_text.append(f"{i}. **{player['player_name']}** - No wars yet")
                 
@@ -435,7 +449,12 @@ class MarioKartCommands(commands.Cog):
                 )
                 
                 # Footer with sort method indication
-                sort_method = "Win Rate" if sortby and sortby.lower() == 'winrate' else "Average Score"
+                if sortby and sortby.lower() == 'winrate':
+                    sort_method = "Win Rate"
+                elif sortby and sortby.lower() == 'avgdiff':
+                    sort_method = "Average Differential"
+                else:
+                    sort_method = "Average Score"
                 embed.set_footer(text=f"Showing {len(all_players)} members only (trials/allies/kicked excluded) • Sorted by: {sort_method}")
                 
                 await interaction.response.send_message(embed=embed)
