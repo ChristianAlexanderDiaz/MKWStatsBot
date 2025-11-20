@@ -33,57 +33,54 @@ class OCRConfirmationView(discord.ui.View):
         self.bot = bot
         self.message = None  # Set after message is sent
 
-        # Build dynamic buttons for players
-        self._build_player_buttons()
+        # Build dropdown selects and action buttons
+        self._build_view_components()
 
-    def _build_player_buttons(self):
-        """Build Edit and Remove buttons for each player."""
+    def _build_view_components(self):
+        """Build dropdown selects and action buttons."""
         # Clear existing items
         self.clear_items()
 
-        # Discord limits: 5 buttons per row, 5 rows max = 25 buttons total
-        # With Edit + Remove per player, we can fit max 10 players (20 buttons) + 3 action buttons
-        # Layout: 2 players per row (4 buttons), leaving room for action buttons on last row
-
-        for i, result in enumerate(self.results):
-            # Calculate row: 2 players per row (each player = 2 buttons)
-            # Row 0: Players 0-1 (4 buttons)
-            # Row 1: Players 2-3 (4 buttons)
-            # Row 2: Players 4-5 (4 buttons)
-            # Row 3: Players 6-7 (4 buttons)
-            # Row 4: Players 8-9 (4 buttons) + action buttons
-            player_row = i // 2
-
-            # Edit button
-            edit_btn = discord.ui.Button(
-                label=f"Edit",
-                style=discord.ButtonStyle.secondary,
-                custom_id=f"edit_{i}",
-                row=player_row
+        # Create dropdown for editing players
+        if self.results:
+            edit_select = discord.ui.Select(
+                placeholder="Select player to edit",
+                options=[
+                    discord.SelectOption(
+                        label=f"{i+1}. {result['name']} ({result['score']} pts)",
+                        value=str(i),
+                        description=f"Edit {result['name']}'s name or score"
+                    )
+                    for i, result in enumerate(self.results)
+                ],
+                row=0
             )
-            edit_btn.callback = self._create_edit_callback(i)
-            self.add_item(edit_btn)
+            edit_select.callback = self._edit_select_callback
+            self.add_item(edit_select)
 
-            # Remove button
-            remove_btn = discord.ui.Button(
-                label="Remove",
-                style=discord.ButtonStyle.danger,
-                custom_id=f"remove_{i}",
-                row=player_row
+            # Create dropdown for removing players
+            remove_select = discord.ui.Select(
+                placeholder="Select player to remove",
+                options=[
+                    discord.SelectOption(
+                        label=f"{i+1}. {result['name']} ({result['score']} pts)",
+                        value=str(i),
+                        description=f"Remove {result['name']} from results"
+                    )
+                    for i, result in enumerate(self.results)
+                ],
+                row=1
             )
-            remove_btn.callback = self._create_remove_callback(i)
-            self.add_item(remove_btn)
+            remove_select.callback = self._remove_select_callback
+            self.add_item(remove_select)
 
-        # Add action buttons on the last row
-        # Calculate which row to put action buttons on (always last row)
-        action_row = min(4, (len(self.results) + 1) // 2)
-
+        # Add action buttons (row 2)
         # Add Player button
         add_btn = discord.ui.Button(
             label="+ Add Player",
             style=discord.ButtonStyle.success,
             custom_id="add_player",
-            row=action_row
+            row=2
         )
         add_btn.callback = self._add_player_callback
         self.add_item(add_btn)
@@ -93,7 +90,7 @@ class OCRConfirmationView(discord.ui.View):
             label="✅ Save War",
             style=discord.ButtonStyle.primary,
             custom_id="save_war",
-            row=action_row
+            row=2
         )
         save_btn.callback = self._save_war_callback
         self.add_item(save_btn)
@@ -103,47 +100,47 @@ class OCRConfirmationView(discord.ui.View):
             label="❌ Cancel",
             style=discord.ButtonStyle.danger,
             custom_id="cancel_war",
-            row=action_row
+            row=2
         )
         cancel_btn.callback = self._cancel_war_callback
         self.add_item(cancel_btn)
 
-    def _create_edit_callback(self, index: int):
-        """Create callback for edit button."""
-        async def callback(interaction: discord.Interaction):
-            # Permission check
-            if interaction.user.id != self.user_id:
-                await interaction.response.send_message(
-                    "❌ Only the person who uploaded the image can edit results",
-                    ephemeral=True
-                )
-                return
+    async def _edit_select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+        """Callback for edit player dropdown."""
+        # Permission check
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "❌ Only the person who uploaded the image can edit results",
+                ephemeral=True
+            )
+            return
 
-            # Open edit modal
-            modal = EditPlayerModal(self, index)
-            await interaction.response.send_modal(modal)
+        # Get selected player index
+        player_index = int(select.values[0])
 
-        return callback
+        # Open edit modal
+        modal = EditPlayerModal(self, player_index)
+        await interaction.response.send_modal(modal)
 
-    def _create_remove_callback(self, index: int):
-        """Create callback for remove button."""
-        async def callback(interaction: discord.Interaction):
-            # Permission check
-            if interaction.user.id != self.user_id:
-                await interaction.response.send_message(
-                    "❌ Only the person who uploaded the image can edit results",
-                    ephemeral=True
-                )
-                return
+    async def _remove_select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+        """Callback for remove player dropdown."""
+        # Permission check
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "❌ Only the person who uploaded the image can edit results",
+                ephemeral=True
+            )
+            return
 
-            # Remove player
-            removed_player = self.results.pop(index)
-            logger.info(f"Removed player {removed_player['name']} from OCR results")
+        # Get selected player index
+        player_index = int(select.values[0])
 
-            # Refresh view
-            await self.update_message(interaction)
+        # Remove player
+        removed_player = self.results.pop(player_index)
+        logger.info(f"Removed player {removed_player['name']} from OCR results")
 
-        return callback
+        # Refresh view
+        await self.update_message(interaction)
 
     async def _add_player_callback(self, interaction: discord.Interaction):
         """Callback for add player button."""
@@ -228,14 +225,14 @@ class OCRConfirmationView(discord.ui.View):
         embed.add_field(name="\u200b", value=players_text, inline=False)
 
         # Footer
-        embed.set_footer(text="⏱️ Confirmation expires in 5 minutes • Use buttons to edit, add, or remove players")
+        embed.set_footer(text="⏱️ Confirmation expires in 5 minutes • Use dropdowns to select players to edit or remove")
 
         return embed
 
     async def update_message(self, interaction: discord.Interaction):
-        """Update the message with refreshed embed and buttons."""
-        # Rebuild buttons with updated player list
-        self._build_player_buttons()
+        """Update the message with refreshed embed and view components."""
+        # Rebuild dropdowns and buttons with updated player list
+        self._build_view_components()
 
         # Create new embed
         embed = self.create_embed()
