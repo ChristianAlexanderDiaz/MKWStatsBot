@@ -220,10 +220,11 @@ class MarioKartCommands(commands.Cog):
     @app_commands.command(name="stats", description="View player statistics or leaderboard")
     @app_commands.describe(
         player="Player name to view stats for (optional - shows leaderboard if empty)",
-        lastxwars="Show stats for last X wars only (optional - shows all-time if empty)"
+        lastxwars="Show stats for last X wars only (optional - shows all-time if empty)",
+        sortby="Leaderboard sort method: 'average' (default) or 'winrate'"
     )
     @require_guild_setup
-    async def stats_slash(self, interaction: discord.Interaction, player: str = None, lastxwars: int = None):
+    async def stats_slash(self, interaction: discord.Interaction, player: str = None, lastxwars: int = None, sortby: str = None):
         """View statistics for a specific player or all players."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
@@ -386,8 +387,11 @@ class MarioKartCommands(commands.Cog):
                     else:
                         players_without_stats.append(roster_player)
                 
-                # Sort players with stats by average score (descending)
-                players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
+                # Sort players with stats by sortby parameter (default: average score)
+                if sortby and sortby.lower() == 'winrate':
+                    players_with_stats.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
+                else:
+                    players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
                 
                 # Combine and sort all players - those with stats first, then without stats
                 all_players = players_with_stats + players_without_stats
@@ -406,14 +410,15 @@ class MarioKartCommands(commands.Cog):
                     if player.get('war_count', 0) > 0:
                         avg_score = player.get('average_score', 0.0)
                         war_count = float(player.get('war_count', 0))
-                        
+                        win_pct = player.get('win_percentage', 0.0)
+
                         # Format war count with 1 decimal place and proper singular/plural
                         if war_count == 1.0:
                             war_display = f"{war_count:.1f} war"
                         else:
                             war_display = f"{war_count:.1f} wars"
-                        
-                        leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({war_display})")
+
+                        leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({war_display}, {win_pct:.1f}%)")
                     else:
                         leaderboard_text.append(f"{i}. **{player['player_name']}** - No wars yet")
                 
@@ -423,7 +428,9 @@ class MarioKartCommands(commands.Cog):
                     inline=False
                 )
                 
-                embed.set_footer(text=f"Showing {len(all_players)} members only (trials/allies/kicked excluded).")
+                # Footer with sort method indication
+                sort_method = "Win Rate" if sortby and sortby.lower() == 'winrate' else "Average Score"
+                embed.set_footer(text=f"Showing {len(all_players)} members only (trials/allies/kicked excluded) • Sorted by: {sort_method}")
                 
                 await interaction.response.send_message(embed=embed)
                 
