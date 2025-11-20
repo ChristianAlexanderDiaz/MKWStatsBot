@@ -11,6 +11,7 @@ from . import config
 from .database import DatabaseManager
 from .ocr_processor import OCRProcessor
 from .logging_config import get_logger, log_discord_command, setup_logging
+from .ocr_modals import EditPlayerModal, AddPlayerModal
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -18,6 +19,232 @@ load_dotenv()
 # Setup centralized logging
 setup_logging()
 logger = get_logger(__name__)
+
+
+class OCRConfirmationView(discord.ui.View):
+    """Interactive view for OCR war result confirmation with inline editing."""
+
+    def __init__(self, results: List[Dict], guild_id: int, user_id: int, original_message_obj: discord.Message, bot):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.results = results
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.original_message_obj = original_message_obj
+        self.bot = bot
+        self.message = None  # Set after message is sent
+
+        # Build dynamic buttons for players
+        self._build_player_buttons()
+
+    def _build_player_buttons(self):
+        """Build Edit and Remove buttons for each player."""
+        # Clear existing items
+        self.clear_items()
+
+        # Add Edit/Remove buttons for each player (max 12 players = 24 buttons)
+        for i, result in enumerate(self.results):
+            # Edit button
+            edit_btn = discord.ui.Button(
+                label=f"Edit",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"edit_{i}",
+                row=i // 3  # Distribute across rows (max 5 rows, 5 buttons per row)
+            )
+            edit_btn.callback = self._create_edit_callback(i)
+            self.add_item(edit_btn)
+
+            # Remove button
+            remove_btn = discord.ui.Button(
+                label="Remove",
+                style=discord.ButtonStyle.danger,
+                custom_id=f"remove_{i}",
+                row=i // 3
+            )
+            remove_btn.callback = self._create_remove_callback(i)
+            self.add_item(remove_btn)
+
+        # Add action buttons on the last row
+        # Add Player button
+        add_btn = discord.ui.Button(
+            label="+ Add Player",
+            style=discord.ButtonStyle.success,
+            custom_id="add_player",
+            row=4
+        )
+        add_btn.callback = self._add_player_callback
+        self.add_item(add_btn)
+
+        # Save button
+        save_btn = discord.ui.Button(
+            label="✅ Save War",
+            style=discord.ButtonStyle.primary,
+            custom_id="save_war",
+            row=4
+        )
+        save_btn.callback = self._save_war_callback
+        self.add_item(save_btn)
+
+        # Cancel button
+        cancel_btn = discord.ui.Button(
+            label="❌ Cancel",
+            style=discord.ButtonStyle.danger,
+            custom_id="cancel_war",
+            row=4
+        )
+        cancel_btn.callback = self._cancel_war_callback
+        self.add_item(cancel_btn)
+
+    def _create_edit_callback(self, index: int):
+        """Create callback for edit button."""
+        async def callback(interaction: discord.Interaction):
+            # Permission check
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message(
+                    "❌ Only the person who uploaded the image can edit results",
+                    ephemeral=True
+                )
+                return
+
+            # Open edit modal
+            modal = EditPlayerModal(self, index)
+            await interaction.response.send_modal(modal)
+
+        return callback
+
+    def _create_remove_callback(self, index: int):
+        """Create callback for remove button."""
+        async def callback(interaction: discord.Interaction):
+            # Permission check
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message(
+                    "❌ Only the person who uploaded the image can edit results",
+                    ephemeral=True
+                )
+                return
+
+            # Remove player
+            removed_player = self.results.pop(index)
+            logger.info(f"Removed player {removed_player['name']} from OCR results")
+
+            # Refresh view
+            await self.update_message(interaction)
+
+        return callback
+
+    async def _add_player_callback(self, interaction: discord.Interaction):
+        """Callback for add player button."""
+        # Permission check
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "❌ Only the person who uploaded the image can edit results",
+                ephemeral=True
+            )
+            return
+
+        # Open add modal
+        modal = AddPlayerModal(self)
+        await interaction.response.send_modal(modal)
+
+    async def _save_war_callback(self, interaction: discord.Interaction):
+        """Callback for save war button."""
+        # Permission check
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "❌ Only the person who uploaded the image can save results",
+                ephemeral=True
+            )
+            return
+
+        # Call the bot's handler for OCR submission
+        await self.bot.handle_ocr_war_submission_from_view(interaction, self)
+
+    async def _cancel_war_callback(self, interaction: discord.Interaction):
+        """Callback for cancel button."""
+        # Permission check
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "❌ Only the person who uploaded the image can cancel",
+                ephemeral=True
+            )
+            return
+
+        # Add ❌ to original image
+        try:
+            await self.original_message_obj.add_reaction("❌")
+        except:
+            pass
+
+        # Update embed
+        embed = discord.Embed(
+            title="❌ Results Cancelled",
+            description="Results were not saved to the database.",
+            color=0xff6600
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+
+        # Schedule deletion
+        asyncio.create_task(self.bot._countdown_and_delete_message(self.message, embed))
+
+    def create_embed(self) -> discord.Embed:
+        """Create modern minimalistic embed for OCR confirmation."""
+        # Get filename from original message
+        filename = "image"
+        if self.original_message_obj and self.original_message_obj.attachments:
+            filename = self.original_message_obj.attachments[0].filename
+
+        embed = discord.Embed(
+            title="🏁 War Results from OCR",
+            description=f"**{filename}**",
+            color=0x00ff00
+        )
+
+        # Build player list in code block
+        player_count = len(self.results)
+        players_text = f"```\n📊 Detected Players ({player_count})\n\n"
+
+        for i, result in enumerate(self.results, 1):
+            name = result['name']
+            score = result['score']
+            # Pad name to 12 characters for alignment
+            padded_name = name[:12].ljust(12)
+            players_text += f"{i}. {padded_name} {score} pts\n"
+
+        players_text += "```"
+
+        embed.add_field(name="\u200b", value=players_text, inline=False)
+
+        # Footer
+        embed.set_footer(text="⏱️ Confirmation expires in 5 minutes • Use buttons to edit, add, or remove players")
+
+        return embed
+
+    async def update_message(self, interaction: discord.Interaction):
+        """Update the message with refreshed embed and buttons."""
+        # Rebuild buttons with updated player list
+        self._build_player_buttons()
+
+        # Create new embed
+        embed = self.create_embed()
+
+        # Update message
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_timeout(self):
+        """Handle view timeout."""
+        if self.message:
+            try:
+                embed = discord.Embed(
+                    title="⏱️ Confirmation Expired",
+                    description="Results were not saved (timed out after 5 minutes).",
+                    color=0x95a5a6
+                )
+                await self.message.edit(embed=embed, view=None)
+
+                # Schedule deletion
+                asyncio.create_task(self.bot._countdown_and_delete_message(self.message, embed, 30))
+            except:
+                pass
+
 
 class MarioKartBot(commands.Bot):
  
@@ -289,27 +516,23 @@ class MarioKartBot(commands.Bot):
                     asyncio.create_task(self._countdown_and_delete_message(processing_msg, embed, 5))
                     return
                 
-                # Success - show confirmation embed and add reactions
-                await processing_msg.edit(content="", embed=embed)
-                
-                # Add reaction buttons
-                await processing_msg.add_reaction("✅")
-                await processing_msg.add_reaction("❌")
-                
-                # Store pending confirmation data with original message reference
-                confirmation_data = {
-                    'type': 'ocr_war_submission',
-                    'results': processed_results,
-                    'guild_id': guild_id,
-                    'user_id': message.author.id,
-                    'channel_id': message.channel.id,
-                    'original_message_obj': message
-                }
-                
-                self.pending_confirmations[str(processing_msg.id)] = confirmation_data
-                
-                # Start timeout - use same countdown logic as other confirmations
-                asyncio.create_task(self._countdown_and_delete_message(processing_msg, embed, 60))
+                # Success - create interactive view for confirmation
+                view = OCRConfirmationView(
+                    results=processed_results,
+                    guild_id=guild_id,
+                    user_id=message.author.id,
+                    original_message_obj=message,
+                    bot=self
+                )
+
+                # Create modern embed
+                embed = view.create_embed()
+
+                # Update message with view
+                await processing_msg.edit(content="", embed=embed, view=view)
+
+                # Store message reference in view for timeout handling
+                view.message = processing_msg
                 
             finally:
                 # Clean up temp file
@@ -421,6 +644,122 @@ class MarioKartBot(commands.Bot):
             
             # Start countdown and delete even on error (using reusable helper)
             asyncio.create_task(self._countdown_and_delete_message(message, embed))
+
+    async def handle_ocr_war_submission_from_view(self, interaction: discord.Interaction, view: OCRConfirmationView):
+        """Handle OCR war submission from interactive view."""
+        try:
+            results = view.results
+            guild_id = view.guild_id
+
+            # Get the commands cog
+            commands_cog = self.get_cog('MarioKartCommands')
+            if not commands_cog:
+                raise Exception("Commands cog not found")
+
+            # Use the detailed OCR results directly (preserving race counts)
+            from datetime import datetime
+            import pytz
+
+            # Process war submission using OCR results directly
+            parsed_results = []
+
+            for result in results:
+                player_name = result['name']
+                score = result['score']
+                race_count = result.get('races', 12)
+
+                parsed_results.append({
+                    'name': player_name,
+                    'original_name': result.get('raw_name', player_name),
+                    'score': score,
+                    'races': race_count,
+                    'date': datetime.now(pytz.UTC).strftime('%Y-%m-%d'),
+                    'time': datetime.now(pytz.UTC).strftime('%H:%M:%S'),
+                    'war_type': '6v6',
+                    'notes': 'Auto-processed via OCR'
+                })
+
+            if not parsed_results:
+                raise Exception("No valid players found for war submission")
+
+            # Calculate total race count for the war
+            total_race_count = max(result['races'] for result in parsed_results)
+
+            # Add war to database
+            war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id)
+
+            if war_id is not None:
+                # Calculate team differential for player stats
+                team_score = sum(r['score'] for r in parsed_results)
+                team_differential = team_score - 492  # Breakeven for 12-race wars
+
+                # Update player statistics
+                for result in parsed_results:
+                    commands_cog.bot.db.update_player_stats(
+                        result['name'],
+                        result['score'],
+                        result['races'],
+                        result['races'] / total_race_count,
+                        datetime.now(pytz.timezone('America/New_York')).isoformat(),
+                        guild_id,
+                        team_differential
+                    )
+
+                # Add checkmark to original image message
+                try:
+                    await view.original_message_obj.add_reaction("✅")
+                except discord.errors.NotFound:
+                    logger.debug(f"Skipping reaction for deleted message")
+                except Exception as e:
+                    logger.warning(f"Failed to add reaction to original message: {e}")
+
+                # Create success embed
+                embed = discord.Embed(
+                    title="✅ War Results Saved!",
+                    description=f"Successfully saved war results for {len(parsed_results)} players.",
+                    color=0x00ff00
+                )
+
+                # Add player summary
+                results_text = "\n".join([
+                    f"**{result['name']}**: {result['score']} points"
+                    for result in parsed_results
+                ])
+
+                embed.add_field(
+                    name=f"📊 War Results ({len(parsed_results)} players)",
+                    value=results_text,
+                    inline=False
+                )
+                embed.add_field(
+                    name="📈 Database Updated",
+                    value="Player statistics and averages have been updated.",
+                    inline=False
+                )
+                embed.set_footer(text=f"War added via OCR • Type: 6v6 • Races: {total_race_count}")
+
+            else:
+                embed = discord.Embed(
+                    title="❌ Database Error",
+                    description="Failed to save war to database. Please try manual submission.",
+                    color=0xff0000
+                )
+
+            # Update message with result (disable view)
+            await interaction.response.edit_message(embed=embed, view=None)
+
+            # Schedule deletion
+            asyncio.create_task(self._countdown_and_delete_message(view.message, embed))
+
+        except Exception as e:
+            logger.error(f"Error handling OCR war submission from view: {e}")
+            embed = discord.Embed(
+                title="❌ Error",
+                description=f"An error occurred while saving results: {str(e)}",
+                color=0xff0000
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            asyncio.create_task(self._countdown_and_delete_message(view.message, embed))
 
     async def handle_ocr_war_submission(self, message: discord.Message, confirmation_data: Dict):
         """Handle OCR war submission to database."""
