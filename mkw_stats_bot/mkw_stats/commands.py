@@ -2047,35 +2047,45 @@ class MarioKartCommands(commands.Cog):
             }
             
             self.bot.pending_confirmations[str(message.id)] = confirmation_data
-            
-            # Start timeout task in background
-            asyncio.create_task(self._handle_ocr_confirmation_timeout(message.id, 60))
+
+            # Start timeout task in background and track it
+            timeout_task = asyncio.create_task(self._handle_ocr_confirmation_timeout(message.id, 60))
+            self.bot.timeout_tasks[str(message.id)] = timeout_task
             
         except Exception as e:
             logging.error(f"Error adding OCR confirmation: {e}")
 
     async def _handle_ocr_confirmation_timeout(self, message_id: int, timeout_seconds: int):
         """Handle timeout for OCR confirmation."""
-        await asyncio.sleep(timeout_seconds)
-        
-        # Check if still pending and remove
-        if str(message_id) in self.bot.pending_confirmations:
-            del self.bot.pending_confirmations[str(message_id)]
-            
-            try:
-                # Get the message and update it to show expired
-                channel = self.bot.get_channel(self.bot.pending_confirmations.get(str(message_id), {}).get('channel_id'))
-                if channel:
-                    message = await channel.fetch_message(message_id)
-                    expired_embed = discord.Embed(
-                        title="⏰ Confirmation Expired",
-                        description="The confirmation period has expired. Results were not saved.",
-                        color=0x808080
-                    )
-                    await message.edit(embed=expired_embed)
-                    await message.clear_reactions()
-            except:
-                pass
+        try:
+            await asyncio.sleep(timeout_seconds)
+
+            # Check if still pending
+            message_id_str = str(message_id)
+            if message_id_str in self.bot.pending_confirmations:
+                confirmation_data = self.bot.pending_confirmations[message_id_str]
+                channel_id = confirmation_data.get('channel_id')
+
+                # Clean up the confirmation
+                self.bot.cleanup_confirmation(message_id_str)
+
+                try:
+                    # Get the message and update it to show expired
+                    channel = self.bot.get_channel(channel_id)
+                    if channel:
+                        message = await channel.fetch_message(message_id)
+                        expired_embed = discord.Embed(
+                            title="⏰ Confirmation Expired",
+                            description="The confirmation period has expired. Results were not saved.",
+                            color=0x808080
+                        )
+                        await message.edit(embed=expired_embed)
+                        await message.clear_reactions()
+                except:
+                    pass
+        except asyncio.CancelledError:
+            # Task was cancelled (confirmation was handled), that's fine
+            pass
 
     @app_commands.command(name="scanimage", description="Manually scan the most recent image in this channel (backup for when automatic OCR misses)")
     @require_guild_setup

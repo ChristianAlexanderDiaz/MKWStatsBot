@@ -319,6 +319,8 @@ class MarioKartBot(commands.Bot):
         self.ocr = OCRProcessor(db_manager=self.db)
         # Initialize the pending confirmations dictionary
         self.pending_confirmations = {}  # message_id -> confirmation_data
+        # Track timeout tasks so we can cancel them if needed
+        self.timeout_tasks = {}  # message_id -> asyncio.Task
     
     """
     This is the on_ready event.
@@ -1606,9 +1608,16 @@ class MarioKartBot(commands.Bot):
         self.cleanup_confirmation(str(message.id))
     
     def cleanup_confirmation(self, message_id: str):
-        """Clean up confirmation data."""
+        """Clean up confirmation data and cancel any associated timeout tasks."""
         if message_id in self.pending_confirmations:
             del self.pending_confirmations[message_id]
+
+        # Cancel any timeout task for this message
+        if message_id in self.timeout_tasks:
+            task = self.timeout_tasks[message_id]
+            if not task.done():
+                task.cancel()
+            del self.timeout_tasks[message_id]
         # Note: v2 database stores confirmations in memory only, no database cleanup needed
     
     async def _auto_delete_message(self, message: discord.Message, delay_seconds: int):
