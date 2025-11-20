@@ -690,11 +690,39 @@ class OCRProcessor:
             # Log final decision
             winning_names = [r['name'] for r in winning_team]
             excluded_names = [r['name'] for r in excluded_team]
-            
+
             logging.info(f"🏆 6v6 Result - Team {winning_team_num} selected: {', '.join(winning_names)}")
             if excluded_team:
                 logging.info(f"❌ Excluded opposing team: {', '.join(excluded_names)}")
-            
+
+            # Apply substring matching ONLY to winning team for corrupted name recovery
+            # This is safe because we know these positions belong to the winning team
+            logging.info("🔍 Attempting to recover corrupted names in winning team...")
+            winning_team_start = 0 if winning_team_num == 1 else 6
+            winning_team_end = 6 if winning_team_num == 1 else 12
+
+            # Get guild members for substring matching
+            guild_players = self.db_manager.get_all_players_stats(guild_id) if self.db_manager else []
+            guild_names_list = {p.get('player_name', '').lower(): p.get('player_name', '') for p in guild_players}
+
+            # Try to recover corrupted names in winning team positions
+            for result in winning_team:
+                result_name = result['name']
+                result_raw = result.get('raw_name', result_name)
+                result_score = result['score']
+
+                # Look for any unmatched tokens in winning team positions that might be this player
+                for pos, (token_name, token_score) in enumerate(all_players):
+                    if winning_team_start <= pos < winning_team_end and token_score == result_score:
+                        # Found matching score in correct position
+                        # Check if token_name contains any guild member name substring
+                        token_lower = token_name.lower()
+                        for guild_name in guild_names_list.keys():
+                            if len(guild_name) >= 2 and guild_name in token_lower and guild_name != result_name.lower():
+                                # Potential recovery - update raw_name if it looks like a corrupted match
+                                logging.info(f"🔧 Potential corruption recovery: '{token_name}' might be '{guild_name}' for score {result_score}")
+                                break
+
             return winning_team  # Return only the winning team results
             
         except Exception as e:
@@ -745,28 +773,32 @@ class OCRProcessor:
         players = []
         i = 0
         
-        def find_guild_member_in_token(token: str) -> str:
+        def find_guild_member_in_token(token: str, allow_substring_match: bool = True) -> str:
             """Check if token contains a guild member name or nickname."""
             token_lower = token.lower()
-            
+
             # Check exact match first
             if token_lower in guild_names:
                 return token_lower
-                
+
             # Check nickname match
             if token_lower in guild_nicknames:
                 return guild_nicknames[token_lower]
-                
+
+            # Only do substring matching if explicitly allowed (for post-split recovery)
+            if not allow_substring_match:
+                return None
+
             # Check substring matches (for corrupted OCR like 'IDiceyBIG')
             for name in guild_names:
                 if len(name) >= 2 and name in token_lower:
                     return name
-                    
+
             # Check nickname substrings
             for nickname, real_name in guild_nicknames.items():
                 if len(nickname) >= 2 and nickname in token_lower:
                     return real_name
-                    
+
             return None
         
         while i < len(tokens):
@@ -779,7 +811,7 @@ class OCRProcessor:
                 # Look ahead for name in next token
                 if i < len(tokens) - 1:
                     next_token = tokens[i + 1]
-                    guild_member = find_guild_member_in_token(next_token)
+                    guild_member = find_guild_member_in_token(next_token, allow_substring_match=False)
                     
                     if guild_member:
                         # Found guild member after score - reversed pattern like "93 vee"
@@ -801,7 +833,7 @@ class OCRProcessor:
             
             # Case 2: Current token contains letters - check for guild member
             if not current_token.isdigit():
-                guild_member = find_guild_member_in_token(current_token)
+                guild_member = find_guild_member_in_token(current_token, allow_substring_match=False)
                 
                 if guild_member:
                     # Found guild member - look for score
