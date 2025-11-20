@@ -105,7 +105,7 @@ class OCRConfirmationView(discord.ui.View):
         cancel_btn.callback = self._cancel_war_callback
         self.add_item(cancel_btn)
 
-    async def _edit_select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+    async def _edit_select_callback(self, interaction: discord.Interaction):
         """Callback for edit player dropdown."""
         # Permission check
         if interaction.user.id != self.user_id:
@@ -115,14 +115,16 @@ class OCRConfirmationView(discord.ui.View):
             )
             return
 
-        # Get selected player index
+        # Get selected player index from interaction data
+        # The select component is the one that triggered this interaction
+        select = [item for item in self.children if isinstance(item, discord.ui.Select) and item.placeholder == "Select player to edit"][0]
         player_index = int(select.values[0])
 
         # Open edit modal
         modal = EditPlayerModal(self, player_index)
         await interaction.response.send_modal(modal)
 
-    async def _remove_select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+    async def _remove_select_callback(self, interaction: discord.Interaction):
         """Callback for remove player dropdown."""
         # Permission check
         if interaction.user.id != self.user_id:
@@ -132,7 +134,8 @@ class OCRConfirmationView(discord.ui.View):
             )
             return
 
-        # Get selected player index
+        # Get selected player index from interaction data
+        select = [item for item in self.children if isinstance(item, discord.ui.Select) and item.placeholder == "Select player to remove"][0]
         player_index = int(select.values[0])
 
         # Remove player
