@@ -197,6 +197,7 @@ class OCRConfirmationView(discord.ui.View):
 
         # Create view with report button
         report_view = ReportIssueView(self)
+        report_view.message = interaction.message
 
         await interaction.response.edit_message(embed=embed, view=report_view)
         # Don't schedule deletion immediately - keep visible for Report button
@@ -268,8 +269,9 @@ class ReportIssueView(discord.ui.View):
     def __init__(self, ocr_view: OCRConfirmationView):
         super().__init__(timeout=300)
         self.ocr_view = ocr_view
+        self.message = None
 
-    @discord.ui.button(label="🚩 Report Issue with Scan", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🚩 Report Issue with Scan", style=discord.ButtonStyle.secondary)
     async def report_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Open modal to report OCR issue."""
         # Permission check
@@ -281,8 +283,16 @@ class ReportIssueView(discord.ui.View):
             return
 
         # Open report modal
-        modal = ReportIssueModal(self.ocr_view)
+        modal = ReportIssueModal(self.ocr_view, self, button)
         await interaction.response.send_modal(modal)
+
+    async def on_timeout(self):
+        """Handle view timeout - delete the message."""
+        if self.message:
+            try:
+                await self.message.delete()
+            except:
+                pass
 
 
 class MarioKartBot(commands.Bot):
@@ -1515,6 +1525,7 @@ class MarioKartBot(commands.Bot):
         temp_view.bot = self
 
         report_view = ReportIssueView(temp_view)
+        report_view.message = message
 
         await message.edit(embed=embed, view=report_view)
 

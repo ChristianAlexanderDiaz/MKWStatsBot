@@ -140,9 +140,11 @@ class ReportIssueModal(ui.Modal, title="Report OCR Issue"):
         max_length=500
     )
 
-    def __init__(self, ocr_view: 'OCRConfirmationView'):
+    def __init__(self, ocr_view: 'OCRConfirmationView', report_view: 'ReportIssueView' = None, button: 'discord.ui.Button' = None):
         super().__init__()
         self.ocr_view = ocr_view
+        self.report_view = report_view
+        self.button = button
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle report submission."""
@@ -160,6 +162,24 @@ class ReportIssueModal(ui.Modal, title="Report OCR Issue"):
                 "✅ **Report sent!** Thank you for helping improve OCR accuracy.",
                 ephemeral=True
             )
+
+            # Disable the button so it can only be used once
+            if self.button:
+                self.button.disabled = True
+
+            # Update the message to show button is disabled, then delete after countdown
+            if self.report_view and self.report_view.message:
+                try:
+                    await self.report_view.message.edit(view=self.report_view)
+                    # Schedule deletion with countdown
+                    import asyncio
+                    asyncio.create_task(self.ocr_view.bot._countdown_and_delete_message(
+                        self.report_view.message,
+                        self.report_view.message.embeds[0] if self.report_view.message.embeds else None,
+                        countdown_seconds=10
+                    ))
+                except:
+                    pass
 
         except Exception as e:
             await interaction.response.send_message(
