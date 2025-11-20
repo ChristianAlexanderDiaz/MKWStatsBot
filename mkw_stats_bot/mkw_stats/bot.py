@@ -1491,21 +1491,35 @@ class MarioKartBot(commands.Bot):
 
         embed = discord.Embed(
             title="❌ Results Cancelled",
-            description="Results were not saved to the database.",
+            description="Results were not saved to the database.\n\n💡 **Found an issue with OCR detection?**\nYou can report it below to help improve accuracy.",
             color=0xff6600
         )
-        await message.edit(embed=embed)
+
         try:
             await message.clear_reactions()
         except discord.errors.Forbidden:
             # Bot doesn't have permission to clear reactions, that's okay
             pass
 
+        # Create a report view for the rejection message
+        # Build a temporary OCRConfirmationView-like object to pass to ReportIssueView
+        class TempOCRView:
+            def __init__(self, confirmation_data):
+                self.guild_id = confirmation_data.get('guild_id')
+                self.user_id = confirmation_data.get('user_id')
+                self.original_message_obj = confirmation_data.get('original_message_obj')
+                self.results = confirmation_data.get('results', [])
+                self.bot = None  # Will be set below
+
+        temp_view = TempOCRView(confirmation_data)
+        temp_view.bot = self
+
+        report_view = ReportIssueView(temp_view)
+
+        await message.edit(embed=embed, view=report_view)
+
         # Clean up pending confirmation
         self.cleanup_confirmation(str(message.id))
-
-        # Start countdown and delete (using reusable helper)
-        asyncio.create_task(self._countdown_and_delete_message(message, embed))
 
     async def handle_confirmation_edit(self, message: discord.Message, confirmation_data: Dict):
         """Handle manual edit request."""
