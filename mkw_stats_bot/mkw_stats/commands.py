@@ -303,7 +303,13 @@ class MarioKartCommands(commands.Cog):
 
                     # Team Differential (highlight wins/losses)
                     if total_diff is not None:
-                        diff_symbol = "+" if total_diff >= 0 else ""
+                        war_count = float(stats.get('war_count', 0))
+                        avg_diff = total_diff / war_count if war_count > 0 else 0
+
+                        # Determine symbols and formatting
+                        total_diff_symbol = "+" if total_diff >= 0 else ""
+                        avg_diff_symbol = "+" if avg_diff >= 0 else ""
+
                         if total_diff > 0:
                             diff_emoji = "📈"
                             diff_text = "Winning"
@@ -320,7 +326,7 @@ class MarioKartCommands(commands.Cog):
                         ties = stats.get('ties', 0)
                         win_pct = stats.get('win_percentage', 0.0)
 
-                        differential_text = f"```\n{diff_symbol}{total_diff}\n{wins}-{losses}-{ties} ({win_pct:.1f}%)\n```\n*{diff_text}*"
+                        differential_text = f"```\nAvg:   {avg_diff_symbol}{avg_diff:.1f}\n{wins}-{losses}-{ties} ({win_pct:.1f}%)\nTotal: {total_diff_symbol}{total_diff}\n```\n*{diff_text}*"
                         embed.add_field(name=f"{diff_emoji} Differential", value=differential_text, inline=True)
 
                     # Activity Stats (war count, races, last war)
