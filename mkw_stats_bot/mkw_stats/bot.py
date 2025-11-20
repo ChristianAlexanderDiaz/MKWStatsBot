@@ -1101,6 +1101,16 @@ class MarioKartBot(commands.Bot):
 
     async def handle_confirmation_reject(self, message: discord.Message, confirmation_data: Dict):
         """Handle rejected confirmation."""
+        # Add ❌ to original image message
+        if 'original_message_obj' in confirmation_data:
+            try:
+                await confirmation_data['original_message_obj'].add_reaction("❌")
+            except discord.errors.NotFound:
+                logger.debug(f"Skipping reaction for deleted message")
+            except Exception as e:
+                logger.warning(f"Failed to add reaction to original message: {e}")
+                pass
+
         embed = discord.Embed(
             title="❌ Results Cancelled",
             description="Results were not saved to the database.",
@@ -1112,10 +1122,10 @@ class MarioKartBot(commands.Bot):
         except discord.errors.Forbidden:
             # Bot doesn't have permission to clear reactions, that's okay
             pass
-        
+
         # Clean up pending confirmation
         self.cleanup_confirmation(str(message.id))
-        
+
         # Start countdown and delete (using reusable helper)
         asyncio.create_task(self._countdown_and_delete_message(message, embed))
 
