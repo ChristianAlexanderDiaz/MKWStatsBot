@@ -41,14 +41,25 @@ class OCRConfirmationView(discord.ui.View):
         # Clear existing items
         self.clear_items()
 
-        # Add Edit/Remove buttons for each player (max 12 players = 24 buttons)
+        # Discord limits: 5 buttons per row, 5 rows max = 25 buttons total
+        # With Edit + Remove per player, we can fit max 10 players (20 buttons) + 3 action buttons
+        # Layout: 2 players per row (4 buttons), leaving room for action buttons on last row
+
         for i, result in enumerate(self.results):
+            # Calculate row: 2 players per row (each player = 2 buttons)
+            # Row 0: Players 0-1 (4 buttons)
+            # Row 1: Players 2-3 (4 buttons)
+            # Row 2: Players 4-5 (4 buttons)
+            # Row 3: Players 6-7 (4 buttons)
+            # Row 4: Players 8-9 (4 buttons) + action buttons
+            player_row = i // 2
+
             # Edit button
             edit_btn = discord.ui.Button(
                 label=f"Edit",
                 style=discord.ButtonStyle.secondary,
                 custom_id=f"edit_{i}",
-                row=i // 3  # Distribute across rows (max 5 rows, 5 buttons per row)
+                row=player_row
             )
             edit_btn.callback = self._create_edit_callback(i)
             self.add_item(edit_btn)
@@ -58,18 +69,21 @@ class OCRConfirmationView(discord.ui.View):
                 label="Remove",
                 style=discord.ButtonStyle.danger,
                 custom_id=f"remove_{i}",
-                row=i // 3
+                row=player_row
             )
             remove_btn.callback = self._create_remove_callback(i)
             self.add_item(remove_btn)
 
         # Add action buttons on the last row
+        # Calculate which row to put action buttons on (always last row)
+        action_row = min(4, (len(self.results) + 1) // 2)
+
         # Add Player button
         add_btn = discord.ui.Button(
             label="+ Add Player",
             style=discord.ButtonStyle.success,
             custom_id="add_player",
-            row=4
+            row=action_row
         )
         add_btn.callback = self._add_player_callback
         self.add_item(add_btn)
@@ -79,7 +93,7 @@ class OCRConfirmationView(discord.ui.View):
             label="✅ Save War",
             style=discord.ButtonStyle.primary,
             custom_id="save_war",
-            row=4
+            row=action_row
         )
         save_btn.callback = self._save_war_callback
         self.add_item(save_btn)
@@ -89,7 +103,7 @@ class OCRConfirmationView(discord.ui.View):
             label="❌ Cancel",
             style=discord.ButtonStyle.danger,
             custom_id="cancel_war",
-            row=4
+            row=action_row
         )
         cancel_btn.callback = self._cancel_war_callback
         self.add_item(cancel_btn)
