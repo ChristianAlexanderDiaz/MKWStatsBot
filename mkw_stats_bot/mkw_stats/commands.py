@@ -9,6 +9,7 @@ import aiohttp
 import tempfile
 import os
 import traceback
+from . import config
 # OCR processor initialized in bot.py at startup for instant response
 
 # Member status choices - centralized definition
@@ -2490,7 +2491,202 @@ class MarioKartCommands(commands.Cog):
         except Exception as e:
             logging.error(f"Error setting OCR channel: {e}")
             await interaction.response.send_message(f"❌ Error setting OCR channel: {str(e)}", ephemeral=True)
-   
+
+    @app_commands.command(name="debugocr", description="Debug OCR results (admin only)")
+    @app_commands.describe(
+        image_url="URL of the image to debug with OCR"
+    )
+    async def debug_ocr(self, interaction: discord.Interaction, image_url: str):
+        """Debug OCR processing pipeline with detailed stage output (admin server only)."""
+        # Check if command is being used in admin server
+        if config.ADMIN_SERVER_ID and interaction.guild_id != config.ADMIN_SERVER_ID:
+            await interaction.response.send_message(
+                "❌ This command is only available in the admin server.",
+                ephemeral=True
+            )
+            return
+
+        # Check if user is admin
+        if config.ADMIN_USER_ID and interaction.user.id != config.ADMIN_USER_ID:
+            await interaction.response.send_message(
+                "❌ This command is restricted to the admin user.",
+                ephemeral=True
+            )
+            return
+
+        # Check if admin settings are configured
+        if not config.ADMIN_USER_ID or not config.ADMIN_SERVER_ID:
+            await interaction.response.send_message(
+                "❌ Admin settings are not configured. Please set ADMIN_USER_ID and ADMIN_SERVER_ID.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            import tempfile
+            import aiohttp
+
+            # Download the image
+            temp_file_path = None
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(image_url) as response:
+                        if response.status != 200:
+                            await interaction.followup.send(
+                                f"❌ Failed to download image. HTTP {response.status}",
+                                ephemeral=True
+                            )
+                            return
+
+                        # Save to temporary file
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                            tmp.write(await response.read())
+                            temp_file_path = tmp.name
+
+                # Get OCR processor
+                ocr_processor = self.bot.ocr_processor
+
+                # Stage 1: Image Loading and Preprocessing
+                debug_embed = discord.Embed(
+                    title="🔍 OCR Debug Pipeline",
+                    description="Running through all 6 debug stages...",
+                    color=0x0099ff
+                )
+
+                import cv2
+
+                # Load image
+                image = cv2.imread(temp_file_path)
+                if image is None:
+                    await interaction.followup.send("❌ Failed to load image.", ephemeral=True)
+                    return
+
+                original_shape = image.shape
+                debug_embed.add_field(
+                    name="📷 Stage 1: Image Loading",
+                    value=f"✅ Loaded successfully\n**Dimensions**: {original_shape[1]}x{original_shape[0]} pixels\n**Color Channels**: {original_shape[2]} (BGR)",
+                    inline=False
+                )
+
+                # Stage 2: Preprocessing
+                preprocessed = ocr_processor._preprocess_image_for_ocr(image.copy())
+                debug_embed.add_field(
+                    name="🔧 Stage 2: Preprocessing",
+                    value=f"✅ Preprocessing applied\n**Techniques**: Grayscale conversion, contrast enhancement, denoising\n**Output Shape**: {preprocessed.shape}",
+                    inline=False
+                )
+
+                # Stage 3: Text Detection (PaddleOCR)
+                results = ocr_processor.ocr_reader.readtext(preprocessed, batch_size=1)
+                if results:
+                    detected_count = len(results)
+                    detected_text = "\n".join([f"• {item[1]}" for item in results[:10]])  # Show first 10
+                    if len(results) > 10:
+                        detected_text += f"\n• ... and {len(results) - 10} more"
+                else:
+                    detected_text = "No text detected"
+                    detected_count = 0
+
+                debug_embed.add_field(
+                    name="📝 Stage 3: Text Detection",
+                    value=f"✅ PaddleOCR completed\n**Text blocks detected**: {detected_count}\n**First results**:\n{detected_text[:500]}",
+                    inline=False
+                )
+
+                # Stage 4: Text Parsing
+                parsed_text = "\n".join([item[1] for item in results if item[1].strip()])
+                lines = parsed_text.split("\n")
+                debug_embed.add_field(
+                    name="🔤 Stage 4: Text Parsing",
+                    value=f"✅ Text extracted\n**Lines found**: {len(lines)}\n**Sample**: {lines[:3] if lines else 'No text'}",
+                    inline=False
+                )
+
+                # Stage 5: Name/Score Matching
+                guild_id = interaction.guild_id
+                matched_results = []
+                unmatched_names = []
+
+                for line in lines:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        potential_name = " ".join(parts[:-1])
+                        potential_score = parts[-1]
+
+                        try:
+                            score = int(potential_score)
+                            # Check if score is valid (1-180)
+                            if 1 <= score <= 180:
+                                # Try to match against roster
+                                from difflib import get_close_matches
+                                roster = self.bot.db.get_roster(guild_id)
+                                roster_names = [p['name'] for p in roster]
+                                matches = get_close_matches(potential_name, roster_names, n=1, cutoff=0.6)
+
+                                if matches:
+                                    matched_results.append({
+                                        'detected': potential_name,
+                                        'matched': matches[0],
+                                        'score': score
+                                    })
+                                else:
+                                    unmatched_names.append(f"{potential_name} ({score}pts)")
+                        except ValueError:
+                            unmatched_names.append(f"{potential_name} {potential_score}")
+
+                matched_text = "\n".join([f"• {m['detected']} → **{m['matched']}** ({m['score']})" for m in matched_results[:5]])
+                if len(matched_results) > 5:
+                    matched_text += f"\n• ... and {len(matched_results) - 5} more"
+
+                unmatched_text = "\n".join([f"• {u}" for u in unmatched_names[:5]])
+                if len(unmatched_names) > 5:
+                    unmatched_text += f"\n• ... and {len(unmatched_names) - 5} more"
+
+                stage5_value = f"✅ Name matching completed\n**Matched**: {len(matched_results)}\n{matched_text if matched_text else 'No matches'}"
+                if unmatched_names:
+                    stage5_value += f"\n\n**Unmatched**: {len(unmatched_names)}\n{unmatched_text}"
+
+                debug_embed.add_field(
+                    name="🎯 Stage 5: Name/Score Matching",
+                    value=stage5_value[:1024],
+                    inline=False
+                )
+
+                # Stage 6: Team Detection
+                team_count = 0
+                if matched_results:
+                    teams_detected = set()
+                    for result in matched_results:
+                        player = next((p for p in roster if p['name'] == result['matched']), None)
+                        if player and player.get('team'):
+                            teams_detected.add(player['team'])
+                    team_count = len(teams_detected)
+
+                debug_embed.add_field(
+                    name="👥 Stage 6: Team Detection",
+                    value=f"✅ Team analysis completed\n**Teams detected**: {team_count}\n**Total valid players**: {len(matched_results)}\n**Ready to save**: {'✅ Yes' if len(matched_results) >= 2 else '❌ Need at least 2 players'}",
+                    inline=False
+                )
+
+                debug_embed.set_footer(text=f"Debug completed • {len(matched_results)} valid results found")
+                await interaction.followup.send(embed=debug_embed, ephemeral=True)
+
+            finally:
+                # Clean up temp file
+                if temp_file_path and os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+
+        except Exception as e:
+            logging.error(f"Error in debug OCR: {e}")
+            embed = discord.Embed(
+                title="❌ Debug Error",
+                description=f"An error occurred during OCR debugging:\n```\n{str(e)}\n```",
+                color=0xff0000
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 async def setup(bot):
     """Setup function for the cog."""

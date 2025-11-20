@@ -11,7 +11,7 @@ from . import config
 from .database import DatabaseManager
 from .ocr_processor import OCRProcessor
 from .logging_config import get_logger, log_discord_command, setup_logging
-from .ocr_modals import EditPlayerModal, AddPlayerModal
+from .ocr_modals import EditPlayerModal, AddPlayerModal, ReportIssueModal
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -188,16 +188,18 @@ class OCRConfirmationView(discord.ui.View):
         except:
             pass
 
-        # Update embed
+        # Update embed with report button
         embed = discord.Embed(
             title="❌ Results Cancelled",
-            description="Results were not saved to the database.",
+            description="Results were not saved to the database.\n\n💡 **Found an issue with OCR detection?**\nYou can report it below to help improve accuracy.",
             color=0xff6600
         )
-        await interaction.response.edit_message(embed=embed, view=None)
 
-        # Schedule deletion
-        asyncio.create_task(self.bot._countdown_and_delete_message(self.message, embed))
+        # Create view with report button
+        report_view = ReportIssueView(self)
+
+        await interaction.response.edit_message(embed=embed, view=report_view)
+        # Don't schedule deletion immediately - keep visible for Report button
 
     def create_embed(self) -> discord.Embed:
         """Create modern minimalistic embed for OCR confirmation."""
@@ -258,6 +260,29 @@ class OCRConfirmationView(discord.ui.View):
                 asyncio.create_task(self.bot._countdown_and_delete_message(self.message, embed, 30))
             except:
                 pass
+
+
+class ReportIssueView(discord.ui.View):
+    """View for reporting OCR issues."""
+
+    def __init__(self, ocr_view: OCRConfirmationView):
+        super().__init__(timeout=300)
+        self.ocr_view = ocr_view
+
+    @discord.ui.button(label="🚩 Report Issue with Scan", style=discord.ButtonStyle.danger)
+    async def report_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open modal to report OCR issue."""
+        # Permission check
+        if interaction.user.id != self.ocr_view.user_id:
+            await interaction.response.send_message(
+                "❌ Only the person who uploaded the image can report",
+                ephemeral=True
+            )
+            return
+
+        # Open report modal
+        modal = ReportIssueModal(self.ocr_view)
+        await interaction.response.send_modal(modal)
 
 
 class MarioKartBot(commands.Bot):
@@ -1596,18 +1621,101 @@ class MarioKartBot(commands.Bot):
             if remaining <= 5:  # Only show countdown for last 5 seconds
                 try:
                     await interaction.edit_original_response(
-                        embed=embed, 
+                        embed=embed,
                         content=f"Disappearing in {remaining} seconds..."
                     )
                 except:
                     pass
-        
+
         # Delete the message
         try:
             await interaction.delete_original_response()
         except:
             pass
-    
+
+    async def send_ocr_report(self, guild_id: int, user: discord.User, original_image: Optional[discord.Attachment], ocr_results: List[Dict], user_description: str) -> None:
+        """Send OCR issue report to admin via DM and admin logging channel."""
+        try:
+            # Get admin IDs from config
+            admin_user_id = config.ADMIN_USER_ID
+            admin_logging_channel_id = config.ADMIN_LOGGING_CHANNEL_ID
+
+            if not admin_user_id or not admin_logging_channel_id:
+                logger.warning("Admin user ID or logging channel ID not configured in config")
+                return
+
+            # Create report embed
+            report_embed = discord.Embed(
+                title="🚩 OCR Issue Report",
+                description=f"User reported an issue with OCR scanning results.",
+                color=0xff6600
+            )
+
+            # Add guild and user info
+            guild = self.get_guild(guild_id)
+            guild_name = guild.name if guild else f"Guild ID: {guild_id}"
+
+            report_embed.add_field(
+                name="📋 Report Details",
+                value=f"**Guild**: {guild_name}\n**User**: {user.mention} ({user.name}#{user.discriminator})\n**Timestamp**: <t:{int(discord.utils.utcnow().timestamp())}:f>",
+                inline=False
+            )
+
+            # Add user's description
+            report_embed.add_field(
+                name="🔍 User's Description",
+                value=user_description[:1024],  # Truncate to 1024 characters for Discord limit
+                inline=False
+            )
+
+            # Add OCR results
+            if ocr_results:
+                results_text = "\n".join([
+                    f"• **{result['name']}**: {result['score']} pts (confidence: {result.get('confidence', 'N/A')})"
+                    for result in ocr_results
+                ])
+                report_embed.add_field(
+                    name="📊 OCR Results",
+                    value=results_text[:1024],
+                    inline=False
+                )
+
+            # Add image info
+            if original_image:
+                report_embed.add_field(
+                    name="🖼️ Original Image",
+                    value=f"**Filename**: {original_image.filename}\n**Size**: {original_image.size} bytes\n**URL**: [View Image]({original_image.url})",
+                    inline=False
+                )
+
+            report_embed.set_footer(text="Use /debugocr to investigate this issue")
+
+            # Send DM to admin user
+            try:
+                admin_user = await self.fetch_user(admin_user_id)
+                await admin_user.send(embed=report_embed)
+                logger.info(f"Sent OCR report to admin user {admin_user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to send OCR report DM to admin: {e}")
+
+            # Send to admin logging channel
+            try:
+                admin_channel = self.get_channel(admin_logging_channel_id)
+                if admin_channel and isinstance(admin_channel, discord.TextChannel):
+                    # Include original image if available
+                    if original_image:
+                        await admin_channel.send(embed=report_embed, file=await original_image.to_file())
+                    else:
+                        await admin_channel.send(embed=report_embed)
+                    logger.info(f"Sent OCR report to admin channel {admin_logging_channel_id}")
+                else:
+                    logger.warning(f"Admin logging channel {admin_logging_channel_id} not found or is not a text channel")
+            except Exception as e:
+                logger.warning(f"Failed to send OCR report to admin channel: {e}")
+
+        except Exception as e:
+            logger.error(f"Error sending OCR report: {e}")
+
     def format_enhanced_confirmation(self, results: List[Dict], validation: Dict, war_metadata: Dict = None) -> str:
         """Format extracted results with validation info and war metadata for confirmation."""
         if not results:

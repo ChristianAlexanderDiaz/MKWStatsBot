@@ -63,4 +63,17 @@ WAR_METADATA_FIELDS = [
 TESSERACT_PATH = os.getenv('TESSERACT_PATH')  # Let the system auto-detect if not set
 
 # Confirmation timeout (seconds)
-CONFIRMATION_TIMEOUT = 300  # 5 minutes 
+CONFIRMATION_TIMEOUT = 300  # 5 minutes
+
+# Admin Configuration (for OCR reporting and debug commands)
+ADMIN_USER_ID = os.getenv('ADMIN_USER_ID')  # Your Discord user ID for OCR reports
+ADMIN_SERVER_ID = os.getenv('ADMIN_SERVER_ID')  # Your admin server ID for restricted commands
+ADMIN_LOGGING_CHANNEL_ID = os.getenv('ADMIN_LOGGING_CHANNEL_ID')  # Channel for OCR issue reports
+
+# Convert admin IDs to integers if provided
+if ADMIN_USER_ID:
+    ADMIN_USER_ID = int(ADMIN_USER_ID)
+if ADMIN_SERVER_ID:
+    ADMIN_SERVER_ID = int(ADMIN_SERVER_ID)
+if ADMIN_LOGGING_CHANNEL_ID:
+    ADMIN_LOGGING_CHANNEL_ID = int(ADMIN_LOGGING_CHANNEL_ID) 

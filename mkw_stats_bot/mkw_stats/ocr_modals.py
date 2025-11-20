@@ -127,3 +127,42 @@ class AddPlayerModal(ui.Modal, title="Add Player"):
                 "❌ Score must be a valid number",
                 ephemeral=True
             )
+
+
+class ReportIssueModal(ui.Modal, title="Report OCR Issue"):
+    """Modal for reporting incorrect OCR scan results."""
+
+    issue_description = ui.TextInput(
+        label="What was incorrect with the scan?",
+        style=discord.TextStyle.paragraph,
+        placeholder="Example: OCR read 'Null' instead of 'Chez', or missed a player entirely",
+        required=True,
+        max_length=500
+    )
+
+    def __init__(self, ocr_view: 'OCRConfirmationView'):
+        super().__init__()
+        self.ocr_view = ocr_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle report submission."""
+        try:
+            # Send report to admin
+            await self.ocr_view.bot.send_ocr_report(
+                guild_id=self.ocr_view.guild_id,
+                user=interaction.user,
+                original_image=self.ocr_view.original_message_obj.attachments[0] if self.ocr_view.original_message_obj.attachments else None,
+                ocr_results=self.ocr_view.results,
+                user_description=self.issue_description.value
+            )
+
+            await interaction.response.send_message(
+                "✅ **Report sent!** Thank you for helping improve OCR accuracy.",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to send report: {str(e)}",
+                ephemeral=True
+            )
