@@ -19,6 +19,114 @@ MEMBER_STATUS_CHOICES = [
     app_commands.Choice(name="Kicked", value="kicked")
 ]
 
+
+class LeaderboardView(discord.ui.View):
+    """Pagination view for player statistics leaderboard."""
+
+    def __init__(self, all_players: list, sortby: str, total_players_count: int):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.all_players = all_players
+        self.sortby = sortby
+        self.total_players_count = total_players_count
+        self.current_page = 1
+        self.players_per_page = 10
+        self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
+
+        # Update button states
+        self.update_buttons()
+
+    def update_buttons(self):
+        """Enable/disable buttons based on current page."""
+        self.first_button.disabled = (self.current_page == 1)
+        self.prev_button.disabled = (self.current_page == 1)
+        self.next_button.disabled = (self.current_page == self.total_pages)
+        self.last_button.disabled = (self.current_page == self.total_pages)
+
+    def create_embed(self) -> discord.Embed:
+        """Create embed for current page."""
+        # Calculate slice
+        start_idx = (self.current_page - 1) * self.players_per_page
+        end_idx = min(start_idx + self.players_per_page, len(self.all_players))
+        page_players = self.all_players[start_idx:end_idx]
+
+        # Create embed
+        embed = discord.Embed(
+            title="📊 Player Statistics Leaderboard",
+            color=0x00ff00
+        )
+
+        # Build leaderboard text
+        leaderboard_text = []
+        for i, player in enumerate(page_players, start=start_idx + 1):
+            if player.get('war_count', 0) > 0:
+                avg_score = player.get('average_score', 0.0)
+                war_count = float(player.get('war_count', 0))
+                win_pct = player.get('win_percentage', 0.0)
+                total_diff = player.get('total_team_differential', 0)
+                avg_diff = total_diff / war_count if war_count > 0 else 0
+                diff_symbol = "+" if avg_diff >= 0 else ""
+
+                # Format war count
+                if war_count == 1.0:
+                    war_display = f"{war_count:.1f} war"
+                else:
+                    war_display = f"{war_count:.1f} wars"
+
+                leaderboard_text.append(
+                    f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({diff_symbol}{avg_diff:.1f} diff) ({war_display}, {win_pct:.1f}%)"
+                )
+            else:
+                leaderboard_text.append(f"{i}. **{player['player_name']}** - No wars yet")
+
+        embed.add_field(
+            name="Top Players",
+            value="\n".join(leaderboard_text) if leaderboard_text else "No player data available",
+            inline=False
+        )
+
+        # Footer with page info and sort method
+        if self.sortby and self.sortby.lower() == 'winrate':
+            sort_method = "Win Rate"
+        elif self.sortby and self.sortby.lower() == 'avgdiff':
+            sort_method = "Average Differential"
+        else:
+            sort_method = "Average Score"
+
+        embed.set_footer(
+            text=f"Page {self.current_page}/{self.total_pages} • Showing {self.total_players_count} members (trials/allies/kicked excluded) • Sorted by: {sort_method}"
+        )
+
+        return embed
+
+    @discord.ui.button(label="⏮️", style=discord.ButtonStyle.gray)
+    async def first_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to first page."""
+        self.current_page = 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="◀️", style=discord.ButtonStyle.primary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to previous page."""
+        self.current_page = max(1, self.current_page - 1)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="▶️", style=discord.ButtonStyle.primary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to next page."""
+        self.current_page = min(self.total_pages, self.current_page + 1)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="⏭️", style=discord.ButtonStyle.gray)
+    async def last_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to last page."""
+        self.current_page = self.total_pages
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+
 def get_member_status_text() -> str:
     """Get formatted member status text for help documentation."""
     return "/".join(choice.name for choice in MEMBER_STATUS_CHOICES)
@@ -412,52 +520,12 @@ class MarioKartCommands(commands.Cog):
                 
                 # Combine and sort all players - those with stats first, then without stats
                 all_players = players_with_stats + players_without_stats
-                
-                # Create simple embed for slash command (no pagination for now)
-                embed = discord.Embed(
-                    title="📊 Player Statistics Leaderboard",
-                    color=0x00ff00
-                )
-                
-                # Show all players
-                display_players = all_players
-                leaderboard_text = []
-                
-                for i, player in enumerate(display_players, 1):
-                    if player.get('war_count', 0) > 0:
-                        avg_score = player.get('average_score', 0.0)
-                        war_count = float(player.get('war_count', 0))
-                        win_pct = player.get('win_percentage', 0.0)
-                        total_diff = player.get('total_team_differential', 0)
-                        avg_diff = total_diff / war_count if war_count > 0 else 0
-                        diff_symbol = "+" if avg_diff >= 0 else ""
 
-                        # Format war count with 1 decimal place and proper singular/plural
-                        if war_count == 1.0:
-                            war_display = f"{war_count:.1f} war"
-                        else:
-                            war_display = f"{war_count:.1f} wars"
+                # Use pagination view for leaderboard
+                view = LeaderboardView(all_players, sortby, len(all_players))
+                embed = view.create_embed()
 
-                        leaderboard_text.append(f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({diff_symbol}{avg_diff:.1f} diff) ({war_display}, {win_pct:.1f}%)")
-                    else:
-                        leaderboard_text.append(f"{i}. **{player['player_name']}** - No wars yet")
-                
-                embed.add_field(
-                    name="Top Players",
-                    value="\n".join(leaderboard_text) if leaderboard_text else "No player data available",
-                    inline=False
-                )
-                
-                # Footer with sort method indication
-                if sortby and sortby.lower() == 'winrate':
-                    sort_method = "Win Rate"
-                elif sortby and sortby.lower() == 'avgdiff':
-                    sort_method = "Average Differential"
-                else:
-                    sort_method = "Average Score"
-                embed.set_footer(text=f"Showing {len(all_players)} members only (trials/allies/kicked excluded) • Sorted by: {sort_method}")
-                
-                await interaction.response.send_message(embed=embed)
+                await interaction.response.send_message(embed=embed, view=view)
                 
         except Exception as e:
             logging.error(f"Error in stats command: {e}")
