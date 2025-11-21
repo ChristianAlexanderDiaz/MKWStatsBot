@@ -1203,8 +1203,12 @@ class OCRProcessor:
                     i += 1  # Skip the next token if we consumed it
             else:
                 # Fallback: Try substring matching for corrupted OCR tokens
-                # Only try this for longer tokens that might contain corrupted names
-                if len(tokens[i]) >= 5:  # Avoid false positives on short tokens
+                # DISABLED: Substring matching in initial parse breaks 6v6 team splitting
+                # The 6v6 splitting logic will handle team detection and apply substring matching
+                # only to the winning team (positions 0-5 or 6-11 depending on majority rule)
+                # This prevents false matches like "Cynda" matching "Cynical" in opponent team
+                substring_match = None
+                if False and len(tokens[i]) >= 5:  # Avoid false positives on short tokens
                     substring_match, _ = self._find_guild_name_in_substring(tokens[i], guild_id)
                     if substring_match:
                         # Check if this is part of a multi-token corrupted sequence
