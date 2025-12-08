@@ -1113,9 +1113,9 @@ class MarioKartBot(commands.Bot):
                 original_confirmation = self.pending_confirmations.get(str(message.id), {})
                 original_user_id = original_confirmation.get('user_id', 0)
 
-                # Check if dashboard integration is enabled for large bulk scans
-                if dashboard_client.is_enabled() and len(successful_wars) >= 5:
-                    # Use web dashboard for review (better UX for large numbers)
+                # Check if dashboard integration is enabled for bulk scans
+                if dashboard_client.is_enabled() and len(successful_wars) >= 1:
+                    # Use web dashboard for review
                     await self._create_dashboard_review_session(
                         message, successful_wars, failed_images,
                         total_images, guild_id, original_user_id
