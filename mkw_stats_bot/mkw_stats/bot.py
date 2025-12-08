@@ -1175,7 +1175,7 @@ class MarioKartBot(commands.Bot):
 
                 api_results.append({
                     'filename': war.get('filename'),
-                    'image_url': None,  # Could add URL if stored
+                    'image_url': war['message'].attachments[0].url if war.get('message') and war['message'].attachments else None,
                     'players': players_with_roster_check,
                     'race_count': war.get('total_race_count', 12),
                     'message_timestamp': war['message'].created_at.isoformat() if war.get('message') else None,

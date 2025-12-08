@@ -17,7 +17,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
-  Loader2
+  Loader2,
+  Plus,
+  Trash2,
+  Link2
 } from "lucide-react"
 
 export default function BulkReviewPage() {
@@ -31,12 +34,30 @@ export default function BulkReviewPage() {
   const [showAddPlayer, setShowAddPlayer] = useState<{ resultId: number; index: number } | null>(null)
   const [newPlayerName, setNewPlayerName] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [linkingPlayer, setLinkingPlayer] = useState<{ resultId: number; playerIndex: number; playerName: string } | null>(null)
+  const [rosterPlayers, setRosterPlayers] = useState<string[]>([])
+  const [selectedRosterPlayer, setSelectedRosterPlayer] = useState<string>("")
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["bulk-review", token],
     queryFn: () => api.getBulkResults(token),
     refetchInterval: false,
   })
+
+  // Fetch roster players for linking functionality
+  useEffect(() => {
+    const fetchRoster = async () => {
+      if (data?.session?.guild_id) {
+        try {
+          const players = await api.getPlayers(data.session.guild_id.toString())
+          setRosterPlayers(players.map((p: any) => p.player_name))
+        } catch (err) {
+          console.error("Failed to fetch roster:", err)
+        }
+      }
+    }
+    fetchRoster()
+  }, [data?.session?.guild_id])
 
   const updateResultMutation = useMutation({
     mutationFn: ({
@@ -145,6 +166,48 @@ export default function BulkReviewPage() {
     setIsSaving(false)
   }
 
+  const handleLinkPlayer = async (resultId: number, playerIndex: number, detectedName: string, rosterPlayerName: string) => {
+    if (!data?.session?.guild_id || !rosterPlayerName) return
+
+    try {
+      // Add the detected name as a nickname to the roster player
+      const success = await api.addNickname(
+        data.session.guild_id.toString(),
+        rosterPlayerName,
+        detectedName
+      )
+
+      if (success) {
+        // Update the result to use the canonical roster name
+        const result = results.find(r => r.id === resultId)
+        if (result) {
+          const players = result.corrected_players || result.detected_players
+          const updatedPlayers = players.map((p, idx) =>
+            idx === playerIndex
+              ? { ...p, name: rosterPlayerName, is_roster_member: true }
+              : p
+          )
+
+          // Update via mutation
+          updateResultMutation.mutate({
+            resultId,
+            status: result.review_status,
+            corrected: updatedPlayers
+          })
+        }
+
+        alert(`Linked "${detectedName}" as nickname to ${rosterPlayerName}`)
+        setLinkingPlayer(null)
+        setSelectedRosterPlayer("")
+      } else {
+        alert("Failed to link player. Please try again.")
+      }
+    } catch (err) {
+      console.error("Error linking player:", err)
+      alert("Error linking player. Please try again.")
+    }
+  }
+
   const totalScore = (players: BulkPlayer[]) =>
     players.reduce((sum, p) => sum + p.score, 0)
 
@@ -204,9 +267,9 @@ export default function BulkReviewPage() {
       </div>
 
       {/* Results Grid */}
-      <div className="container py-6">
-        <div className="grid gap-4">
-          {results.map((result) => {
+      <div className="max-w-[1400px] mx-auto px-6 py-6">
+        <div className="space-y-6">
+          {results.map((result, index) => {
             const players = result.corrected_players || result.detected_players
             const isEditing = editingResult === result.id
 
@@ -225,7 +288,7 @@ export default function BulkReviewPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <CardTitle className="text-lg">
-                        {result.image_filename || `War ${result.id}`}
+                        Table {index + 1}/{results.length}
                       </CardTitle>
                       <Badge
                         variant={
@@ -270,6 +333,12 @@ export default function BulkReviewPage() {
                     </div>
                   </div>
                   <CardDescription>
+                    {result.image_filename && (
+                      <span className="text-xs text-muted-foreground">
+                        {result.image_filename}
+                        <br />
+                      </span>
+                    )}
                     {result.message_timestamp
                       ? new Date(result.message_timestamp).toLocaleString()
                       : "Unknown time"}{" "}
@@ -277,79 +346,173 @@ export default function BulkReviewPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {isEditing ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {editedPlayers.map((player, idx) => (
-                          <div
-                            key={idx}
-                            className="flex items-center gap-2 p-2 rounded border bg-background"
-                          >
-                            <Input
-                              value={player.name}
-                              onChange={(e) =>
-                                handlePlayerChange(idx, "name", e.target.value)
-                              }
-                              className="h-8 text-sm"
-                            />
-                            <Input
-                              type="number"
-                              value={player.score}
-                              onChange={(e) =>
-                                handlePlayerChange(idx, "score", parseInt(e.target.value) || 0)
-                              }
-                              className="h-8 w-20 text-sm"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setEditingResult(null)
-                            setEditedPlayers([])
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleSaveEdit(result.id)}
-                        >
-                          Save & Approve
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-                      {players.map((player, idx) => (
-                        <div
-                          key={idx}
-                          className={`flex items-center justify-between p-2 rounded text-sm ${
-                            player.is_roster_member
-                              ? "bg-muted"
-                              : "bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300"
-                          }`}
-                        >
-                          <span
-                            className={`truncate ${
-                              !player.is_roster_member ? "text-yellow-700 dark:text-yellow-400" : ""
-                            }`}
-                          >
-                            {player.name}
-                          </span>
-                          <span className="font-medium ml-2">{player.score}</span>
+                  <div className="flex flex-col md:flex-row gap-6">
+                    {/* Left: Image */}
+                    <div className="w-full md:w-80 flex-shrink-0">
+                      {result.image_url ? (
+                        <img
+                          src={result.image_url}
+                          alt={`Table ${index + 1}`}
+                          className="w-full h-auto rounded-md border"
+                        />
+                      ) : (
+                        <div className="w-full aspect-video bg-muted rounded-md flex items-center justify-center">
+                          <p className="text-sm text-muted-foreground">No image</p>
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
-                  {!isEditing && players.some((p) => !p.is_roster_member) && (
-                    <p className="text-xs text-yellow-600 mt-2">
-                      Players highlighted in yellow are not in your roster
-                    </p>
-                  )}
+
+                    {/* Right: Players Column */}
+                    <div className="flex-1 space-y-2">
+                      {isEditing ? (
+                        <>
+                          {editedPlayers.map((player, idx) => (
+                            <div key={idx} className="flex gap-2 items-center">
+                              <Input
+                                value={player.name}
+                                onChange={(e) =>
+                                  handlePlayerChange(idx, "name", e.target.value)
+                                }
+                                className="flex-1"
+                                placeholder="Player name"
+                              />
+                              <Input
+                                type="number"
+                                value={player.score}
+                                onChange={(e) =>
+                                  handlePlayerChange(idx, "score", parseInt(e.target.value) || 0)
+                                }
+                                className="w-24"
+                                placeholder="Score"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  const updated = editedPlayers.filter((_, i) => i !== idx)
+                                  setEditedPlayers(updated)
+                                }}
+                                title="Remove player"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+
+                          {/* Add Player Button */}
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => {
+                              setEditedPlayers([...editedPlayers, { name: "", score: 0, is_roster_member: false }])
+                            }}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Player
+                          </Button>
+
+                          {/* Action Buttons */}
+                          <div className="flex justify-end gap-2 pt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setEditingResult(null)
+                                setEditedPlayers([])
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => handleSaveEdit(result.id)}
+                            >
+                              Save & Approve
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {players.map((player, idx) => (
+                            <div key={idx}>
+                              <div
+                                className={`flex justify-between items-center p-3 rounded-md ${
+                                  player.is_roster_member
+                                    ? "bg-muted/50"
+                                    : "bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300"
+                                }`}
+                              >
+                                <span
+                                  className={`flex-1 ${
+                                    !player.is_roster_member
+                                      ? "text-yellow-700 dark:text-yellow-400 font-medium"
+                                      : ""
+                                  }`}
+                                >
+                                  {player.name}
+                                </span>
+                                <span className="font-semibold mr-2">{player.score}</span>
+                                {!player.is_roster_member && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={() => setLinkingPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })}
+                                  >
+                                    <Link2 className="h-3 w-3 mr-1" />
+                                    Link
+                                  </Button>
+                                )}
+                              </div>
+                              {linkingPlayer?.resultId === result.id && linkingPlayer?.playerIndex === idx && (
+                                <div className="mt-2 p-3 bg-background border rounded-md">
+                                  <label className="text-sm font-medium mb-2 block">
+                                    Link "{player.name}" to roster player:
+                                  </label>
+                                  <div className="flex gap-2">
+                                    <select
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                                      value={selectedRosterPlayer}
+                                      onChange={(e) => setSelectedRosterPlayer(e.target.value)}
+                                    >
+                                      <option value="">Select a player...</option>
+                                      {rosterPlayers.map((rp) => (
+                                        <option key={rp} value={rp}>
+                                          {rp}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleLinkPlayer(result.id, idx, player.name, selectedRosterPlayer)}
+                                      disabled={!selectedRosterPlayer}
+                                    >
+                                      Link
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setLinkingPlayer(null)
+                                        setSelectedRosterPlayer("")
+                                      }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {players.some((p) => !p.is_roster_member) && (
+                            <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
+                              Players highlighted in yellow are not in your roster. Click "Link" to add as nickname to an existing player.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             )
