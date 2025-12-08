@@ -76,4 +76,13 @@ if ADMIN_USER_ID:
 if ADMIN_SERVER_ID:
     ADMIN_SERVER_ID = int(ADMIN_SERVER_ID)
 if ADMIN_LOGGING_CHANNEL_ID:
-    ADMIN_LOGGING_CHANNEL_ID = int(ADMIN_LOGGING_CHANNEL_ID) 
+    ADMIN_LOGGING_CHANNEL_ID = int(ADMIN_LOGGING_CHANNEL_ID)
+
+# Dashboard API Configuration
+# Set these to enable web dashboard integration for bulk scan review
+DASHBOARD_API_URL = os.getenv('DASHBOARD_API_URL')  # URL of the FastAPI dashboard service
+DASHBOARD_API_KEY = os.getenv('DASHBOARD_API_KEY')  # Shared secret for bot -> API auth
+DASHBOARD_WEB_URL = os.getenv('DASHBOARD_WEB_URL')  # URL of the Next.js frontend
+
+# Enable/disable dashboard integration (falls back to Discord-only flow if disabled)
+DASHBOARD_ENABLED = os.getenv('DASHBOARD_ENABLED', 'false').lower() == 'true'

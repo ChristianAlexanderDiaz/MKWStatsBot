@@ -12,6 +12,7 @@ from .database import DatabaseManager
 from .ocr_processor import OCRProcessor
 from .logging_config import get_logger, log_discord_command, setup_logging
 from .ocr_modals import EditPlayerModal, AddPlayerModal, ReportIssueModal
+from .dashboard_client import dashboard_client
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -1111,7 +1112,20 @@ class MarioKartBot(commands.Bot):
                 # Get original user ID from the bulk scan confirmation data
                 original_confirmation = self.pending_confirmations.get(str(message.id), {})
                 original_user_id = original_confirmation.get('user_id', 0)
-                await self.create_bulk_scan_confirmation_embed(message, successful_wars, failed_images, total_images, guild_id, original_user_id)
+
+                # Check if dashboard integration is enabled for large bulk scans
+                if dashboard_client.is_enabled() and len(successful_wars) >= 5:
+                    # Use web dashboard for review (better UX for large numbers)
+                    await self._create_dashboard_review_session(
+                        message, successful_wars, failed_images,
+                        total_images, guild_id, original_user_id
+                    )
+                else:
+                    # Use Discord-based confirmation for small scans or when dashboard is disabled
+                    await self.create_bulk_scan_confirmation_embed(
+                        message, successful_wars, failed_images,
+                        total_images, guild_id, original_user_id
+                    )
             else:
                 # No results at all
                 embed = discord.Embed(
@@ -1132,7 +1146,98 @@ class MarioKartBot(commands.Bot):
             )
             await message.edit(embed=embed)
             self.cleanup_confirmation(str(message.id))
-    
+
+    async def _create_dashboard_review_session(
+        self,
+        message: discord.Message,
+        successful_wars: List[Dict],
+        failed_images: List[Dict],
+        total_images: int,
+        guild_id: int,
+        user_id: int
+    ):
+        """Create a dashboard review session and send the review link."""
+        try:
+            # Format results for the dashboard API
+            api_results = []
+            for war in successful_wars:
+                # Check if each player is a roster member
+                roster_players = self.db.get_roster_players(guild_id)
+                roster_names = [p.lower() for p in roster_players] if roster_players else []
+
+                players_with_roster_check = []
+                for player in war['players']:
+                    is_roster = player['name'].lower() in roster_names
+                    players_with_roster_check.append({
+                        **player,
+                        'is_roster_member': is_roster
+                    })
+
+                api_results.append({
+                    'filename': war.get('filename'),
+                    'image_url': None,  # Could add URL if stored
+                    'players': players_with_roster_check,
+                    'race_count': war.get('total_race_count', 12),
+                    'message_timestamp': war['message'].created_at.isoformat() if war.get('message') else None,
+                    'discord_message_id': war['message'].id if war.get('message') else None
+                })
+
+            # Create session via API
+            session = await dashboard_client.create_bulk_session(
+                guild_id=guild_id,
+                user_id=user_id,
+                results=api_results
+            )
+
+            if session and session.get('token'):
+                # Success - show review link
+                review_url = dashboard_client.get_review_url(session['token'])
+
+                embed = discord.Embed(
+                    title="Bulk Scan Complete",
+                    description=f"Processed {len(successful_wars)} images successfully!",
+                    color=0x00ff00
+                )
+                embed.add_field(
+                    name="Review & Confirm",
+                    value=f"[Open Dashboard]({review_url})\n\nReview all {len(successful_wars)} wars, edit player names/scores, and save to database.",
+                    inline=False
+                )
+
+                if failed_images:
+                    failed_list = "\n".join([f"• {f['filename']}: {f['error']}" for f in failed_images[:5]])
+                    if len(failed_images) > 5:
+                        failed_list += f"\n... and {len(failed_images) - 5} more"
+                    embed.add_field(
+                        name=f"Failed Images ({len(failed_images)})",
+                        value=failed_list,
+                        inline=False
+                    )
+
+                embed.set_footer(text="Link expires in 24 hours")
+
+                await message.edit(embed=embed)
+
+                # Clean up the pending confirmation - dashboard handles the rest
+                self.cleanup_confirmation(str(message.id))
+
+                logger.info(f"Created dashboard review session {session['token']} for {len(successful_wars)} wars")
+            else:
+                # API call failed - fall back to Discord-based confirmation
+                logger.warning("Dashboard API failed, falling back to Discord confirmation")
+                await self.create_bulk_scan_confirmation_embed(
+                    message, successful_wars, failed_images,
+                    total_images, guild_id, user_id
+                )
+
+        except Exception as e:
+            logger.error(f"Error creating dashboard review session: {e}")
+            # Fall back to Discord-based confirmation
+            await self.create_bulk_scan_confirmation_embed(
+                message, successful_wars, failed_images,
+                total_images, guild_id, user_id
+            )
+
     async def handle_bulk_results_save(self, message: discord.Message, confirmation_data: Dict):
         """Handle saving confirmed bulk scan results to database."""
         try:
