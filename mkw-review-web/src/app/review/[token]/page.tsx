@@ -444,11 +444,15 @@ export default function BulkReviewPage() {
                                 placeholder="Player name"
                               />
                               <Input
-                                type="number"
+                                type="text"
+                                inputMode="numeric"
                                 value={player.score}
-                                onChange={(e) =>
-                                  handlePlayerChange(idx, "score", parseInt(e.target.value) || 0)
-                                }
+                                onChange={(e) => {
+                                  const value = e.target.value
+                                  if (value === '' || /^\d+$/.test(value)) {
+                                    handlePlayerChange(idx, "score", value === '' ? 0 : parseInt(value))
+                                  }
+                                }}
                                 className="w-24"
                                 placeholder="Score"
                               />
