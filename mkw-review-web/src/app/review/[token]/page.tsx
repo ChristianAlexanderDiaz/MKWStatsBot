@@ -39,8 +39,8 @@ export default function BulkReviewPage() {
   const [selectedRosterPlayer, setSelectedRosterPlayer] = useState<string>("")
   const [addingNewPlayer, setAddingNewPlayer] = useState<{ resultId: number; playerIndex: number; playerName: string } | null>(null)
   const [newPlayerFormData, setNewPlayerFormData] = useState<{ name: string; memberStatus: string }>({ name: "", memberStatus: "member" })
-  const [isAddingPlayer, setIsAddingPlayer] = useState(false)
   const [newlyAddedPlayers, setNewlyAddedPlayers] = useState<Set<string>>(new Set())
+  const [stagedPlayers, setStagedPlayers] = useState<Array<{ name: string; memberStatus: string }>>([])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["bulk-review", token],
@@ -69,6 +69,19 @@ export default function BulkReviewPage() {
   useEffect(() => {
     refreshRosterPlayers()
   }, [data?.session?.guild_id])
+
+  // Check if a player is "known" (either in roster or staged)
+  const isKnownPlayer = (playerName: string) => {
+    const inRoster = rosterPlayers.some(p => p.toLowerCase() === playerName.toLowerCase())
+    const inStaged = stagedPlayers.some(p => p.name.toLowerCase() === playerName.toLowerCase())
+    return inRoster || inStaged
+  }
+
+  // Combine roster + staged for Link dropdown
+  const allAvailablePlayers = [
+    ...rosterPlayers,
+    ...stagedPlayers.map(p => p.name)
+  ]
 
   const updateResultMutation = useMutation({
     mutationFn: ({
@@ -172,9 +185,30 @@ export default function BulkReviewPage() {
   }
 
   const handleConfirmAndSave = async () => {
+    if (!data?.session?.guild_id) return
+
     setIsSaving(true)
-    await confirmMutation.mutateAsync()
-    setIsSaving(false)
+
+    try {
+      // First, create all staged players
+      if (stagedPlayers.length > 0) {
+        for (const player of stagedPlayers) {
+          await api.addPlayer(
+            data.session.guild_id.toString(),
+            player.name,
+            player.memberStatus
+          )
+        }
+      }
+
+      // Then confirm the session (creates wars)
+      await confirmMutation.mutateAsync()
+    } catch (err) {
+      console.error("Error confirming session:", err)
+      alert("Error saving wars. Please try again.")
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleLinkPlayer = async (resultId: number, playerIndex: number, detectedName: string, rosterPlayerName: string) => {
@@ -219,68 +253,30 @@ export default function BulkReviewPage() {
     }
   }
 
-  const handleAddNewPlayer = async (
+  const handleAddNewPlayer = (
     resultId: number,
     playerIndex: number,
     name: string,
     memberStatus: string
   ) => {
-    if (!data?.session?.guild_id || !name.trim()) return
+    if (!name.trim()) return
 
-    setIsAddingPlayer(true)
+    // Check if already in roster OR already staged
+    const isInRoster = rosterPlayers.some(p => p.toLowerCase() === name.toLowerCase())
+    const isStaged = stagedPlayers.some(p => p.name.toLowerCase() === name.toLowerCase())
 
-    try {
-      // Add player to roster
-      const success = await api.addPlayer(
-        data.session.guild_id.toString(),
-        name,
-        memberStatus
-      )
-
-      if (success) {
-        // Refresh roster list so new player appears in Link dropdown
-        await refreshRosterPlayers()
-
-        // Track as newly added player (for "New" badge)
-        setNewlyAddedPlayers(prev => new Set(prev).add(name))
-
-        // Update ALL results that have this player to mark as is_roster_member: true
-        const updatePromises = results
-          .map((result) => {
-            const players = result.corrected_players || result.detected_players
-            const hasPlayer = players.some(p => p.name.toLowerCase() === name.toLowerCase())
-
-            if (hasPlayer) {
-              const updatedPlayers = players.map(p =>
-                p.name.toLowerCase() === name.toLowerCase()
-                  ? { ...p, name: name, is_roster_member: true }
-                  : p
-              )
-
-              return updateResultMutation.mutateAsync({
-                resultId: result.id,
-                status: result.review_status,
-                corrected: updatedPlayers
-              })
-            }
-            return null
-          })
-          .filter(Boolean)
-
-        await Promise.all(updatePromises)
-
-        alert(`Added "${name}" to roster as ${memberStatus}`)
-        setAddingNewPlayer(null)
-        setNewPlayerFormData({ name: "", memberStatus: "member" })
-      } else {
-        throw new Error("Failed to add player")
-      }
-    } catch (err) {
-      console.error("Error adding player:", err)
-      alert("Player already exists in roster. Try linking instead.")
-    } finally {
-      setIsAddingPlayer(false)
+    if (isInRoster || isStaged) {
+      alert("Player already exists. Try linking instead.")
+      return
     }
+
+    // Stage the player locally (NO API call - will be created on confirm)
+    setStagedPlayers(prev => [...prev, { name, memberStatus }])
+    setNewlyAddedPlayers(prev => new Set(prev).add(name))
+
+    // Close the form
+    setAddingNewPlayer(null)
+    setNewPlayerFormData({ name: "", memberStatus: "member" })
   }
 
   const totalScore = (players: BulkPlayer[]) =>
@@ -311,6 +307,12 @@ export default function BulkReviewPage() {
                 <X className="h-3 w-3" />
                 {rejectedCount}
               </Badge>
+              {stagedPlayers.length > 0 && (
+                <Badge variant="outline" className="gap-1 border-blue-500 text-blue-600">
+                  <UserPlus className="h-3 w-3" />
+                  {stagedPlayers.length} new
+                </Badge>
+              )}
             </div>
             <Button
               onClick={handleConfirmAndSave}
@@ -516,7 +518,7 @@ export default function BulkReviewPage() {
                             <div key={idx}>
                               <div
                                 className={`flex justify-between items-center p-3 rounded-md ${
-                                  player.is_roster_member
+                                  isKnownPlayer(player.name)
                                     ? "bg-muted/50"
                                     : "bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300"
                                 }`}
@@ -524,7 +526,7 @@ export default function BulkReviewPage() {
                                 <div className="flex items-center gap-2 flex-1">
                                   <span
                                     className={`${
-                                      !player.is_roster_member
+                                      !isKnownPlayer(player.name)
                                         ? "text-yellow-700 dark:text-yellow-400 font-medium"
                                         : ""
                                     }`}
@@ -538,7 +540,7 @@ export default function BulkReviewPage() {
                                   )}
                                 </div>
                                 <span className="font-semibold mr-2">{player.score}</span>
-                                {!player.is_roster_member && (
+                                {!isKnownPlayer(player.name) && (
                                   <div className="flex gap-2">
                                     <Button
                                       variant="outline"
@@ -576,7 +578,7 @@ export default function BulkReviewPage() {
                                       onChange={(e) => setSelectedRosterPlayer(e.target.value)}
                                     >
                                       <option value="">Select a player...</option>
-                                      {rosterPlayers.map((rp) => (
+                                      {allAvailablePlayers.map((rp) => (
                                         <option key={rp} value={rp}>
                                           {rp}
                                         </option>
@@ -628,10 +630,9 @@ export default function BulkReviewPage() {
                                       <Button
                                         size="sm"
                                         onClick={() => handleAddNewPlayer(result.id, idx, newPlayerFormData.name, newPlayerFormData.memberStatus)}
-                                        disabled={!newPlayerFormData.name.trim() || isAddingPlayer}
+                                        disabled={!newPlayerFormData.name.trim()}
                                       >
-                                        {isAddingPlayer && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                                        Add Player
+                                        Stage Player
                                       </Button>
                                       <Button
                                         variant="outline"
@@ -640,7 +641,6 @@ export default function BulkReviewPage() {
                                           setAddingNewPlayer(null)
                                           setNewPlayerFormData({ name: "", memberStatus: "member" })
                                         }}
-                                        disabled={isAddingPlayer}
                                       >
                                         Cancel
                                       </Button>
@@ -650,9 +650,9 @@ export default function BulkReviewPage() {
                               )}
                             </div>
                           ))}
-                          {players.some((p) => !p.is_roster_member) && (
+                          {players.some((p) => !isKnownPlayer(p.name)) && (
                             <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
-                              Players highlighted in yellow are not in your roster. Click "Link" to add as nickname to an existing player.
+                              Players highlighted in yellow are not in your roster. Click "Link" to add as nickname or "Add as New" to add to roster.
                             </p>
                           )}
                         </>
