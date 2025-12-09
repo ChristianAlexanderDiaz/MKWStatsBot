@@ -244,22 +244,30 @@ export default function BulkReviewPage() {
         // Track as newly added player (for "New" badge)
         setNewlyAddedPlayers(prev => new Set(prev).add(name))
 
-        // Update bulk result to mark as is_roster_member: true
-        const result = results.find(r => r.id === resultId)
-        if (result) {
-          const players = result.corrected_players || result.detected_players
-          const updatedPlayers = players.map((p, idx) =>
-            idx === playerIndex
-              ? { ...p, name: name, is_roster_member: true }
-              : p
-          )
+        // Update ALL results that have this player to mark as is_roster_member: true
+        const updatePromises = results
+          .map((result) => {
+            const players = result.corrected_players || result.detected_players
+            const hasPlayer = players.some(p => p.name.toLowerCase() === name.toLowerCase())
 
-          await updateResultMutation.mutateAsync({
-            resultId,
-            status: result.review_status,
-            corrected: updatedPlayers
+            if (hasPlayer) {
+              const updatedPlayers = players.map(p =>
+                p.name.toLowerCase() === name.toLowerCase()
+                  ? { ...p, name: name, is_roster_member: true }
+                  : p
+              )
+
+              return updateResultMutation.mutateAsync({
+                resultId: result.id,
+                status: result.review_status,
+                corrected: updatedPlayers
+              })
+            }
+            return null
           })
-        }
+          .filter(Boolean)
+
+        await Promise.all(updatePromises)
 
         alert(`Added "${name}" to roster as ${memberStatus}`)
         setAddingNewPlayer(null)
