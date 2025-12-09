@@ -49,8 +49,8 @@ export default function BulkReviewPage() {
     const fetchRoster = async () => {
       if (data?.session?.guild_id) {
         try {
-          const players = await api.getPlayers(data.session.guild_id.toString())
-          setRosterPlayers(players.map((p: any) => p.player_name))
+          const result = await api.getPlayers(data.session.guild_id.toString())
+          setRosterPlayers(result.players.map((p: any) => p.player_name))
         } catch (err) {
           console.error("Failed to fetch roster:", err)
         }
