@@ -215,7 +215,7 @@ export default function BulkReviewPage() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur">
-        <div className="container flex h-14 items-center justify-between">
+        <div className="max-w-[1400px] mx-auto px-6 flex h-14 items-center justify-between">
           <div>
             <h1 className="font-bold">Bulk Scan Review</h1>
             <p className="text-xs text-muted-foreground">
@@ -255,7 +255,7 @@ export default function BulkReviewPage() {
 
       {/* Actions Bar */}
       <div className="border-b bg-muted/50">
-        <div className="container py-2 flex items-center gap-4">
+        <div className="max-w-[1400px] mx-auto px-6 py-2 flex items-center gap-4">
           <Button variant="outline" size="sm" onClick={handleApproveAll}>
             <Check className="mr-2 h-4 w-4" />
             Approve All Pending
@@ -348,7 +348,7 @@ export default function BulkReviewPage() {
                 <CardContent>
                   <div className="flex flex-col md:flex-row gap-6">
                     {/* Left: Image */}
-                    <div className="w-full md:w-80 flex-shrink-0">
+                    <div className="w-full md:w-[600px] flex-shrink-0">
                       {result.image_url ? (
                         <img
                           src={result.image_url}
