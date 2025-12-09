@@ -37,6 +37,10 @@ export default function BulkReviewPage() {
   const [linkingPlayer, setLinkingPlayer] = useState<{ resultId: number; playerIndex: number; playerName: string } | null>(null)
   const [rosterPlayers, setRosterPlayers] = useState<string[]>([])
   const [selectedRosterPlayer, setSelectedRosterPlayer] = useState<string>("")
+  const [addingNewPlayer, setAddingNewPlayer] = useState<{ resultId: number; playerIndex: number; playerName: string } | null>(null)
+  const [newPlayerFormData, setNewPlayerFormData] = useState<{ name: string; memberStatus: string }>({ name: "", memberStatus: "member" })
+  const [isAddingPlayer, setIsAddingPlayer] = useState(false)
+  const [newlyAddedPlayers, setNewlyAddedPlayers] = useState<Set<string>>(new Set())
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["bulk-review", token],
@@ -45,18 +49,25 @@ export default function BulkReviewPage() {
   })
 
   // Fetch roster players for linking functionality
-  useEffect(() => {
-    const fetchRoster = async () => {
-      if (data?.session?.guild_id) {
-        try {
-          const result = await api.getPlayers(data.session.guild_id.toString())
-          setRosterPlayers(result.players.map((p: any) => p.player_name))
-        } catch (err) {
-          console.error("Failed to fetch roster:", err)
-        }
+  const refreshRosterPlayers = async () => {
+    if (data?.session?.guild_id) {
+      try {
+        console.log('Fetching roster for guild_id:', data.session.guild_id)
+        const result = await api.getPlayers(data.session.guild_id.toString())
+        console.log('Roster API response:', result)
+        const playerNames = result.players.map((p: any) => p.player_name)
+        console.log('Roster player names:', playerNames)
+        setRosterPlayers(playerNames)
+      } catch (err) {
+        console.error("Failed to fetch roster:", err)
       }
+    } else {
+      console.warn('Cannot fetch roster: guild_id not available', data?.session)
     }
-    fetchRoster()
+  }
+
+  useEffect(() => {
+    refreshRosterPlayers()
   }, [data?.session?.guild_id])
 
   const updateResultMutation = useMutation({
@@ -205,6 +216,62 @@ export default function BulkReviewPage() {
     } catch (err) {
       console.error("Error linking player:", err)
       alert("Error linking player. Please try again.")
+    }
+  }
+
+  const handleAddNewPlayer = async (
+    resultId: number,
+    playerIndex: number,
+    name: string,
+    memberStatus: string
+  ) => {
+    if (!data?.session?.guild_id || !name.trim()) return
+
+    setIsAddingPlayer(true)
+
+    try {
+      // Add player to roster
+      const success = await api.addPlayer(
+        data.session.guild_id.toString(),
+        name,
+        memberStatus
+      )
+
+      if (success) {
+        // Refresh roster list so new player appears in Link dropdown
+        await refreshRosterPlayers()
+
+        // Track as newly added player (for "New" badge)
+        setNewlyAddedPlayers(prev => new Set(prev).add(name))
+
+        // Update bulk result to mark as is_roster_member: true
+        const result = results.find(r => r.id === resultId)
+        if (result) {
+          const players = result.corrected_players || result.detected_players
+          const updatedPlayers = players.map((p, idx) =>
+            idx === playerIndex
+              ? { ...p, name: name, is_roster_member: true }
+              : p
+          )
+
+          updateResultMutation.mutate({
+            resultId,
+            status: result.review_status,
+            corrected: updatedPlayers
+          })
+        }
+
+        alert(`Added "${name}" to roster as ${memberStatus}`)
+        setAddingNewPlayer(null)
+        setNewPlayerFormData({ name: "", memberStatus: "member" })
+      } else {
+        throw new Error("Failed to add player")
+      }
+    } catch (err) {
+      console.error("Error adding player:", err)
+      alert("Player already exists in roster. Try linking instead.")
+    } finally {
+      setIsAddingPlayer(false)
     }
   }
 
@@ -442,26 +509,47 @@ export default function BulkReviewPage() {
                                     : "bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300"
                                 }`}
                               >
-                                <span
-                                  className={`flex-1 ${
-                                    !player.is_roster_member
-                                      ? "text-yellow-700 dark:text-yellow-400 font-medium"
-                                      : ""
-                                  }`}
-                                >
-                                  {player.name}
-                                </span>
+                                <div className="flex items-center gap-2 flex-1">
+                                  <span
+                                    className={`${
+                                      !player.is_roster_member
+                                        ? "text-yellow-700 dark:text-yellow-400 font-medium"
+                                        : ""
+                                    }`}
+                                  >
+                                    {player.name}
+                                  </span>
+                                  {newlyAddedPlayers.has(player.name) && (
+                                    <Badge variant="success" className="text-xs">
+                                      New
+                                    </Badge>
+                                  )}
+                                </div>
                                 <span className="font-semibold mr-2">{player.score}</span>
                                 {!player.is_roster_member && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 text-xs"
-                                    onClick={() => setLinkingPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })}
-                                  >
-                                    <Link2 className="h-3 w-3 mr-1" />
-                                    Link
-                                  </Button>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      onClick={() => setLinkingPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })}
+                                    >
+                                      <Link2 className="h-3 w-3 mr-1" />
+                                      Link
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      onClick={() => {
+                                        setAddingNewPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
+                                        setNewPlayerFormData({ name: player.name, memberStatus: "member" })
+                                      }}
+                                    >
+                                      <UserPlus className="h-3 w-3 mr-1" />
+                                      Add as New
+                                    </Button>
+                                  </div>
                                 )}
                               </div>
                               {linkingPlayer?.resultId === result.id && linkingPlayer?.playerIndex === idx && (
@@ -499,6 +587,52 @@ export default function BulkReviewPage() {
                                     >
                                       Cancel
                                     </Button>
+                                  </div>
+                                </div>
+                              )}
+                              {addingNewPlayer?.resultId === result.id && addingNewPlayer?.playerIndex === idx && (
+                                <div className="mt-2 p-3 bg-background border rounded-md">
+                                  <label className="text-sm font-medium mb-2 block">
+                                    Add as New Player to Roster
+                                  </label>
+                                  <div className="space-y-2">
+                                    <Input
+                                      value={newPlayerFormData.name}
+                                      onChange={(e) => setNewPlayerFormData({ ...newPlayerFormData, name: e.target.value })}
+                                      placeholder="Player name"
+                                      className="w-full"
+                                    />
+                                    <select
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                                      value={newPlayerFormData.memberStatus}
+                                      onChange={(e) => setNewPlayerFormData({ ...newPlayerFormData, memberStatus: e.target.value })}
+                                    >
+                                      <option value="member">Member</option>
+                                      <option value="trial">Trial</option>
+                                      <option value="ally">Ally</option>
+                                      <option value="kicked">Kicked</option>
+                                    </select>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleAddNewPlayer(result.id, idx, newPlayerFormData.name, newPlayerFormData.memberStatus)}
+                                        disabled={!newPlayerFormData.name.trim() || isAddingPlayer}
+                                      >
+                                        {isAddingPlayer && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                                        Add Player
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          setAddingNewPlayer(null)
+                                          setNewPlayerFormData({ name: "", memberStatus: "member" })
+                                        }}
+                                        disabled={isAddingPlayer}
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </div>
                                   </div>
                                 </div>
                               )}
