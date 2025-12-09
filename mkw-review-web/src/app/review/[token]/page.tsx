@@ -55,7 +55,7 @@ export default function BulkReviewPage() {
         console.log('Fetching roster for guild_id:', data.session.guild_id)
         const result = await api.getPlayers(data.session.guild_id.toString())
         console.log('Roster API response:', result)
-        const playerNames = result.players.map((p: any) => p.player_name)
+        const playerNames = result.players.map((p: any) => p.name)
         console.log('Roster player names:', playerNames)
         setRosterPlayers(playerNames)
       } catch (err) {
