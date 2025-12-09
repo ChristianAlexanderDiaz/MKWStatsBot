@@ -518,7 +518,7 @@ export default function BulkReviewPage() {
                             <div key={idx}>
                               <div
                                 className={`flex justify-between items-center p-3 rounded-md ${
-                                  isKnownPlayer(player.name)
+                                  player.is_roster_member
                                     ? "bg-muted/50"
                                     : "bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300"
                                 }`}
@@ -526,7 +526,7 @@ export default function BulkReviewPage() {
                                 <div className="flex items-center gap-2 flex-1">
                                   <span
                                     className={`${
-                                      !isKnownPlayer(player.name)
+                                      !player.is_roster_member
                                         ? "text-yellow-700 dark:text-yellow-400 font-medium"
                                         : ""
                                     }`}
@@ -540,70 +540,21 @@ export default function BulkReviewPage() {
                                   )}
                                 </div>
                                 <span className="font-semibold mr-2">{player.score}</span>
-                                {!isKnownPlayer(player.name) && (
-                                  <div className="flex gap-2">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 text-xs"
-                                      onClick={() => setLinkingPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })}
-                                    >
-                                      <Link2 className="h-3 w-3 mr-1" />
-                                      Link
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 text-xs"
-                                      onClick={() => {
-                                        setAddingNewPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
-                                        setNewPlayerFormData({ name: player.name, memberStatus: "member" })
-                                      }}
-                                    >
-                                      <UserPlus className="h-3 w-3 mr-1" />
-                                      Add as New
-                                    </Button>
-                                  </div>
+                                {!player.is_roster_member && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={() => {
+                                      setAddingNewPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
+                                      setNewPlayerFormData({ name: player.name, memberStatus: "member" })
+                                    }}
+                                  >
+                                    <UserPlus className="h-3 w-3 mr-1" />
+                                    Add as New
+                                  </Button>
                                 )}
                               </div>
-                              {linkingPlayer?.resultId === result.id && linkingPlayer?.playerIndex === idx && (
-                                <div className="mt-2 p-3 bg-background border rounded-md">
-                                  <label className="text-sm font-medium mb-2 block">
-                                    Link "{player.name}" to roster player:
-                                  </label>
-                                  <div className="flex gap-2">
-                                    <select
-                                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                                      value={selectedRosterPlayer}
-                                      onChange={(e) => setSelectedRosterPlayer(e.target.value)}
-                                    >
-                                      <option value="">Select a player...</option>
-                                      {allAvailablePlayers.map((rp) => (
-                                        <option key={rp} value={rp}>
-                                          {rp}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <Button
-                                      size="sm"
-                                      onClick={() => handleLinkPlayer(result.id, idx, player.name, selectedRosterPlayer)}
-                                      disabled={!selectedRosterPlayer}
-                                    >
-                                      Link
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => {
-                                        setLinkingPlayer(null)
-                                        setSelectedRosterPlayer("")
-                                      }}
-                                    >
-                                      Cancel
-                                    </Button>
-                                  </div>
-                                </div>
-                              )}
                               {addingNewPlayer?.resultId === result.id && addingNewPlayer?.playerIndex === idx && (
                                 <div className="mt-2 p-3 bg-background border rounded-md">
                                   <label className="text-sm font-medium mb-2 block">
@@ -650,9 +601,9 @@ export default function BulkReviewPage() {
                               )}
                             </div>
                           ))}
-                          {players.some((p) => !isKnownPlayer(p.name)) && (
+                          {players.some((p) => !p.is_roster_member) && (
                             <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
-                              Players highlighted in yellow are not in your roster. Click "Link" to add as nickname or "Add as New" to add to roster.
+                              Players highlighted in yellow are not in your roster. Click "Add as New" to add to roster.
                             </p>
                           )}
                         </>
