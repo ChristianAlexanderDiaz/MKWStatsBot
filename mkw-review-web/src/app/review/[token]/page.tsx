@@ -254,7 +254,7 @@ export default function BulkReviewPage() {
               : p
           )
 
-          updateResultMutation.mutate({
+          await updateResultMutation.mutateAsync({
             resultId,
             status: result.review_status,
             corrected: updatedPlayers
