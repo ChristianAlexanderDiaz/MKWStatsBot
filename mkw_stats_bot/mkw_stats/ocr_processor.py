@@ -973,31 +973,40 @@ class OCRProcessor:
                     # Found guild member - look for score
                     score = None
                     consumed_tokens = 1
-                    
-                    # First check if current token has embedded score
-                    embedded_score = self._extract_score_from_corrupted_token(current_token)
-                    if embedded_score:
-                        score = embedded_score
-                        logging.info(f"🔍 Found guild member with embedded score: '{current_token}' -> {guild_member}: {score}")
-                    else:
-                        # Look ahead for score in next tokens
-                        for lookahead in range(1, min(3, len(tokens) - i)):
-                            next_token = tokens[i + lookahead]
-                            
-                            # Check if next token is a pure score
-                            if next_token.isdigit() and 1 <= int(next_token) <= 180:
-                                score = int(next_token)
-                                consumed_tokens += lookahead
-                                logging.info(f"🔍 Found guild member with following score: '{current_token}' -> {guild_member}: {score}")
-                                break
-                            
-                            # Check if next token has embedded score
-                            embedded_score = self._extract_score_from_corrupted_token(next_token)
-                            if embedded_score:
-                                score = embedded_score
-                                consumed_tokens += lookahead
-                                logging.info(f"🔍 Found guild member with embedded score in next token: '{current_token} {next_token}' -> {guild_member}: {score}")
-                                break
+
+                    # First check if next token is a pure score (prioritize over embedded)
+                    if i < len(tokens) - 1:
+                        next_token = tokens[i + 1]
+                        if next_token.isdigit() and 1 <= int(next_token) <= 180:
+                            score = int(next_token)
+                            consumed_tokens = 2
+                            logging.info(f"🔍 Found guild member with following score: '{current_token}' -> {guild_member}: {score}")
+
+                    # Only try embedded score if no following score found
+                    if score is None:
+                        embedded_score = self._extract_score_from_corrupted_token(current_token)
+                        if embedded_score:
+                            score = embedded_score
+                            logging.info(f"🔍 Found guild member with embedded score: '{current_token}' -> {guild_member}: {score}")
+                        else:
+                            # Look ahead for score in next tokens (skip first since already checked)
+                            for lookahead in range(2, min(4, len(tokens) - i)):
+                                next_token = tokens[i + lookahead]
+
+                                # Check if next token is a pure score
+                                if next_token.isdigit() and 1 <= int(next_token) <= 180:
+                                    score = int(next_token)
+                                    consumed_tokens = lookahead + 1
+                                    logging.info(f"🔍 Found guild member with distant score: '{current_token}' -> {guild_member}: {score}")
+                                    break
+
+                                # Check if next token has embedded score
+                                embedded_score = self._extract_score_from_corrupted_token(next_token)
+                                if embedded_score:
+                                    score = embedded_score
+                                    consumed_tokens = lookahead + 1
+                                    logging.info(f"🔍 Found guild member with embedded score in next token: '{current_token} {next_token}' -> {guild_member}: {score}")
+                                    break
                     
                     if score:
                         players.append((current_token, score))
@@ -1009,10 +1018,16 @@ class OCRProcessor:
                         continue
                 
                 # Case 3: Not a guild member - check for opponent player patterns
-                
+
+                # Skip tokens that are just symbols/punctuation (not valid player names)
+                if len(current_token) <= 2 and not any(c.isalnum() for c in current_token):
+                    logging.debug(f"🔍 Skipping symbol token: '{current_token}'")
+                    i += 1
+                    continue
+
                 # Try standard name-score pattern
-                if (i < len(tokens) - 1 and 
-                    tokens[i + 1].isdigit() and 
+                if (i < len(tokens) - 1 and
+                    tokens[i + 1].isdigit() and
                     1 <= int(tokens[i + 1]) <= 180):
                     score = int(tokens[i + 1])
                     players.append((current_token, score))
