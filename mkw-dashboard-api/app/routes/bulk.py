@@ -28,10 +28,19 @@ class BulkScanResult(BaseModel):
     discord_message_id: Optional[int] = None
 
 
+class FailedScanResult(BaseModel):
+    filename: Optional[str] = None
+    image_url: Optional[str] = None
+    error_message: str
+    message_timestamp: Optional[str] = None
+    discord_message_id: Optional[int] = None
+
+
 class CreateSessionRequest(BaseModel):
     guild_id: int
     user_id: int
     results: List[BulkScanResult]
+    failed_results: List[FailedScanResult] = []
 
 
 class UpdateResultRequest(BaseModel):
@@ -59,11 +68,13 @@ async def create_session(
 ):
     """Create a new bulk scan session (called by bot)."""
     results = [r.model_dump() for r in request_data.results]
+    failed_results = [r.model_dump() for r in request_data.failed_results] if request_data.failed_results else None
 
     session = db.create_bulk_session(
         guild_id=request_data.guild_id,
         user_id=request_data.user_id,
-        results=results
+        results=results,
+        failed_results=failed_results
     )
 
     if not session:
@@ -98,9 +109,11 @@ async def get_session_results(token: str, db: DatabaseManager = Depends(get_db))
         raise HTTPException(status_code=410, detail=session["error"])
 
     results = db.get_bulk_results(token)
+    failures = db.get_bulk_failures(token)
     return {
         "session": session,
         "results": results,
+        "failures": failures,
         "total": len(results)
     }
 

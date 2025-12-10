@@ -125,6 +125,21 @@ class DatabaseManager:
                         CREATE INDEX idx_bulk_results_status ON bulk_scan_results(review_status);
                     """)
 
+                    # Create bulk_scan_failures table for failed images
+                    cursor.execute("""
+                        CREATE TABLE bulk_scan_failures (
+                            id SERIAL PRIMARY KEY,
+                            session_id INTEGER REFERENCES bulk_scan_sessions(id) ON DELETE CASCADE,
+                            image_filename VARCHAR(255),
+                            image_url TEXT,
+                            error_message TEXT,
+                            message_timestamp TIMESTAMP WITH TIME ZONE,
+                            discord_message_id BIGINT,
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        );
+                        CREATE INDEX idx_bulk_failures_session ON bulk_scan_failures(session_id);
+                    """)
+
                     # Create user_sessions table
                     cursor.execute("""
                         CREATE TABLE user_sessions (
@@ -187,6 +202,40 @@ class DatabaseManager:
                 return players
         except Exception as e:
             logger.error(f"Error getting roster players: {e}")
+            return []
+
+    def get_all_guild_players(self, guild_id: int) -> List[Dict]:
+        """Get ALL players for a guild (active and inactive)."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT player_name, team, nicknames, member_status,
+                           total_score, total_races, war_count, average_score,
+                           last_war_date, is_active, created_at
+                    FROM players
+                    WHERE guild_id = %s
+                    ORDER BY player_name
+                """, (guild_id,))
+
+                players = []
+                for row in cursor.fetchall():
+                    players.append({
+                        'name': row[0],
+                        'team': row[1],
+                        'nicknames': row[2] or [],
+                        'member_status': row[3] or 'member',
+                        'total_score': row[4] or 0,
+                        'total_races': row[5] or 0,
+                        'war_count': float(row[6]) if row[6] else 0,
+                        'average_score': float(row[7]) if row[7] else 0,
+                        'last_war_date': row[8].isoformat() if row[8] else None,
+                        'is_active': row[9],
+                        'created_at': row[10].isoformat() if row[10] else None
+                    })
+                return players
+        except Exception as e:
+            logger.error(f"Error getting all guild players: {e}")
             return []
 
     def get_player_stats(self, player_name: str, guild_id: int) -> Optional[Dict]:
@@ -471,8 +520,8 @@ class DatabaseManager:
     # ==================== BULK SCAN SESSION METHODS ====================
 
     def create_bulk_session(self, guild_id: int, user_id: int,
-                            results: List[Dict]) -> Optional[Dict]:
-        """Create a new bulk scan session with results."""
+                            results: List[Dict], failed_results: List[Dict] = None) -> Optional[Dict]:
+        """Create a new bulk scan session with results and optional failed results."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -503,8 +552,25 @@ class DatabaseManager:
                         result.get('discord_message_id')
                     ))
 
+                # Insert failed results if provided
+                if failed_results:
+                    for failed in failed_results:
+                        cursor.execute("""
+                            INSERT INTO bulk_scan_failures
+                            (session_id, image_filename, image_url, error_message,
+                             message_timestamp, discord_message_id)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (
+                            session_id,
+                            failed.get('filename'),
+                            failed.get('image_url'),
+                            failed.get('error_message'),
+                            failed.get('message_timestamp'),
+                            failed.get('discord_message_id')
+                        ))
+
                 conn.commit()
-                logger.info(f"Created bulk session {token} with {len(results)} results")
+                logger.info(f"Created bulk session {token} with {len(results)} results and {len(failed_results) if failed_results else 0} failures")
 
                 return {
                     'id': session_id,
@@ -591,6 +657,45 @@ class DatabaseManager:
                 return results
         except Exception as e:
             logger.error(f"Error getting bulk results: {e}")
+            return []
+
+    def get_bulk_failures(self, token: str) -> List[Dict]:
+        """Get all failed images for a bulk scan session."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get session ID
+                cursor.execute(
+                    "SELECT id FROM bulk_scan_sessions WHERE token = %s",
+                    (token,)
+                )
+                session_row = cursor.fetchone()
+                if not session_row:
+                    return []
+
+                cursor.execute("""
+                    SELECT id, image_filename, image_url, error_message,
+                           message_timestamp, discord_message_id, created_at
+                    FROM bulk_scan_failures
+                    WHERE session_id = %s
+                    ORDER BY message_timestamp ASC, created_at ASC
+                """, (session_row[0],))
+
+                failures = []
+                for row in cursor.fetchall():
+                    failures.append({
+                        'id': row[0],
+                        'image_filename': row[1],
+                        'image_url': row[2],
+                        'error_message': row[3],
+                        'message_timestamp': row[4].isoformat() if row[4] else None,
+                        'discord_message_id': row[5],
+                        'created_at': row[6].isoformat() if row[6] else None
+                    })
+                return failures
+        except Exception as e:
+            logger.error(f"Error getting bulk failures: {e}")
             return []
 
     def update_bulk_result(self, result_id: int, review_status: str,

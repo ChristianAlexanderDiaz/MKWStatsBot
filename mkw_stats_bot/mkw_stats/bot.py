@@ -1081,12 +1081,14 @@ class MarioKartBot(commands.Bot):
                             else:
                                 failed_images.append({
                                     'filename': image_data['attachment'].filename,
-                                    'error': 'No valid players found'
+                                    'error': 'No valid players found',
+                                    'message': image_data['message']
                                 })
                         else:
                             failed_images.append({
                                 'filename': image_data['attachment'].filename,
-                                'error': 'OCR processing failed'
+                                'error': 'OCR processing failed',
+                                'message': image_data['message']
                             })
                             
                     finally:
@@ -1103,7 +1105,8 @@ class MarioKartBot(commands.Bot):
                 except Exception as e:
                     failed_images.append({
                         'filename': image_data['attachment'].filename,
-                        'error': str(e)
+                        'error': str(e),
+                        'message': image_data['message']
                     })
                     logger.error(f"Error processing {image_data['attachment'].filename}: {e}")
             
@@ -1182,11 +1185,23 @@ class MarioKartBot(commands.Bot):
                     'discord_message_id': war['message'].id if war.get('message') else None
                 })
 
+            # Format failed images for API
+            api_failed_results = []
+            for failed in failed_images:
+                api_failed_results.append({
+                    'filename': failed.get('filename'),
+                    'image_url': failed['message'].attachments[0].url if failed.get('message') and failed['message'].attachments else None,
+                    'error_message': failed.get('error'),
+                    'message_timestamp': failed['message'].created_at.isoformat() if failed.get('message') else None,
+                    'discord_message_id': failed['message'].id if failed.get('message') else None
+                })
+
             # Create session via API
             session = await dashboard_client.create_bulk_session(
                 guild_id=guild_id,
                 user_id=user_id,
-                results=api_results
+                results=api_results,
+                failed_results=api_failed_results
             )
 
             if session and session.get('token'):

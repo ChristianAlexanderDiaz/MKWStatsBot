@@ -59,3 +59,5 @@ mkw_stats_bot_architecture.puml
 mkw_stats_bot_simple.puml
 out/
 *.png 
+
+node_modules/

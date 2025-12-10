@@ -109,6 +109,16 @@ export interface BulkPlayer {
   races_played?: number
 }
 
+export interface BulkFailure {
+  id: number
+  image_filename: string | null
+  image_url: string | null
+  error_message: string
+  message_timestamp: string | null
+  discord_message_id: number | null
+  created_at: string
+}
+
 // ==================== Helper Functions ====================
 
 function getAuthHeaders(token?: string): HeadersInit {
@@ -179,6 +189,13 @@ export const api = {
   getPlayers: async (guildId: string): Promise<{ players: Player[]; total: number }> => {
     const result = await fetchApi<{ players: Player[]; total: number }>(
       `/api/guilds/${guildId}/players`
+    )
+    return result || { players: [], total: 0 }
+  },
+
+  getAllPlayers: async (guildId: string): Promise<{ players: Player[]; total: number }> => {
+    const result = await fetchApi<{ players: Player[]; total: number }>(
+      `/api/guilds/${guildId}/players?include_inactive=true`
     )
     return result || { players: [], total: 0 }
   },
@@ -264,6 +281,7 @@ export const api = {
   getBulkResults: async (token: string): Promise<{
     session: BulkSession
     results: BulkResult[]
+    failures: BulkFailure[]
     total: number
   } | null> => {
     return fetchApi(`/api/bulk/sessions/${token}/results`)

@@ -29,9 +29,16 @@ def get_db(request: Request) -> DatabaseManager:
 
 
 @router.get("")
-async def list_players(guild_id: int, db: DatabaseManager = Depends(get_db)):
+async def list_players(
+    guild_id: int,
+    include_inactive: bool = False,
+    db: DatabaseManager = Depends(get_db)
+):
     """Get all players in a guild's roster."""
-    players = db.get_roster_players(guild_id)
+    if include_inactive:
+        players = db.get_all_guild_players(guild_id)
+    else:
+        players = db.get_roster_players(guild_id)
     return {"players": players, "total": len(players)}
 
 

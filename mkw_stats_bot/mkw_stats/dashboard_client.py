@@ -36,7 +36,8 @@ class DashboardClient:
         self,
         guild_id: int,
         user_id: int,
-        results: List[Dict]
+        results: List[Dict],
+        failed_results: List[Dict] = None
     ) -> Optional[Dict]:
         """
         Create a bulk scan session in the dashboard API.
@@ -49,6 +50,12 @@ class DashboardClient:
                 - image_url: URL to the image (optional)
                 - players: List of detected players with scores
                 - race_count: Number of races
+                - message_timestamp: When the image was posted
+                - discord_message_id: Discord message ID
+            failed_results: List of failed OCR results, each containing:
+                - filename: Image filename
+                - image_url: URL to the image (optional)
+                - error_message: Error message explaining the failure
                 - message_timestamp: When the image was posted
                 - discord_message_id: Discord message ID
 
@@ -81,11 +88,26 @@ class DashboardClient:
                     "discord_message_id": result.get("discord_message_id")
                 })
 
+            # Format failed results for the API
+            formatted_failed_results = []
+            if failed_results:
+                for result in failed_results:
+                    formatted_failed_results.append({
+                        "filename": result.get("filename"),
+                        "image_url": result.get("image_url"),
+                        "error_message": result.get("error_message"),
+                        "message_timestamp": result.get("message_timestamp"),
+                        "discord_message_id": result.get("discord_message_id")
+                    })
+
             payload = {
                 "guild_id": guild_id,
                 "user_id": user_id,
                 "results": formatted_results
             }
+
+            if formatted_failed_results:
+                payload["failed_results"] = formatted_failed_results
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(

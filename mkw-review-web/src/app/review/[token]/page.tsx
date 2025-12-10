@@ -52,17 +52,17 @@ export default function BulkReviewPage() {
   const refreshRosterPlayers = async () => {
     if (data?.session?.guild_id) {
       try {
-        console.log('Fetching roster for guild_id:', data.session.guild_id)
-        const result = await api.getPlayers(data.session.guild_id.toString())
-        console.log('Roster API response:', result)
+        console.log('Fetching all players for guild_id:', data.session.guild_id)
+        const result = await api.getAllPlayers(data.session.guild_id.toString())
+        console.log('All players API response:', result)
         const playerNames = result.players.map((p: any) => p.name)
-        console.log('Roster player names:', playerNames)
+        console.log('All player names:', playerNames)
         setRosterPlayers(playerNames)
       } catch (err) {
-        console.error("Failed to fetch roster:", err)
+        console.error("Failed to fetch players:", err)
       }
     } else {
-      console.warn('Cannot fetch roster: guild_id not available', data?.session)
+      console.warn('Cannot fetch players: guild_id not available', data?.session)
     }
   }
 
@@ -142,7 +142,7 @@ export default function BulkReviewPage() {
     )
   }
 
-  const { session, results } = data
+  const { session, results, failures = [] } = data
   const approvedCount = results.filter((r) => r.review_status === "approved").length
   const pendingCount = results.filter((r) => r.review_status === "pending").length
   const rejectedCount = results.filter((r) => r.review_status === "rejected").length
@@ -161,9 +161,13 @@ export default function BulkReviewPage() {
   }
 
   const handleSaveEdit = (resultId: number) => {
+    // Find current status and preserve it
+    const result = results.find(r => r.id === resultId)
+    const currentStatus = result?.review_status || "pending"
+
     updateResultMutation.mutate({
       resultId,
-      status: "approved",
+      status: currentStatus,
       corrected: editedPlayers,
     })
     setEditingResult(null)
@@ -508,7 +512,7 @@ export default function BulkReviewPage() {
                               size="sm"
                               onClick={() => handleSaveEdit(result.id)}
                             >
-                              Save & Approve
+                              Save
                             </Button>
                           </div>
                         </>
@@ -615,6 +619,78 @@ export default function BulkReviewPage() {
             )
           })}
         </div>
+
+        {/* Failed Images Section */}
+        {failures && failures.length > 0 && (
+          <div className="mt-12">
+            <h2 className="text-xl font-bold mb-4 text-muted-foreground">
+              Failed Images ({failures.length})
+            </h2>
+            <div className="space-y-6">
+              {failures.map((failure) => (
+                <Card key={failure.id} className="border-red-500/30 bg-red-50/30 dark:bg-red-950/10">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-lg text-red-600 dark:text-red-400">
+                        Failed to Process
+                      </CardTitle>
+                      <Badge variant="destructive">Error</Badge>
+                    </div>
+                    <CardDescription>
+                      {failure.image_filename && (
+                        <span className="text-xs text-muted-foreground">
+                          {failure.image_filename}
+                          <br />
+                        </span>
+                      )}
+                      {failure.message_timestamp
+                        ? new Date(failure.message_timestamp).toLocaleString()
+                        : "Unknown time"}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-col md:flex-row gap-6">
+                      {/* Image */}
+                      <div className="w-full md:w-[600px] flex-shrink-0">
+                        {failure.image_url ? (
+                          <img
+                            src={failure.image_url}
+                            alt="Failed"
+                            className="w-full h-auto rounded-md border border-red-300"
+                          />
+                        ) : (
+                          <div className="w-full aspect-video bg-muted rounded-md flex items-center justify-center border border-red-300">
+                            <p className="text-sm text-muted-foreground">No image</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Error Message */}
+                      <div className="flex-1">
+                        <div className="border border-dashed border-red-300 rounded-md p-6 bg-background">
+                          <div className="flex items-start gap-3">
+                            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+                            <div>
+                              <p className="font-medium text-red-600 mb-2">
+                                Processing Error
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                {failure.error_message}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-4 italic">
+                          No action needed - could not be processed automatically.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
