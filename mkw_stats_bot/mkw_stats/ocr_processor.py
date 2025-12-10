@@ -593,10 +593,10 @@ class OCRProcessor:
             guild_players_found = len(results)
             opponent_players = all_detected_scores - guild_players_found
             
-            # Check for 6v6 team splitting scenario
-            if all_detected_scores == 12:
-                logging.info(f"🔀 6v6 Split Detection: {guild_players_found} guild players in 12-player match")
-                results = self._apply_6v6_team_splitting(results, tokens, guild_id)
+            # Check for team splitting (handles 11-20 players dynamically)
+            if 11 <= all_detected_scores <= 20:
+                logging.info(f"🔀 Team Split Detection: {all_detected_scores} players, {guild_players_found} guild members")
+                results = self._apply_dynamic_team_splitting(results, tokens, guild_id, all_detected_scores)
                 guild_players_found = len(results)  # Update count after splitting
                 opponent_players = all_detected_scores - guild_players_found
             
@@ -728,7 +728,141 @@ class OCRProcessor:
         except Exception as e:
             logging.error(f"❌ Error applying 6v6 team splitting: {e}")
             return guild_results  # Return original results if splitting fails
-    
+
+    def _apply_dynamic_team_splitting(
+        self,
+        guild_results: List[Dict],
+        tokens: List[str],
+        guild_id: int,
+        total_players: int
+    ) -> List[Dict]:
+        """
+        Universal team splitting for any player count (11-20 players).
+        Uses majority rule to identify guild team regardless of split (6v6, 7v6, 8v7, etc.)
+        """
+        try:
+            logging.info(f"🔀 Starting dynamic team split for {total_players} players")
+
+            # Extract all players from OCR tokens
+            all_players = self._extract_all_players_from_tokens(tokens, guild_id)
+
+            if len(all_players) != total_players:
+                logging.warning(f"⚠️ Expected {total_players} players, extracted {len(all_players)}. Skipping split.")
+                return guild_results
+
+            # Map each guild member to their position (0 to total_players-1)
+            guild_member_positions = self._map_guild_positions(guild_results, all_players)
+
+            # Try multiple split points around the midpoint
+            split_point1 = total_players // 2          # Floor: 13→6, 14→7, 15→7
+            split_point2 = (total_players + 1) // 2    # Ceil:  13→7, 14→7, 15→8
+
+            # Store all candidate splits
+            split_candidates = []
+
+            # Try split 1: First [split_point1] vs Last [total_players - split_point1]
+            team1_sp1 = [r for r in guild_results if guild_member_positions.get(r['name'], -1) < split_point1]
+            team2_sp1 = [r for r in guild_results if guild_member_positions.get(r['name'], -1) >= split_point1]
+
+            count1_sp1 = len(team1_sp1)
+            count2_sp1 = len(team2_sp1)
+
+            if count1_sp1 > count2_sp1:
+                margin = count1_sp1 - count2_sp1
+                split_candidates.append({
+                    'team': team1_sp1,
+                    'margin': margin,
+                    'description': f"First {split_point1} ({count1_sp1} guild) vs Last {total_players-split_point1} ({count2_sp1} guild)",
+                    'winner': f"first {split_point1}"
+                })
+            elif count2_sp1 > count1_sp1:
+                margin = count2_sp1 - count1_sp1
+                split_candidates.append({
+                    'team': team2_sp1,
+                    'margin': margin,
+                    'description': f"Last {total_players-split_point1} ({count2_sp1} guild) vs First {split_point1} ({count1_sp1} guild)",
+                    'winner': f"last {total_players-split_point1}"
+                })
+
+            # Try split 2 (only if different from split 1)
+            if split_point2 != split_point1:
+                team1_sp2 = [r for r in guild_results if guild_member_positions.get(r['name'], -1) < split_point2]
+                team2_sp2 = [r for r in guild_results if guild_member_positions.get(r['name'], -1) >= split_point2]
+
+                count1_sp2 = len(team1_sp2)
+                count2_sp2 = len(team2_sp2)
+
+                if count1_sp2 > count2_sp2:
+                    margin = count1_sp2 - count2_sp2
+                    split_candidates.append({
+                        'team': team1_sp2,
+                        'margin': margin,
+                        'description': f"First {split_point2} ({count1_sp2} guild) vs Last {total_players-split_point2} ({count2_sp2} guild)",
+                        'winner': f"first {split_point2}"
+                    })
+                elif count2_sp2 > count1_sp2:
+                    margin = count2_sp2 - count1_sp2
+                    split_candidates.append({
+                        'team': team2_sp2,
+                        'margin': margin,
+                        'description': f"Last {total_players-split_point2} ({count2_sp2} guild) vs First {split_point2} ({count1_sp2} guild)",
+                        'winner': f"last {total_players-split_point2}"
+                    })
+
+            # Select best split (highest margin = clearest majority)
+            if not split_candidates:
+                logging.info("🤝 No clear majority in any split - returning all players")
+                return guild_results
+
+            best_split = max(split_candidates, key=lambda x: x['margin'])
+            winning_team = best_split['team']
+            excluded_team = [r for r in guild_results if r not in winning_team]
+
+            # Log results
+            winning_names = [r['name'] for r in winning_team]
+            excluded_names = [r['name'] for r in excluded_team]
+
+            logging.info(f"🏆 Split Result: {best_split['description']}")
+            logging.info(f"✅ Winner ({best_split['winner']}): {', '.join(winning_names)}")
+            if excluded_names:
+                logging.info(f"❌ Excluded: {', '.join(excluded_names)}")
+
+            return winning_team
+
+        except Exception as e:
+            logging.error(f"❌ Error in dynamic team splitting: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            return guild_results  # Fallback
+
+    def _map_guild_positions(self, guild_results: List[Dict], all_players: List[tuple]) -> Dict[str, int]:
+        """Map each guild member to their position in the full player list."""
+        guild_member_positions = {}
+
+        for result in guild_results:
+            result_name = result['name']
+            result_score = result['score']
+            result_raw = result.get('raw_name', result_name)
+
+            # Find position by matching score and name
+            for pos, (player_name, score) in enumerate(all_players):
+                score_match = (score == result_score)
+                name_match1 = (player_name.lower() == result_raw.lower())
+                name_match2 = (player_name.lower() == result_name.lower())
+                name_match3 = (result_name.lower() in player_name.lower())
+
+                if score_match and (name_match1 or name_match2 or name_match3):
+                    guild_member_positions[result_name] = pos
+                    logging.debug(f"🎯 {result_name} mapped to position {pos}")
+                    break
+
+            # If not found, log warning
+            if result_name not in guild_member_positions:
+                logging.warning(f"⚠️ Could not map {result_name} to position - defaulting to 0")
+                guild_member_positions[result_name] = 0
+
+        return guild_member_positions
+
     def _extract_score_from_corrupted_token(self, token: str) -> int:
         """Extract score (1-180) from a corrupted token containing mixed text and numbers."""
         import re
