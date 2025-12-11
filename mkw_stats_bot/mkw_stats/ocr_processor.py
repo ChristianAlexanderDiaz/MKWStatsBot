@@ -949,8 +949,8 @@ class OCRProcessor:
                     
                     if guild_member:
                         # Found guild member after score - reversed pattern like "93 vee"
-                        players.append((next_token, score))
-                        logging.info(f"🔍 Found reversed pattern (guild): '{current_token} {next_token}' -> {next_token}: {score}")
+                        players.append((guild_member, score))
+                        logging.info(f"🔍 Found reversed pattern (guild): '{current_token} {next_token}' -> {guild_member}: {score}")
                         i += 2
                         continue
                     else:
@@ -1009,7 +1009,7 @@ class OCRProcessor:
                                     break
                     
                     if score:
-                        players.append((current_token, score))
+                        players.append((guild_member, score))
                         i += consumed_tokens
                         continue
                     else:
