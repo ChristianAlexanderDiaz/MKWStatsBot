@@ -596,18 +596,34 @@ export default function BulkReviewPage() {
                                 </div>
                                 <span className="font-semibold mr-2">{player.score}</span>
                                 {!player.is_roster_member && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 text-xs"
-                                    onClick={() => {
-                                      setAddingNewPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
-                                      setNewPlayerFormData({ name: player.name, memberStatus: "member" })
-                                    }}
-                                  >
-                                    <UserPlus className="h-3 w-3 mr-1" />
-                                    Add as New
-                                  </Button>
+                                  <div className="flex items-center gap-1">
+                                    <select
+                                      className="h-7 w-28 rounded-md border border-input bg-background px-2 text-xs"
+                                      value=""
+                                      onChange={(e) => {
+                                        if (e.target.value) {
+                                          handleLinkPlayer(result.id, idx, player.name, e.target.value)
+                                        }
+                                      }}
+                                    >
+                                      <option value="">Link to...</option>
+                                      {allAvailablePlayers.map((name) => (
+                                        <option key={name} value={name}>{name}</option>
+                                      ))}
+                                    </select>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      onClick={() => {
+                                        setAddingNewPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
+                                        setNewPlayerFormData({ name: player.name, memberStatus: "member" })
+                                      }}
+                                    >
+                                      <UserPlus className="h-3 w-3 mr-1" />
+                                      Add as New
+                                    </Button>
+                                  </div>
                                 )}
                               </div>
                               {addingNewPlayer?.resultId === result.id && addingNewPlayer?.playerIndex === idx && (
@@ -658,7 +674,7 @@ export default function BulkReviewPage() {
                           ))}
                           {players.some((p) => !p.is_roster_member) && (
                             <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
-                              Players highlighted in yellow are not in your roster. Click "Add as New" to add to roster.
+                              Yellow = not in roster. Use "Link to..." to connect to existing player, or "Add as New" to create new.
                             </p>
                           )}
                         </>
