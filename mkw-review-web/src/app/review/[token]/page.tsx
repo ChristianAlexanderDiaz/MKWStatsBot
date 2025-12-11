@@ -531,11 +531,11 @@ export default function BulkReviewPage() {
                               <Input
                                 type="text"
                                 inputMode="numeric"
-                                value={player.races_played || ""}
+                                value={player.races_played}
                                 onChange={(e) => {
                                   const value = e.target.value
                                   if (value === '' || /^\d+$/.test(value)) {
-                                    handlePlayerChange(idx, "races_played", value === '' ? (result.race_count || 12) : parseInt(value))
+                                    handlePlayerChange(idx, "races_played", value === '' ? 0 : parseInt(value))
                                   }
                                 }}
                                 className="w-16"
@@ -840,11 +840,11 @@ export default function BulkReviewPage() {
                                     type="text"
                                     inputMode="numeric"
                                     placeholder="Races"
-                                    value={player.races_played || ""}
+                                    value={player.races_played}
                                     onChange={(e) => {
                                       const value = e.target.value
                                       if (value === '' || /^\d+$/.test(value)) {
-                                        handleFailurePlayerChange(index, "races_played", value === '' ? 12 : parseInt(value))
+                                        handleFailurePlayerChange(index, "races_played", value === '' ? 0 : parseInt(value))
                                       }
                                     }}
                                     className="w-16"
