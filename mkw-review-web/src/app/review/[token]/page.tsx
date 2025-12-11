@@ -216,7 +216,7 @@ export default function BulkReviewPage() {
     setFailureEditedPlayers([])
   }
 
-  const handleFailurePlayerChange = (index: number, field: keyof BulkPlayer, value: string | number) => {
+  const handleFailurePlayerChange = (index: number, field: keyof BulkPlayer, value: string | number | boolean) => {
     const updated = [...failureEditedPlayers]
     updated[index] = { ...updated[index], [field]: value }
     setFailureEditedPlayers(updated)
@@ -739,6 +739,21 @@ export default function BulkReviewPage() {
                                     onChange={(e) => handleFailurePlayerChange(index, "name", e.target.value)}
                                     className="flex-1"
                                   />
+                                  <select
+                                    className="flex h-9 w-32 rounded-md border border-input bg-background px-2 py-1 text-sm"
+                                    value=""
+                                    onChange={(e) => {
+                                      if (e.target.value) {
+                                        handleFailurePlayerChange(index, "name", e.target.value)
+                                        handleFailurePlayerChange(index, "is_roster_member", true)
+                                      }
+                                    }}
+                                  >
+                                    <option value="">Link roster...</option>
+                                    {allAvailablePlayers.map((name) => (
+                                      <option key={name} value={name}>{name}</option>
+                                    ))}
+                                  </select>
                                   <Input
                                     type="number"
                                     placeholder="Score"
