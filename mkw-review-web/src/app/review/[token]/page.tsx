@@ -43,6 +43,7 @@ export default function BulkReviewPage() {
   const [stagedPlayers, setStagedPlayers] = useState<Array<{ name: string; memberStatus: string }>>([])
   const [editingFailure, setEditingFailure] = useState<number | null>(null)
   const [failureEditedPlayers, setFailureEditedPlayers] = useState<BulkPlayer[]>([])
+  const [linkSearchQuery, setLinkSearchQuery] = useState("")
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["bulk-review", token],
@@ -597,20 +598,19 @@ export default function BulkReviewPage() {
                                 <span className="font-semibold mr-2">{player.score}</span>
                                 {!player.is_roster_member && (
                                   <div className="flex items-center gap-1">
-                                    <select
-                                      className="h-7 w-28 rounded-md border border-input bg-background px-2 text-xs"
-                                      value=""
-                                      onChange={(e) => {
-                                        if (e.target.value) {
-                                          handleLinkPlayer(result.id, idx, player.name, e.target.value)
-                                        }
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      onClick={() => {
+                                        setLinkingPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
+                                        setLinkSearchQuery("")
+                                        setAddingNewPlayer(null)
                                       }}
                                     >
-                                      <option value="">Link to...</option>
-                                      {allAvailablePlayers.map((name) => (
-                                        <option key={name} value={name}>{name}</option>
-                                      ))}
-                                    </select>
+                                      <Link2 className="h-3 w-3 mr-1" />
+                                      Link
+                                    </Button>
                                     <Button
                                       variant="outline"
                                       size="sm"
@@ -618,6 +618,7 @@ export default function BulkReviewPage() {
                                       onClick={() => {
                                         setAddingNewPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
                                         setNewPlayerFormData({ name: player.name, memberStatus: "member" })
+                                        setLinkingPlayer(null)
                                       }}
                                     >
                                       <UserPlus className="h-3 w-3 mr-1" />
@@ -626,6 +627,55 @@ export default function BulkReviewPage() {
                                   </div>
                                 )}
                               </div>
+                              {linkingPlayer?.resultId === result.id && linkingPlayer?.playerIndex === idx && (
+                                <div className="mt-2 p-3 bg-background border rounded-md">
+                                  <label className="text-sm font-medium mb-2 block">
+                                    Link to Existing Roster Player
+                                  </label>
+                                  <div className="space-y-2">
+                                    <Input
+                                      value={linkSearchQuery}
+                                      onChange={(e) => setLinkSearchQuery(e.target.value)}
+                                      placeholder="Search roster players..."
+                                      className="w-full"
+                                    />
+                                    <div className="max-h-40 overflow-y-auto border rounded-md">
+                                      {allAvailablePlayers
+                                        .filter(name =>
+                                          linkSearchQuery === "" ||
+                                          name.toLowerCase().includes(linkSearchQuery.toLowerCase())
+                                        )
+                                        .map((name) => (
+                                          <button
+                                            key={name}
+                                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted border-b last:border-b-0"
+                                            onClick={() => handleLinkPlayer(result.id, idx, player.name, name)}
+                                          >
+                                            {name}
+                                          </button>
+                                        ))}
+                                      {allAvailablePlayers.filter(name =>
+                                        linkSearchQuery === "" ||
+                                        name.toLowerCase().includes(linkSearchQuery.toLowerCase())
+                                      ).length === 0 && (
+                                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                                          No players found
+                                        </div>
+                                      )}
+                                    </div>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setLinkingPlayer(null)
+                                        setLinkSearchQuery("")
+                                      }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
                               {addingNewPlayer?.resultId === result.id && addingNewPlayer?.playerIndex === idx && (
                                 <div className="mt-2 p-3 bg-background border rounded-md">
                                   <label className="text-sm font-medium mb-2 block">
@@ -674,7 +724,7 @@ export default function BulkReviewPage() {
                           ))}
                           {players.some((p) => !p.is_roster_member) && (
                             <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
-                              Yellow = not in roster. Use "Link to..." to connect to existing player, or "Add as New" to create new.
+                              Yellow = not in roster. Use "Link" to connect to existing player, or "Add as New" to create new.
                             </p>
                           )}
                         </>
@@ -755,21 +805,6 @@ export default function BulkReviewPage() {
                                     onChange={(e) => handleFailurePlayerChange(index, "name", e.target.value)}
                                     className="flex-1"
                                   />
-                                  <select
-                                    className="flex h-9 w-32 rounded-md border border-input bg-background px-2 py-1 text-sm"
-                                    value=""
-                                    onChange={(e) => {
-                                      if (e.target.value) {
-                                        handleFailurePlayerChange(index, "name", e.target.value)
-                                        handleFailurePlayerChange(index, "is_roster_member", true)
-                                      }
-                                    }}
-                                  >
-                                    <option value="">Link roster...</option>
-                                    {allAvailablePlayers.map((name) => (
-                                      <option key={name} value={name}>{name}</option>
-                                    ))}
-                                  </select>
                                   <Input
                                     type="number"
                                     placeholder="Score"

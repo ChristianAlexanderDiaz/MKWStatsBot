@@ -603,7 +603,7 @@ class DatabaseManager:
 
                 return {
                     'id': row[0],
-                    'guild_id': row[1],
+                    'guild_id': str(row[1]),  # Convert to string to avoid JS precision loss
                     'created_by_user_id': row[2],
                     'status': row[3],
                     'total_images': row[4],
