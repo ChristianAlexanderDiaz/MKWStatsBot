@@ -529,27 +529,17 @@ export default function BulkReviewPage() {
                                 placeholder="Score"
                               />
                               <Input
-                                type="number"
+                                type="text"
                                 inputMode="numeric"
-                                value={player.races_played ?? result.race_count ?? 12}
+                                value={player.races_played || ""}
                                 onChange={(e) => {
                                   const value = e.target.value
-                                  if (value === '') {
-                                    handlePlayerChange(idx, "races_played", result.race_count || 12)
-                                  } else {
-                                    const races = parseInt(value)
-                                    const maxRaces = result.race_count || 12
-                                    // Validate: 1 to maxRaces
-                                    if (!isNaN(races) && races >= 1 && races <= maxRaces) {
-                                      handlePlayerChange(idx, "races_played", races)
-                                    }
+                                  if (value === '' || /^\d+$/.test(value)) {
+                                    handlePlayerChange(idx, "races_played", value === '' ? (result.race_count || 12) : parseInt(value))
                                   }
                                 }}
                                 className="w-16"
-                                placeholder={(result.race_count || 12).toString()}
-                                min={1}
-                                max={result.race_count || 12}
-                                title={`Number of races played (1-${result.race_count || 12})`}
+                                placeholder="Races"
                               />
                               <Button
                                 variant="ghost"
@@ -847,25 +837,17 @@ export default function BulkReviewPage() {
                                     className="w-20"
                                   />
                                   <Input
-                                    type="number"
-                                    placeholder="12"
-                                    value={player.races_played ?? 12}
+                                    type="text"
+                                    inputMode="numeric"
+                                    placeholder="Races"
+                                    value={player.races_played || ""}
                                     onChange={(e) => {
                                       const value = e.target.value
-                                      if (value === '') {
-                                        handleFailurePlayerChange(index, "races_played", 12)
-                                      } else {
-                                        const races = parseInt(value)
-                                        // Validate: 1-12 races
-                                        if (!isNaN(races) && races >= 1 && races <= 12) {
-                                          handleFailurePlayerChange(index, "races_played", races)
-                                        }
+                                      if (value === '' || /^\d+$/.test(value)) {
+                                        handleFailurePlayerChange(index, "races_played", value === '' ? 12 : parseInt(value))
                                       }
                                     }}
                                     className="w-16"
-                                    min={1}
-                                    max={12}
-                                    title="Number of races played (1-12)"
                                   />
                                   <Button
                                     variant="ghost"
