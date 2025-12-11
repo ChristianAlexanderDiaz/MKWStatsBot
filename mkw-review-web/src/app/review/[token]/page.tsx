@@ -41,6 +41,8 @@ export default function BulkReviewPage() {
   const [newPlayerFormData, setNewPlayerFormData] = useState<{ name: string; memberStatus: string }>({ name: "", memberStatus: "member" })
   const [newlyAddedPlayers, setNewlyAddedPlayers] = useState<Set<string>>(new Set())
   const [stagedPlayers, setStagedPlayers] = useState<Array<{ name: string; memberStatus: string }>>([])
+  const [editingFailure, setEditingFailure] = useState<number | null>(null)
+  const [failureEditedPlayers, setFailureEditedPlayers] = useState<BulkPlayer[]>([])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["bulk-review", token],
@@ -106,6 +108,21 @@ export default function BulkReviewPage() {
         router.push("/dashboard")
       }
     },
+  })
+
+  const convertFailureMutation = useMutation({
+    mutationFn: async ({ failureId, players, status }: {
+      failureId: number
+      players: BulkPlayer[]
+      status: 'pending' | 'approved' | 'rejected'
+    }) => {
+      return api.convertFailureToResult(token, failureId, players, status)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bulk-review", token] })
+      setEditingFailure(null)
+      setFailureEditedPlayers([])
+    }
   })
 
   if (isLoading) {
@@ -186,6 +203,40 @@ export default function BulkReviewPage() {
       .forEach((r) => {
         updateResultMutation.mutate({ resultId: r.id, status: "approved" })
       })
+  }
+
+  // Failure editing handlers
+  const handleEditFailure = (failureId: number) => {
+    setEditingFailure(failureId)
+    setFailureEditedPlayers([{ name: "", score: 0, is_roster_member: false }])
+  }
+
+  const handleCancelEditFailure = () => {
+    setEditingFailure(null)
+    setFailureEditedPlayers([])
+  }
+
+  const handleFailurePlayerChange = (index: number, field: keyof BulkPlayer, value: string | number) => {
+    const updated = [...failureEditedPlayers]
+    updated[index] = { ...updated[index], [field]: value }
+    setFailureEditedPlayers(updated)
+  }
+
+  const handleAddFailurePlayer = () => {
+    setFailureEditedPlayers([...failureEditedPlayers, { name: "", score: 0, is_roster_member: false }])
+  }
+
+  const handleRemoveFailurePlayer = (index: number) => {
+    setFailureEditedPlayers(failureEditedPlayers.filter((_, i) => i !== index))
+  }
+
+  const handleSaveFailure = (failureId: number, status: 'pending' | 'approved' | 'rejected') => {
+    const validPlayers = failureEditedPlayers.filter(p => p.name.trim() !== '')
+    if (validPlayers.length === 0) {
+      alert('Please add at least one player')
+      return
+    }
+    convertFailureMutation.mutate({ failureId, players: validPlayers, status })
   }
 
   const handleConfirmAndSave = async () => {
@@ -627,67 +678,151 @@ export default function BulkReviewPage() {
               Failed Images ({failures.length})
             </h2>
             <div className="space-y-6">
-              {failures.map((failure) => (
-                <Card key={failure.id} className="border-red-500/30 bg-red-50/30 dark:bg-red-950/10">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center gap-2">
-                      <CardTitle className="text-lg text-red-600 dark:text-red-400">
-                        Failed to Process
-                      </CardTitle>
-                      <Badge variant="destructive">Error</Badge>
-                    </div>
-                    <CardDescription>
-                      {failure.image_filename && (
-                        <span className="text-xs text-muted-foreground">
-                          {failure.image_filename}
-                          <br />
-                        </span>
-                      )}
-                      {failure.message_timestamp
-                        ? new Date(failure.message_timestamp).toLocaleString()
-                        : "Unknown time"}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col md:flex-row gap-6">
-                      {/* Image */}
-                      <div className="w-full md:w-[600px] flex-shrink-0">
-                        {failure.image_url ? (
-                          <img
-                            src={failure.image_url}
-                            alt="Failed"
-                            className="w-full h-auto rounded-md border border-red-300"
-                          />
-                        ) : (
-                          <div className="w-full aspect-video bg-muted rounded-md flex items-center justify-center border border-red-300">
-                            <p className="text-sm text-muted-foreground">No image</p>
-                          </div>
+              {failures.map((failure) => {
+                const isEditingThis = editingFailure === failure.id
+                return (
+                  <Card key={failure.id} className="border-red-500/30 bg-red-50/30 dark:bg-red-950/10">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-lg text-red-600 dark:text-red-400">
+                            Failed to Process
+                          </CardTitle>
+                          <Badge variant="destructive">Error</Badge>
+                        </div>
+                        {!isEditingThis && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEditFailure(failure.id)}
+                          >
+                            <Edit2 className="h-4 w-4 mr-1" />
+                            Edit Manually
+                          </Button>
                         )}
                       </div>
-
-                      {/* Error Message */}
-                      <div className="flex-1">
-                        <div className="border border-dashed border-red-300 rounded-md p-6 bg-background">
-                          <div className="flex items-start gap-3">
-                            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
-                            <div>
-                              <p className="font-medium text-red-600 mb-2">
-                                Processing Error
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                {failure.error_message}
-                              </p>
+                      <CardDescription>
+                        {failure.message_timestamp
+                          ? new Date(failure.message_timestamp).toLocaleString()
+                          : "Unknown time"}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-col md:flex-row gap-6">
+                        {/* Image */}
+                        <div className="w-full md:w-[600px] flex-shrink-0">
+                          {failure.image_url ? (
+                            <img
+                              src={failure.image_url}
+                              alt="Failed"
+                              className="w-full h-auto rounded-md border border-red-300"
+                            />
+                          ) : (
+                            <div className="w-full aspect-video bg-muted rounded-md flex items-center justify-center border border-red-300">
+                              <p className="text-sm text-muted-foreground">No image</p>
                             </div>
-                          </div>
+                          )}
                         </div>
-                        <p className="text-xs text-muted-foreground mt-4 italic">
-                          No action needed - could not be processed automatically.
-                        </p>
+
+                        {/* Edit Mode or Error Display */}
+                        <div className="flex-1">
+                          {isEditingThis ? (
+                            <div className="space-y-3">
+                              <p className="text-sm text-muted-foreground mb-2">
+                                Manually enter the players from this image:
+                              </p>
+                              {failureEditedPlayers.map((player, index) => (
+                                <div key={index} className="flex items-center gap-2">
+                                  <Input
+                                    placeholder="Player name"
+                                    value={player.name}
+                                    onChange={(e) => handleFailurePlayerChange(index, "name", e.target.value)}
+                                    className="flex-1"
+                                  />
+                                  <Input
+                                    type="number"
+                                    placeholder="Score"
+                                    value={player.score || ""}
+                                    onChange={(e) => handleFailurePlayerChange(index, "score", parseInt(e.target.value) || 0)}
+                                    className="w-20"
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleRemoveFailurePlayer(index)}
+                                    disabled={failureEditedPlayers.length <= 1}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </div>
+                              ))}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleAddFailurePlayer}
+                                className="w-full"
+                              >
+                                <Plus className="h-4 w-4 mr-1" />
+                                Add Player
+                              </Button>
+                              <div className="flex gap-2 mt-4">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleCancelEditFailure}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSaveFailure(failure.id, "pending")}
+                                  disabled={convertFailureMutation.isPending}
+                                >
+                                  {convertFailureMutation.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                  ) : (
+                                    <Save className="h-4 w-4 mr-1" />
+                                  )}
+                                  Save
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  className="bg-green-600 hover:bg-green-700"
+                                  onClick={() => handleSaveFailure(failure.id, "approved")}
+                                  disabled={convertFailureMutation.isPending}
+                                >
+                                  <Check className="h-4 w-4 mr-1" />
+                                  Save & Approve
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="border border-dashed border-red-300 rounded-md p-6 bg-background">
+                                <div className="flex items-start gap-3">
+                                  <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+                                  <div>
+                                    <p className="font-medium text-red-600 mb-2">
+                                      Processing Error
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {failure.error_message}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-4 italic">
+                                Click "Edit Manually" to add players for this image.
+                              </p>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           </div>
         )}

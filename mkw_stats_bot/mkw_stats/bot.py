@@ -1220,7 +1220,13 @@ class MarioKartBot(commands.Bot):
                 )
 
                 if failed_images:
-                    failed_list = "\n".join([f"• {f['filename']}: {f['error']}" for f in failed_images[:5]])
+                    def format_failed_item(f):
+                        if f.get('message') and f['message'].created_at:
+                            ts = f['message'].created_at
+                            return f"• {ts.strftime('%m/%d/%Y %I:%M %p')}: {f['error']}"
+                        return f"• {f.get('filename', 'Unknown')}: {f['error']}"
+
+                    failed_list = "\n".join([format_failed_item(f) for f in failed_images[:5]])
                     if len(failed_images) > 5:
                         failed_list += f"\n... and {len(failed_images) - 5} more"
                     embed.add_field(

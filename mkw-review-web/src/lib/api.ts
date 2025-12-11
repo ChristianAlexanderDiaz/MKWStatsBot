@@ -326,6 +326,27 @@ export const api = {
       headers: getAuthHeaders()
     })
     return response.ok
+  },
+
+  convertFailureToResult: async (
+    sessionToken: string,
+    failureId: number,
+    players: BulkPlayer[],
+    reviewStatus: 'pending' | 'approved' | 'rejected' = 'pending'
+  ): Promise<BulkResult | null> => {
+    const response = await fetch(
+      `${API_BASE_URL}/api/bulk/sessions/${sessionToken}/failures/${failureId}/convert`,
+      {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          review_status: reviewStatus,
+          corrected_players: players
+        })
+      }
+    )
+    if (!response.ok) return null
+    return response.json()
   }
 }
 
@@ -350,5 +371,6 @@ export const {
   getBulkResults,
   updateBulkResult,
   confirmBulkSession,
-  cancelBulkSession
+  cancelBulkSession,
+  convertFailureToResult
 } = api

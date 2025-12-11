@@ -145,6 +145,30 @@ async def update_result(
     return {"status": "success"}
 
 
+@router.post("/sessions/{token}/failures/{failure_id}/convert")
+async def convert_failure_to_result(
+    token: str,
+    failure_id: int,
+    update: UpdateResultRequest,
+    db: DatabaseManager = Depends(get_db)
+):
+    """Convert a failed scan to a result with manually entered players."""
+    session = db.get_bulk_session(token)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not update.corrected_players:
+        raise HTTPException(status_code=400, detail="Players required")
+
+    players = [p.model_dump() for p in update.corrected_players]
+    result = db.convert_failure_to_result(failure_id, players, update.review_status)
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Failure not found")
+
+    return result
+
+
 @router.post("/sessions/{token}/confirm")
 async def confirm_session(token: str, db: DatabaseManager = Depends(get_db)):
     """Confirm and save all approved wars from a bulk scan session."""

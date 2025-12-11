@@ -698,6 +698,58 @@ class DatabaseManager:
             logger.error(f"Error getting bulk failures: {e}")
             return []
 
+    def convert_failure_to_result(self, failure_id: int, players: List[Dict], review_status: str = 'pending') -> Optional[Dict]:
+        """Convert a failure to a result with manually entered players."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get failure details
+                cursor.execute("""
+                    SELECT session_id, image_filename, image_url, message_timestamp, discord_message_id
+                    FROM bulk_scan_failures WHERE id = %s
+                """, (failure_id,))
+                failure = cursor.fetchone()
+                if not failure:
+                    return None
+
+                session_id, filename, image_url, msg_ts, discord_msg_id = failure
+
+                # Create new result from failure data
+                cursor.execute("""
+                    INSERT INTO bulk_scan_results
+                    (session_id, image_filename, image_url, detected_players, review_status,
+                     corrected_players, race_count, message_timestamp, discord_message_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, 12, %s, %s)
+                    RETURNING id
+                """, (
+                    session_id, filename, image_url,
+                    json.dumps(players),
+                    review_status,
+                    json.dumps(players),
+                    msg_ts, discord_msg_id
+                ))
+                result_id = cursor.fetchone()[0]
+
+                # Delete the failure
+                cursor.execute("DELETE FROM bulk_scan_failures WHERE id = %s", (failure_id,))
+
+                conn.commit()
+
+                return {
+                    'id': result_id,
+                    'image_filename': filename,
+                    'image_url': image_url,
+                    'detected_players': players,
+                    'review_status': review_status,
+                    'corrected_players': players,
+                    'race_count': 12,
+                    'message_timestamp': msg_ts.isoformat() if msg_ts else None
+                }
+        except Exception as e:
+            logger.error(f"Error converting failure to result: {e}")
+            return None
+
     def update_bulk_result(self, result_id: int, review_status: str,
                            corrected_players: List[Dict] = None) -> bool:
         """Update a single bulk scan result."""
