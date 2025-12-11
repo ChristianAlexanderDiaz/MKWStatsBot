@@ -79,7 +79,7 @@ class DashboardClient:
                             "score": p.get("score", 0),
                             "raw_name": p.get("raw_name") or p.get("original_name"),
                             "is_roster_member": p.get("is_roster_member", False),
-                            "races_played": p.get("races_played", 12)
+                            "races_played": p.get("races_played") or p.get("races", 12)
                         }
                         for p in result.get("players", [])
                     ],
