@@ -175,7 +175,13 @@ export default function BulkReviewPage() {
 
   const handleEdit = (result: BulkResult) => {
     setEditingResult(result.id)
-    setEditedPlayers(result.corrected_players || result.detected_players)
+    const players = result.corrected_players || result.detected_players
+    // Ensure races_played has a default value (war's race_count)
+    const playersWithDefaults = players.map(p => ({
+      ...p,
+      races_played: p.races_played || result.race_count || 12
+    }))
+    setEditedPlayers(playersWithDefaults)
   }
 
   const handleSaveEdit = (resultId: number) => {
@@ -522,6 +528,25 @@ export default function BulkReviewPage() {
                                 className="w-24"
                                 placeholder="Score"
                               />
+                              <Input
+                                type="text"
+                                inputMode="numeric"
+                                value={player.races_played || result.race_count || 12}
+                                onChange={(e) => {
+                                  const value = e.target.value
+                                  if (value === '' || /^\d+$/.test(value)) {
+                                    const races = value === '' ? (result.race_count || 12) : parseInt(value)
+                                    const maxRaces = result.race_count || 12
+                                    // Validate: 1 to maxRaces
+                                    if (races >= 1 && races <= maxRaces) {
+                                      handlePlayerChange(idx, "races_played", races)
+                                    }
+                                  }
+                                }}
+                                className="w-16"
+                                placeholder="Races"
+                                title={`Number of races played (1-${result.race_count || 12})`}
+                              />
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -595,7 +620,12 @@ export default function BulkReviewPage() {
                                     </Badge>
                                   )}
                                 </div>
-                                <span className="font-semibold mr-2">{player.score}</span>
+                                <div className="flex items-center gap-2 mr-2">
+                                  <span className="font-semibold">{player.score}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    ({player.races_played || result.race_count || 12}/{result.race_count || 12} races)
+                                  </span>
+                                </div>
                                 {!player.is_roster_member && (
                                   <div className="flex items-center gap-1">
                                     <Button
@@ -811,6 +841,22 @@ export default function BulkReviewPage() {
                                     value={player.score || ""}
                                     onChange={(e) => handleFailurePlayerChange(index, "score", parseInt(e.target.value) || 0)}
                                     className="w-20"
+                                  />
+                                  <Input
+                                    type="number"
+                                    placeholder="Races"
+                                    value={player.races_played || 12}
+                                    onChange={(e) => {
+                                      const races = parseInt(e.target.value) || 12
+                                      // Validate: 1-12 races
+                                      if (races >= 1 && races <= 12) {
+                                        handleFailurePlayerChange(index, "races_played", races)
+                                      }
+                                    }}
+                                    className="w-16"
+                                    min={1}
+                                    max={12}
+                                    title="Number of races played (1-12)"
                                   />
                                   <Button
                                     variant="ghost"
