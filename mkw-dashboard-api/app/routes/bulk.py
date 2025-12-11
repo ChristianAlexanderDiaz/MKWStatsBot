@@ -157,10 +157,11 @@ async def convert_failure_to_result(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    if not update.corrected_players:
+    # Allow empty players only for rejections
+    if not update.corrected_players and update.review_status != "rejected":
         raise HTTPException(status_code=400, detail="Players required")
 
-    players = [p.model_dump() for p in update.corrected_players]
+    players = [p.model_dump() for p in update.corrected_players] if update.corrected_players else []
     result = db.convert_failure_to_result(failure_id, players, update.review_status)
 
     if not result:

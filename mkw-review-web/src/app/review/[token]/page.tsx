@@ -239,7 +239,8 @@ export default function BulkReviewPage() {
 
   const handleSaveFailure = (failureId: number, status: 'pending' | 'approved' | 'rejected') => {
     const validPlayers = failureEditedPlayers.filter(p => p.name.trim() !== '')
-    if (validPlayers.length === 0) {
+    // Allow empty players only for rejections
+    if (validPlayers.length === 0 && status !== 'rejected') {
       alert('Please add at least one player')
       return
     }
@@ -905,7 +906,7 @@ export default function BulkReviewPage() {
                               <div className="border border-dashed border-red-300 rounded-md p-6 bg-background">
                                 <div className="flex items-start gap-3">
                                   <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
-                                  <div>
+                                  <div className="flex-1">
                                     <p className="font-medium text-red-600 mb-2">
                                       Processing Error
                                     </p>
@@ -915,8 +916,32 @@ export default function BulkReviewPage() {
                                   </div>
                                 </div>
                               </div>
-                              <p className="text-xs text-muted-foreground mt-4 italic">
-                                Click "Edit Manually" to add players for this image.
+                              <div className="flex gap-2 mt-4">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleEditFailure(failure.id)}
+                                >
+                                  <Edit2 className="h-4 w-4 mr-1" />
+                                  Edit Manually
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-red-600 hover:text-red-700"
+                                  onClick={() => {
+                                    // Reject without editing - failures won't be saved anyway
+                                    // This just converts the failure to a rejected result
+                                    handleSaveFailure(failure.id, "rejected")
+                                  }}
+                                  disabled={convertFailureMutation.isPending}
+                                >
+                                  <X className="h-4 w-4 mr-1" />
+                                  Reject
+                                </Button>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-3 italic">
+                                Note: Failed images won't be saved. You can reject or edit manually to add players.
                               </p>
                             </>
                           )}
