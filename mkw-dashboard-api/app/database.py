@@ -435,6 +435,84 @@ class DatabaseManager:
             logger.error(f"Error adding war: {e}")
             return None
 
+    def update_player_stats(self, player_name: str, score: int, races_played: int,
+                            war_participation: float, war_date: str, guild_id: int,
+                            team_differential: int = 0) -> bool:
+        """Update player statistics when a war is added with fractional war support."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Check if player exists and get current stats
+                cursor.execute("""
+                    SELECT total_score, total_races, war_count, total_team_differential
+                    FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+
+                result = cursor.fetchone()
+                if result:
+                    # Player has existing stats - UPDATE
+                    new_total_score = result[0] + score
+                    new_total_races = result[1] + races_played
+                    new_war_count = float(result[2]) + war_participation  # Support fractional wars
+                    new_total_differential = (result[3] or 0) + team_differential
+                    # Correct average calculation: total_score / war_count
+                    new_average = round(new_total_score / new_war_count, 2) if new_war_count > 0 else 0
+
+                    cursor.execute("""
+                        UPDATE players
+                        SET total_score = %s, total_races = %s, war_count = %s,
+                            average_score = %s, last_war_date = %s, total_team_differential = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE player_name = %s AND guild_id = %s
+                    """, (new_total_score, new_total_races, new_war_count, new_average,
+                          war_date, new_total_differential, player_name, guild_id))
+                    conn.commit()
+                    logger.info(f"Updated stats for {player_name}: +{score} points, +{races_played} races")
+                    return True
+                else:
+                    # Player doesn't exist - log error
+                    logger.error(f"Player {player_name} not found in players table for guild {guild_id}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error updating player stats: {e}")
+            return False
+
+    def add_player_war_performance(self, player_name: str, war_id: int, score: int,
+                                   races_played: int, race_count: int, guild_id: int) -> bool:
+        """Add a player's war performance record."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get player_id
+                cursor.execute("""
+                    SELECT id FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+
+                player_row = cursor.fetchone()
+                if player_row:
+                    player_id = player_row[0]
+                    war_participation = races_played / race_count if race_count > 0 else 1.0
+
+                    cursor.execute("""
+                        INSERT INTO player_war_performances
+                        (player_id, war_id, score, races_played, war_participation)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (player_id, war_id) DO NOTHING
+                    """, (player_id, war_id, score, races_played, war_participation))
+                    conn.commit()
+                    return True
+                else:
+                    logger.warning(f"Player {player_name} not found for war performance insert")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error adding player war performance: {e}")
+            return False
+
     # ==================== STATS METHODS ====================
 
     def get_leaderboard(self, guild_id: int, sort_by: str = 'average_score',

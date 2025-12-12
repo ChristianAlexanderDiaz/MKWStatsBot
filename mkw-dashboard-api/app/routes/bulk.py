@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime
 import logging
 
 from app.config import settings
@@ -189,9 +190,45 @@ async def confirm_session(token: str, db: DatabaseManager = Depends(get_db)):
         if result["review_status"] == "approved":
             # Use corrected players if available, otherwise detected
             players = result["corrected_players"] or result["detected_players"]
-            war_id = db.add_war(guild_id, players, result["race_count"])
+            race_count = result["race_count"] or 12
+            war_id = db.add_war(guild_id, players, race_count)
+
             if war_id:
                 created_wars.append(war_id)
+
+                # Calculate team differential
+                team_score = sum(p.get('score', 0) for p in players)
+                breakeven = 41 * race_count
+                team_differential = team_score - breakeven
+
+                # Update player stats and add war performance for each player
+                war_date = datetime.now().strftime('%Y-%m-%d')
+                for player in players:
+                    player_name = player.get('name')
+                    score = player.get('score', 0)
+                    races_played = player.get('races_played', race_count)
+                    war_participation = races_played / race_count if race_count > 0 else 1.0
+
+                    # Add player war performance record
+                    db.add_player_war_performance(
+                        player_name=player_name,
+                        war_id=war_id,
+                        score=score,
+                        races_played=races_played,
+                        race_count=race_count,
+                        guild_id=guild_id
+                    )
+
+                    # Update player statistics
+                    db.update_player_stats(
+                        player_name=player_name,
+                        score=score,
+                        races_played=races_played,
+                        war_participation=war_participation,
+                        war_date=war_date,
+                        guild_id=guild_id,
+                        team_differential=team_differential
+                    )
 
     # Mark session as completed
     db.complete_bulk_session(token)
