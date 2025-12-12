@@ -1,11 +1,12 @@
 # MKW Stats Bot - Claude Development Guide
 
 ## Project Overview
-- **Purpose**: Discord bot for Mario Kart clan statistics with OCR image processing
-- **Architecture**: Python Discord bot + PostgreSQL database + Tesseract OCR
-- **Version**: 0.17.1 (Docker deployment fix)
-- **Deployment**: Railway with PostgreSQL, Docker support
-- **Multi-Guild Support**: Full data isolation between Discord servers
+- **Purpose**: Full-stack Discord bot ecosystem for Mario Kart clan statistics with OCR and web dashboard
+- **Architecture**: Python Discord bot + FastAPI backend + Next.js frontend + PostgreSQL database + PaddleOCR
+- **Version**: Production (actively deployed)
+- **Deployment**: Railway with PostgreSQL, Docker support, multi-service architecture
+- **Multi-Guild Support**: Full data isolation between Discord servers, unlimited guilds supported
+- **Web Dashboard**: Next.js 15 with React Server Components, TypeScript, Tailwind CSS
 
 ## Core Technologies
 - **Python**: 3.11+ required
@@ -115,16 +116,45 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 
 ## Discord Bot Architecture
 
-### Command Structure (20+ slash commands total)
+### First-Time Guild Setup
+
+**Required Command**: `/setup`
+```
+/setup teamname:YourTeam players:Player1,Player2,Player3 results_channel:#channel
+```
+This initializes:
+- Guild configuration in `guild_configs` table
+- First team with provided name
+- Initial player roster (all assigned to the team)
+- Sets the OCR channel for automatic image processing
+
+**After Setup**: Use `/setchannel` to change the OCR channel:
+```
+/setchannel channel:#new-channel
+```
+
+### Automatic OCR Processing
+
+Once the OCR channel is set (via `/setup` or `/setchannel`):
+- Any PNG image uploaded to that channel is automatically scanned
+- Bot processes images from Lorenzi's Game Boards or Ice Mario
+- Shows confirmation UI with detected players and scores
+- User clicks "Save War" button or ✅ reaction to approve
+- No manual `/scanimage` command needed (that's a backup if auto-OCR misses)
+
+### Command Structure (25+ slash commands total)
 
 #### Slash Commands (/) - Primary Interface
-- **Guild Setup**: `/setup <teamname> <players>` - Initialize guild configuration with team and players
+- **Guild Setup**: `/setup <teamname> <players> <results_channel>` - Initialize guild configuration
+- **Channel Management**: `/setchannel <channel>` - Set automatic OCR processing channel
 - **War Management**: 
   - `/addwar <player_scores> [races]` - Add new war with player scores (OCR optional)
   - `/showallwars [limit]` - List all wars with pagination  
   - `/appendplayertowar <war_id> <player_scores>` - Add/update players to existing war (smart merge)
   - `/removewar <war_id>` - Delete war and revert player statistics (returns count of reverted players)
-- **Statistics**: `/stats [player]` - View player statistics or leaderboard
+- **Statistics**: `/stats [player] [lastxwars] [sortby]` - View player statistics or leaderboard
+  - Optional: `lastxwars` - Show stats for last X wars only (e.g., lastxwars:10)
+  - Optional: `sortby` - Sort by: Average Score (default), Win Rate, Average Differential
 - **Player Management**: 
   - `/roster` - Show complete guild roster organized by teams
   - `/addplayer <player_name> [member_status]` - Add player to roster with optional status (Member/Trial/Ally/Kicked)
@@ -149,12 +179,44 @@ The multi-guild architecture uses `guild_id` columns across all core tables:
 
 #### Legacy Commands Removed
 All prefix commands (!mk*) have been converted to modern slash commands or removed to streamline the interface.
+
+### Web Dashboard Integration
+
+The bot integrates with a web dashboard for bulk war review:
+- **Dashboard API**: FastAPI backend at `mkw-dashboard-api/`
+- **Web Frontend**: Next.js app at `mkw-review-web/`
+- **Bulk Sessions**: Created via `/bulkscanimage`, reviewed via web URL
+- **Authentication**: Discord OAuth for guild access
+- **Features**: Edit 70+ wars at once, approve/reject, link players, manage roster
+
+**Data Flow**:
+```
+Discord Bot → Dashboard Client → Dashboard API → PostgreSQL
+                                       ↑
+                           Next.js Web App ←┘
+```
+
 ### OCR Image Processing Workflow
-1. **Upload**: User uploads race result image to Discord
-2. **Process**: Bot automatically detects and processes with OCR
-3. **Validate**: Check player names against roster, validate scores (12-180)
-4. **Confirm**: React with ✅ (save), ❌ (cancel), ✏️ (edit)
-5. **Save**: Update database with war results and player statistics
+
+**Automatic Processing** (Primary Method):
+1. **Upload PNG** - User uploads image to configured OCR channel
+2. **Auto-Detect** - Bot automatically triggers OCR on new images
+3. **Process** - PaddleOCR extracts players and scores from Lorenzi/Ice Mario format
+4. **Validate** - Check player names against roster, validate scores (12-180)
+5. **Confirm** - React with ✅ (save), ❌ (cancel), or click "Save War" button
+6. **Save** - Update database with war results and player statistics
+
+**Manual Processing** (Backup):
+1. **Command** - Use `/scanimage` if auto-OCR missed an image
+2. **Process** - Same OCR processing as automatic
+3. **Confirm** - Same confirmation workflow
+
+**Bulk Processing**:
+1. **Command** - Use `/bulkscanimage` to scan entire channel
+2. **Process** - Scans all images in channel (up to 100)
+3. **Review URL** - Bot provides web dashboard link
+4. **Web Review** - Edit/approve/reject all wars in browser
+5. **Save All** - One-click to save all approved wars
 
 ### Database Schema
 - **players**: Player roster with guild_id, nicknames (JSONB), team assignments (replaced old 'roster' table)
