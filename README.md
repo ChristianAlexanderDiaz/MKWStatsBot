@@ -258,7 +258,9 @@ This project demonstrates:
 
 ## 👨‍💻 Developer
 
-**Christian Alexander Diaz**
+**Christian Diaz**
+
+Claude Code (Haiku, Sonnet, Opus)
 
 This project represents a complete software engineering lifecycle from initial requirements gathering through design, implementation, testing, deployment, and maintenance.
 
