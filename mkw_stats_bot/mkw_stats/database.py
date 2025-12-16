@@ -1039,7 +1039,11 @@ class DatabaseManager:
             return False
     
     def get_player_stats(self, player_name: str, guild_id: int = 0) -> Optional[Dict]:
-        """Get comprehensive player statistics."""
+        """Get comprehensive player statistics.
+
+        Highest and lowest scores are calculated only from wars where the player
+        participated in all 12 races for fair comparison across matches.
+        """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1060,11 +1064,12 @@ class DatabaseManager:
                 player_id = result[0]
 
                 # Get highest and lowest scores from player_war_performances
+                # Only include wars where player participated in all 12 races
                 cursor.execute("""
                     SELECT MAX(pwp.score), MIN(pwp.score)
                     FROM player_war_performances pwp
                     JOIN wars w ON pwp.war_id = w.id
-                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                    WHERE pwp.player_id = %s AND w.guild_id = %s AND pwp.races_played = 12
                 """, (player_id, guild_id))
 
                 score_stats = cursor.fetchone()
