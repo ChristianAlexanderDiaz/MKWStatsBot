@@ -106,7 +106,28 @@ class AddPlayerModal(ui.Modal, title="Add Player"):
                 )
                 return
 
-            # Add new player to results
+            # Ensure player exists in database before adding to war results
+            guild_id = self.view.guild_id
+            db = self.view.bot.db
+
+            # Check if player already exists in roster
+            existing_player = db.get_player_info(name, guild_id)
+            if not existing_player:
+                # Add player to roster with default team 'Unassigned'
+                added = db.add_roster_player(
+                    name,
+                    str(interaction.user),
+                    guild_id,
+                    member_status='member'
+                )
+                if not added:
+                    await interaction.response.send_message(
+                        f"❌ Failed to add player '{name}' to roster. Please try again or contact an admin.",
+                        ephemeral=True
+                    )
+                    return
+
+            # Add new player to results (now safe because player exists in DB)
             new_player = {
                 'name': name,
                 'raw_name': name,
