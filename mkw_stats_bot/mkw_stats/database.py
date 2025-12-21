@@ -1149,11 +1149,12 @@ class DatabaseManager:
 
                 player_id = player_info[0]
 
-                # Get last X war performances using optimized indexed query
+                # Get last X war performances with team differential
                 cursor.execute("""
                     SELECT
                         w.war_date,
                         w.race_count,
+                        w.team_differential,
                         pwp.score,
                         pwp.races_played,
                         pwp.war_participation
@@ -1172,19 +1173,50 @@ class DatabaseManager:
                 total_score = 0
                 total_races = 0
                 total_war_participation = 0.0
+                total_team_differential = 0
                 last_war_date = None
+                highest_score = 0
+                lowest_score = None
+                wins = 0
+                losses = 0
+                ties = 0
 
                 for perf in performances:
-                    war_date, race_count, score, races_played, war_participation = perf
+                    war_date, race_count, team_diff, score, races_played, war_participation = perf
                     total_score += score
                     total_races += races_played
                     total_war_participation += float(war_participation)
+                    total_team_differential += (team_diff or 0)
+
+                    # Calculate win/loss/tie
+                    if team_diff is not None:
+                        if team_diff > 0:
+                            wins += 1
+                        elif team_diff < 0:
+                            losses += 1
+                        else:
+                            ties += 1
+
+                    # Track highest/lowest scores (only for 12-race wars)
+                    if races_played == 12:
+                        if score > highest_score:
+                            highest_score = score
+                        if lowest_score is None or score < lowest_score:
+                            lowest_score = score
 
                     if war_date and (not last_war_date or war_date > last_war_date):
                         last_war_date = war_date
 
                 # Calculate average score
                 average_score = round(total_score / total_war_participation, 2) if total_war_participation > 0 else 0.0
+
+                # Calculate win percentage
+                total_wars = wins + losses + ties
+                win_percentage = (wins / total_wars * 100) if total_wars > 0 else 0.0
+
+                # Default lowest_score to 0 if no 12-race wars found
+                if lowest_score is None:
+                    lowest_score = 0
 
                 return {
                     'player_name': player_name,
@@ -1197,7 +1229,14 @@ class DatabaseManager:
                     'stats_updated_at': None,  # Not applicable for calculated stats
                     'team': player_info[1] if player_info[1] else 'Unassigned',
                     'nicknames': player_info[2] if player_info[2] else [],
-                    'added_by': player_info[3]
+                    'added_by': player_info[3],
+                    'total_team_differential': total_team_differential,
+                    'highest_score': highest_score,
+                    'lowest_score': lowest_score,
+                    'wins': wins,
+                    'losses': losses,
+                    'ties': ties,
+                    'win_percentage': win_percentage
                 }
 
         except Exception as e:

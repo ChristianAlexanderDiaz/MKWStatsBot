@@ -378,7 +378,7 @@ class MarioKartCommands(commands.Cog):
 
                     # Determine title and color based on context
                     if lastxwars is not None:
-                        title_text = f"{stats['player_name']}"
+                        title_text = f"{stats['player_name']} (Last {lastxwars} Wars)"
                         scope_text = f"Last {lastxwars} Wars"
                     else:
                         title_text = f"{stats['player_name']}"
