@@ -128,6 +128,201 @@ class LeaderboardView(discord.ui.View):
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
 
+class AddPlayerToWarConfirmView(discord.ui.View):
+    """Confirmation view for adding players to an existing war."""
+
+    def __init__(self, war_id: int, new_players: list, existing_war: dict, races: int,
+                 user: discord.User, commands_cog, guild_id: int):
+        super().__init__(timeout=60.0)
+        self.war_id = war_id
+        self.new_players = new_players
+        self.existing_war = existing_war
+        self.races = races
+        self.user = user
+        self.commands_cog = commands_cog
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle confirm button click."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message(
+                "❌ Only the command user can confirm this action.",
+                ephemeral=True
+            )
+            return
+
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(view=self)
+
+        # Execute the war update
+        import datetime
+        current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+
+        success = self.commands_cog.bot.db.append_players_to_war_by_id(
+            self.war_id, self.new_players, self.guild_id
+        )
+
+        if success:
+            # Get the updated war to get the new team_differential
+            updated_war = self.commands_cog.bot.db.get_war_by_id(self.war_id, self.guild_id)
+            team_score = sum(p['score'] for p in updated_war.get('results', []))
+            team_differential = team_score - 492  # Breakeven for 12-race wars
+
+            # Add statistics for new players only
+            stats_added = []
+            stats_failed = []
+
+            for new_player in self.new_players:
+                stats_success = self.commands_cog.bot.db.update_player_stats(
+                    new_player['name'],
+                    new_player['score'],
+                    new_player['races_played'],
+                    new_player['war_participation'],
+                    current_date,
+                    self.guild_id,
+                    team_differential
+                )
+                if stats_success:
+                    stats_added.append(new_player['name'])
+                else:
+                    stats_failed.append(new_player['name'])
+
+            embed = discord.Embed(
+                title="✅ Players Added Successfully!",
+                description=f"War ID: {self.war_id} has been updated with {len(self.new_players)} new players.",
+                color=0x00ff00
+            )
+
+            embed.add_field(
+                name="Players Added",
+                value=f"🏁 {self.races} races\n👥 {len(self.new_players)} new players\n📊 {len(stats_added)} stats updated" + (f", {len(stats_failed)} failed" if stats_failed else ""),
+                inline=False
+            )
+
+            # Show added players
+            player_list = []
+            for p in self.new_players:
+                if p['races_played'] == self.races:
+                    player_list.append(f"**{p['name']}**: {p['score']} points")
+                else:
+                    player_list.append(f"**{p['name']}** ({p['races_played']}): {p['score']} points")
+
+            embed.add_field(
+                name="🏁 New Players Added",
+                value="\n".join(player_list[:10]) + (f"\n... +{len(player_list)-10} more" if len(player_list) > 10 else ""),
+                inline=False
+            )
+
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.edit_original_response(
+                content="❌ Failed to add players to war. Check logs for details.",
+                view=self,
+                embed=None
+            )
+
+        self.stop()
+
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle cancel button click."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message(
+                "❌ Only the command user can cancel this action.",
+                ephemeral=True
+            )
+            return
+
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(
+            content="❌ Player addition cancelled.",
+            view=self,
+            embed=None
+        )
+
+        self.stop()
+
+
+class RemoveWarConfirmView(discord.ui.View):
+    """Confirmation view for removing a war."""
+
+    def __init__(self, war_id: int, war: dict, user: discord.User, commands_cog, guild_id: int):
+        super().__init__(timeout=60.0)
+        self.war_id = war_id
+        self.war = war
+        self.user = user
+        self.commands_cog = commands_cog
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle confirm button click."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message(
+                "❌ Only the command user can confirm this action.",
+                ephemeral=True
+            )
+            return
+
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(view=self)
+
+        # Remove the war and revert player stats
+        stats_reverted = self.commands_cog.bot.db.remove_war_by_id(self.war_id, self.guild_id)
+
+        if stats_reverted is not None:
+            war_date = self.war.get('war_date')
+            embed = discord.Embed(
+                title="✅ War Removed Successfully!",
+                description=f"War ID: {self.war_id} from {war_date} has been removed.",
+                color=0x00ff00
+            )
+            embed.add_field(
+                name="Statistics Updated",
+                value=f"Reverted stats for {stats_reverted} players",
+                inline=False
+            )
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.edit_original_response(
+                content="❌ Failed to remove war. Check logs for details.",
+                view=self,
+                embed=None
+            )
+
+        self.stop()
+
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle cancel button click."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message(
+                "❌ Only the command user can cancel this action.",
+                ephemeral=True
+            )
+            return
+
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(
+            content="❌ War removal cancelled.",
+            view=self,
+            embed=None
+        )
+
+        self.stop()
+
+
 def get_member_status_text() -> str:
     """Get formatted member status text for help documentation."""
     return "/".join(choice.name for choice in MEMBER_STATUS_CHOICES)
@@ -1740,94 +1935,11 @@ class MarioKartCommands(commands.Cog):
                 inline=False
             )
             
-            embed.set_footer(text="React with ✅ to confirm or ❌ to cancel")
-            
-            await interaction.response.send_message(embed=embed)
-            msg = await interaction.original_response()
-            await msg.add_reaction("✅")
-            await msg.add_reaction("❌")
-            
-            def check(reaction, user):
-                return user == interaction.user and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
-            
-            try:
-                reaction, _ = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
-                
-                if str(reaction.emoji) == "✅":
-                    import datetime
-                    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+            embed.set_footer(text="Click ✅ Confirm or ❌ Cancel")
 
-                    # Append players to war using new database method
-                    success = self.bot.db.append_players_to_war_by_id(war_id, new_players, guild_id)
-
-                    if success:
-                        # Get the updated war to get the new team_differential
-                        updated_war = self.bot.db.get_war_by_id(war_id, guild_id)
-                        team_score = sum(p['score'] for p in updated_war.get('results', []))
-                        team_differential = team_score - 492  # Breakeven for 12-race wars
-
-                        # Add statistics for new players only
-                        stats_added = []
-                        stats_failed = []
-
-                        for new_player in new_players:
-                            stats_success = self.bot.db.update_player_stats(
-                                new_player['name'],
-                                new_player['score'],
-                                new_player['races_played'],
-                                new_player['war_participation'],
-                                current_date,
-                                guild_id,
-                                team_differential
-                            )
-                            if stats_success:
-                                stats_added.append(new_player['name'])
-                            else:
-                                stats_failed.append(new_player['name'])
-                        
-                        embed = discord.Embed(
-                            title="✅ Players Added Successfully!",
-                            description=f"War ID: {war_id} has been updated with {len(new_players)} new players.",
-                            color=0x00ff00
-                        )
-                        
-                        embed.add_field(
-                            name="Players Added",
-                            value=f"🏁 {races} races\n👥 {len(new_players)} new players\n📊 {len(stats_added)} stats updated" + (f", {len(stats_failed)} failed" if stats_failed else ""),
-                            inline=False
-                        )
-                        
-                        # Show added players
-                        player_list = []
-                        for p in new_players:
-                            if p['races_played'] == races:
-                                player_list.append(f"**{p['name']}**: {p['score']} points")
-                            else:
-                                player_list.append(f"**{p['name']}** ({p['races_played']}): {p['score']} points")
-                        
-                        embed.add_field(
-                            name="🏁 New Players Added",
-                            value="\n".join(player_list[:10]) + (f"\n... +{len(player_list)-10} more" if len(player_list) > 10 else ""),
-                            inline=False
-                        )
-                        
-                        await interaction.edit_original_response(embed=embed)
-                    else:
-                        await interaction.edit_original_response(content="❌ Failed to add players to war. Check logs for details.")
-                else:
-                    await interaction.edit_original_response(content="❌ Player addition cancelled.")
-                
-                try:
-                    await msg.clear_reactions()
-                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
-                    logging.debug(f"Failed to clear reactions: {e}")
-                    
-            except asyncio.TimeoutError:
-                await interaction.edit_original_response(content="❌ Player addition timed out.")
-                try:
-                    await msg.clear_reactions()
-                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
-                    logging.debug(f"Failed to clear reactions: {e}")
+            # Create confirmation view with buttons (no permissions required)
+            view = AddPlayerToWarConfirmView(war_id, new_players, existing_war, races, interaction.user, self, guild_id)
+            await interaction.response.send_message(embed=embed, view=view)
             
         except Exception as e:
             logging.error(f"Error appending players to war: {e}", exc_info=True)
@@ -1901,51 +2013,11 @@ class MarioKartCommands(commands.Cog):
                 inline=False
             )
             
-            embed.set_footer(text="React with ✅ to confirm or ❌ to cancel")
-            
-            await interaction.response.send_message(embed=embed)
-            msg = await interaction.original_response()
-            await msg.add_reaction("✅")
-            await msg.add_reaction("❌")
-            
-            def check(reaction, user):
-                return user == interaction.user and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
-            
-            try:
-                reaction, _ = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
-                
-                if str(reaction.emoji) == "✅":
-                    # Remove the war and revert player stats
-                    stats_reverted = self.bot.db.remove_war_by_id(war_id, guild_id)
-                    
-                    if stats_reverted is not None:
-                        embed = discord.Embed(
-                            title="✅ War Removed Successfully!",
-                            description=f"War ID: {war_id} from {war_date} has been removed.",
-                            color=0x00ff00
-                        )
-                        embed.add_field(
-                            name="Statistics Updated",
-                            value=f"Reverted stats for {stats_reverted} players",
-                            inline=False
-                        )
-                        await interaction.edit_original_response(embed=embed)
-                    else:
-                        await interaction.edit_original_response(content="❌ Failed to remove war. Check logs for details.")
-                else:
-                    await interaction.edit_original_response(content="❌ War removal cancelled.")
-                
-                try:
-                    await msg.clear_reactions()
-                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
-                    logging.debug(f"Failed to clear reactions: {e}")
-                    
-            except asyncio.TimeoutError:
-                await interaction.edit_original_response(content="❌ War removal timed out.")
-                try:
-                    await msg.clear_reactions()
-                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
-                    logging.debug(f"Failed to clear reactions: {e}")
+            embed.set_footer(text="Click ✅ Confirm or ❌ Cancel")
+
+            # Create confirmation view with buttons (no permissions required)
+            view = RemoveWarConfirmView(war_id, war, interaction.user, self, guild_id)
+            await interaction.response.send_message(embed=embed, view=view)
                 
         except Exception as e:
             logging.error(f"Error removing war: {e}", exc_info=True)
