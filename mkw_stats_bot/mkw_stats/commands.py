@@ -233,7 +233,25 @@ class MarioKartCommands(commands.Cog):
             if not player_list:
                 await interaction.response.send_message("❌ You must provide at least one player.", ephemeral=True)
                 return
-            
+
+            # Validate bot has required permissions in OCR channel
+            bot_member = interaction.guild.get_member(self.bot.user.id)
+            if bot_member:
+                channel_perms = results_channel.permissions_for(bot_member)
+                required_perms = {
+                    'view_channel': channel_perms.view_channel,
+                    'send_messages': channel_perms.send_messages,
+                    'read_message_history': channel_perms.read_message_history,
+                    'add_reactions': channel_perms.add_reactions
+                }
+                missing_perms = [name for name, has in required_perms.items() if not has]
+                if missing_perms:
+                    await interaction.response.send_message(
+                        f"❌ Bot is missing permissions in {results_channel.mention}: {', '.join(missing_perms)}",
+                        ephemeral=True
+                    )
+                    return
+
             # Auto-detect server name from Discord
             servername = interaction.guild.name if interaction.guild else f"Guild {guild_id}"
             
@@ -264,7 +282,12 @@ class MarioKartCommands(commands.Cog):
                     added_players.append(player_name)
                 
                 conn.commit()
-            
+
+            # 3. Set the OCR channel for automatic image processing
+            ocr_success = self.bot.db.set_ocr_channel(guild_id, results_channel.id)
+            if not ocr_success:
+                logging.warning(f"Failed to set OCR channel during setup for guild {guild_id}")
+
             # Create success response
             embed = discord.Embed(
                 title="🚀 Guild Setup Complete!",
@@ -282,7 +305,14 @@ class MarioKartCommands(commands.Cog):
             if len(players_text) > 1000:  # Discord field limit
                 players_text = players_text[:1000] + "..."
             embed.add_field(name="👥 Team Roster", value=players_text, inline=False)
-            
+
+            # Show OCR channel configuration
+            embed.add_field(
+                name="📷 OCR Channel Set",
+                value=f"Automatic image scanning enabled in {results_channel.mention}",
+                inline=False
+            )
+
             embed.add_field(
                 name="🎯 Next Steps",
                 value=(
