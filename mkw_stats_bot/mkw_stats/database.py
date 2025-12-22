@@ -1283,21 +1283,23 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT id, war_date, race_count, players_data, created_at
+                    SELECT id, war_date, race_count, players_data, created_at, team_score, team_differential
                     FROM wars WHERE id = %s AND guild_id = %s
                 """, (war_id, guild_id))
-                
+
                 result = cursor.fetchone()
                 if not result:
                     return None
-                
+
                 session_data = result[3] if result[3] else {}
                 return {
                     'id': result[0],
                     'war_date': result[1].isoformat() if result[1] else None,
                     'race_count': result[2],
                     'results': session_data.get('results', []),
-                    'created_at': result[4].isoformat() if result[4] else None
+                    'created_at': result[4].isoformat() if result[4] else None,
+                    'team_score': result[5],
+                    'team_differential': result[6]
                 }
                 
         except Exception as e:

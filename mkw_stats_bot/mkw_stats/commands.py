@@ -178,12 +178,33 @@ def require_guild_setup(func):
         guild_id = self.get_guild_id_from_interaction(interaction)
         if not self.is_guild_initialized(guild_id):
             await interaction.response.send_message(
-                "❌ Guild not set up! Please run `/setup` first to initialize your clan.", 
+                "❌ Guild not set up! Please run `/setup` first to initialize your clan.",
                 ephemeral=True
             )
             return
         return await func(self, interaction, *args, **kwargs)
     return wrapper
+
+
+def require_moderator():
+    """Decorator to require user to have Manage Channels, Manage Server, or Administrator permission."""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if not interaction.guild:
+            return False
+        perms = interaction.user.guild_permissions
+        return perms.administrator or perms.manage_guild or perms.manage_channels
+    return app_commands.check(predicate)
+
+
+def require_admin():
+    """Decorator to require user to have Manage Server or Administrator permission."""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if not interaction.guild:
+            return False
+        perms = interaction.user.guild_permissions
+        return perms.administrator or perms.manage_guild
+    return app_commands.check(predicate)
+
 
 class MarioKartCommands(commands.Cog):
     """Mario Kart bot commands organized in a cog."""
@@ -208,6 +229,28 @@ class MarioKartCommands(commands.Cog):
                 return cursor.fetchone()[0] > 0
         except Exception:
             return False
+
+    def _format_error_for_user(self, error: Exception, context: str = "") -> str:
+        """Convert exception to user-friendly message with technical details.
+
+        Args:
+            error: The exception that occurred
+            context: Optional context about where the error occurred
+
+        Returns:
+            Formatted error message for Discord users
+        """
+        error_type = type(error).__name__
+        error_msg = str(error)
+
+        # Truncate very long error messages
+        if len(error_msg) > 150:
+            error_msg = error_msg[:150] + "..."
+
+        if context:
+            return f"❌ {context}: {error_type} - {error_msg}"
+        else:
+            return f"❌ {error_type}: {error_msg}"
 
     @app_commands.command(name="setup", description="Initialize guild for Mario Kart stats tracking")
     @app_commands.describe(
@@ -480,7 +523,8 @@ class MarioKartCommands(commands.Cog):
                         try:
                             date_obj = datetime.strptime(stats['last_war_date'], '%Y-%m-%d')
                             last_war = date_obj.strftime('%b %d, %Y')
-                        except:
+                        except (ValueError, TypeError) as e:
+                            logging.debug(f"Date parsing failed for {stats.get('last_war_date')}: {e}")
                             last_war = stats['last_war_date']
                     else:
                         last_war = "Never"
@@ -887,7 +931,7 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error unassigning player from team: {e}")
             try:
                 await interaction.response.send_message("❌ Error unassigning player from team", ephemeral=True)
-            except:
+            except discord.errors.HTTPException:
                 await interaction.followup.send("❌ Error unassigning player from team", ephemeral=True)
 
     @app_commands.command(name="showallteams", description="Show all players organized by member status")
@@ -1257,6 +1301,7 @@ class MarioKartCommands(commands.Cog):
         player_scores="Player scores in format: 'Player1: 104, Player2: 105, Player3: 50'",
         races="Number of races played (1-12, default: 12)"
     )
+    @require_guild_setup
     async def addwar_slash(self, interaction: discord.Interaction, player_scores: str, races: int = 12):
         """Add a war manually with player scores using slash command."""
         try:
@@ -1574,7 +1619,7 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error retrieving wars", ephemeral=True)
 
-    @app_commands.command(name="appendplayertowar", description="Add new players to an existing war")
+    @app_commands.command(name="addplayertowar", description="Add new players to an existing war")
     @app_commands.describe(
         war_id="ID of the war to add players to",
         player_scores="Player scores to add in format: 'Player1: 104, Player2: 105'"
@@ -1774,22 +1819,23 @@ class MarioKartCommands(commands.Cog):
                 
                 try:
                     await msg.clear_reactions()
-                except:
-                    pass
+                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
+                    logging.debug(f"Failed to clear reactions: {e}")
                     
             except asyncio.TimeoutError:
                 await interaction.edit_original_response(content="❌ Player addition timed out.")
                 try:
                     await msg.clear_reactions()
-                except:
-                    pass
+                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
+                    logging.debug(f"Failed to clear reactions: {e}")
             
         except Exception as e:
-            logging.error(f"Error appending players to war: {e}")
+            logging.error(f"Error appending players to war: {e}", exc_info=True)
+            error_message = self._format_error_for_user(e, "Failed to add players to war")
             if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error adding players to war", ephemeral=True)
+                await interaction.response.send_message(error_message, ephemeral=True)
             else:
-                await interaction.followup.send("❌ Error adding players to war", ephemeral=True)
+                await interaction.followup.send(error_message, ephemeral=True)
 
     @app_commands.command(name="removewar", description="Remove a war and revert player statistics")
     @app_commands.describe(war_id="ID of the war to remove")
@@ -1891,22 +1937,23 @@ class MarioKartCommands(commands.Cog):
                 
                 try:
                     await msg.clear_reactions()
-                except:
-                    pass
+                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
+                    logging.debug(f"Failed to clear reactions: {e}")
                     
             except asyncio.TimeoutError:
                 await interaction.edit_original_response(content="❌ War removal timed out.")
                 try:
                     await msg.clear_reactions()
-                except:
-                    pass
+                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
+                    logging.debug(f"Failed to clear reactions: {e}")
                 
         except Exception as e:
-            logging.error(f"Error removing war: {e}")
+            logging.error(f"Error removing war: {e}", exc_info=True)
+            error_message = self._format_error_for_user(e, "Failed to remove war")
             if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error removing war", ephemeral=True)
+                await interaction.response.send_message(error_message, ephemeral=True)
             else:
-                await interaction.followup.send("❌ Error removing war", ephemeral=True)
+                await interaction.followup.send(error_message, ephemeral=True)
 
     # Team Management Commands
     @app_commands.command(name="addteam", description="Add a new team to the clan")
@@ -2008,15 +2055,15 @@ class MarioKartCommands(commands.Cog):
                 
                 try:
                     await msg.clear_reactions()
-                except:
-                    pass
+                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
+                    logging.debug(f"Failed to clear reactions: {e}")
                     
             except asyncio.TimeoutError:
                 await interaction.edit_original_response(content="❌ Team removal timed out.")
                 try:
                     await msg.clear_reactions()
-                except:
-                    pass
+                except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
+                    logging.debug(f"Failed to clear reactions: {e}")
                 
         except Exception as e:
             logging.error(f"Error removing team: {e}")
@@ -2111,8 +2158,8 @@ class MarioKartCommands(commands.Cog):
                         )
                         await message.edit(embed=expired_embed)
                         await message.clear_reactions()
-                except:
-                    pass
+                except (discord.errors.NotFound, discord.errors.Forbidden, discord.errors.HTTPException) as e:
+                    logging.debug(f"Failed to update expired confirmation: {e}")
         except asyncio.CancelledError:
             # Task was cancelled (confirmation was handled), that's fine
             pass
@@ -2224,8 +2271,8 @@ class MarioKartCommands(commands.Cog):
                 # Clean up temporary files
                 try:
                     os.unlink(temp_path)
-                except:
-                    pass
+                except OSError as e:
+                    logging.debug(f"Failed to delete temporary file: {e}")
                     
         except Exception as e:
             logging.error(f"Error in scanimage command: {e}")
@@ -2385,8 +2432,8 @@ class MarioKartCommands(commands.Cog):
                     embed_copy = embed.copy()
                     embed_copy.set_footer(text=f"This confirmation expires in {remaining} seconds")
                     await message.edit(embed=embed_copy)
-                except:
-                    pass
+                except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+                    logging.debug(f"Failed to update countdown: {e}")
         
         # Clean up and delete
         try:
@@ -2394,8 +2441,8 @@ class MarioKartCommands(commands.Cog):
             if message_id in self.bot.pending_confirmations:
                 del self.bot.pending_confirmations[message_id]
             await message.delete()
-        except:
-            pass
+        except (discord.errors.NotFound, discord.errors.Forbidden, discord.errors.HTTPException) as e:
+            logging.debug(f"Failed to delete message: {e}")
 
     @app_commands.command(name="checkpermissions", description="Check bot permissions in a channel for OCR functionality")
     @app_commands.describe(channel="Channel to check permissions for (defaults to current channel)")
