@@ -159,11 +159,11 @@ Once the OCR channel is set (via `/setup` or `/setchannel`):
   - `/roster` - Show complete guild roster organized by teams
   - `/addplayer <player_name> [member_status]` - Add player to roster with optional status (Member/Trial/Ally/Kicked)
   - `/removeplayer <player_name>` - Remove player from roster
-- **Team Management**: 
+- **Team Management**:
   - `/addteam <team_name>` - Create new team
-  - `/removeteam <team_name>` - Remove existing team  
+  - `/removeteam <team_name>` - Remove existing team
   - `/renameteam <old_name> <new_name>` - Rename team
-  - `/assignplayerstoteam <players> <team_name>` - Assign players to team (1 or more)
+  - `/assignplayers <players> <team_name>` - Assign players to team (1 or more, with autocomplete for players and teams)
   - `/unassignplayerfromteam <player_name>` - Set player to Unassigned
   - `/showallteams` - Show all teams and their players
   - `/showspecificteamroster <team_name>` - Show specific team roster
