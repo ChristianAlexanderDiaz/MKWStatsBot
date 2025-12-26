@@ -982,7 +982,7 @@ class MarioKartCommands(commands.Cog):
                 "`/renameteam <old_name> <new_name>` - Rename a team\n"
                 "`/showallteams` - Show all teams and their players\n"
                 "`/assignplayerstoteam <player1> <player2>... <team>` - Assign players to team (1 or more)\n"
-                "`/unassignplayers <player>` - Set player to Unassigned\n"
+                "`/unassignplayer <player>` - Set player to Unassigned\n"
                 "`/showspecificteamroster <team>` - Show specific team roster"
             ),
             inline=False
@@ -1132,7 +1132,7 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error assigning players to team", ephemeral=True)
 
-    @app_commands.command(name="unassignplayers", description="Unassign a player from their team (set to Unassigned)")
+    @app_commands.command(name="unassignplayer", description="Unassign a player from their team (set to Unassigned)")
     @app_commands.describe(player_name="Name of the player to unassign from their team")
     @app_commands.autocomplete(player_name=player_autocomplete)
     @require_guild_setup
