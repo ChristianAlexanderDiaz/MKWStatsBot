@@ -164,7 +164,7 @@ Once the OCR channel is set (via `/setup` or `/setchannel`):
   - `/removeteam <team_name>` - Remove existing team
   - `/renameteam <old_name> <new_name>` - Rename team
   - `/assignplayers <players> <team_name>` - Assign players to team (1 or more, with autocomplete for players and teams)
-  - `/unassignplayerfromteam <player_name>` - Set player to Unassigned
+  - `/unassignplayers <player_name>` - Set player to Unassigned (with autocomplete for players)
   - `/showallteams` - Show all teams and their players
   - `/showspecificteamroster <team_name>` - Show specific team roster
 - **Nickname Management**: 
