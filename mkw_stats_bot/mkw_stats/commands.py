@@ -20,6 +20,20 @@ MEMBER_STATUS_CHOICES = [
     app_commands.Choice(name="Kicked", value="kicked")
 ]
 
+def country_code_to_flag(country_code: str) -> str:
+    """Convert 2-letter country code to flag emoji."""
+    if not country_code or len(country_code) != 2:
+        return ""
+
+    # Convert country code to regional indicator symbols
+    # A=🇦, B=🇧, etc. (Unicode offset: 127462 - 65 = 127397)
+    country_code = country_code.upper()
+    flag = ""
+    for char in country_code:
+        if 'A' <= char <= 'Z':
+            flag += chr(127462 + ord(char) - 65)
+    return flag
+
 
 class LeaderboardView(discord.ui.View):
     """Pagination view for player statistics leaderboard."""
@@ -56,28 +70,26 @@ class LeaderboardView(discord.ui.View):
             color=0x00ff00
         )
 
-        # Build leaderboard text
+        # Build minimalist leaderboard with flags
         leaderboard_text = []
-        for i, player in enumerate(page_players, start=start_idx + 1):
+        for player in page_players:
+            # Get flag emoji
+            country_code = player.get('country_code', '')
+            flag = country_code_to_flag(country_code) if country_code else "🌐"
+
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
                 war_count = float(player.get('war_count', 0))
-                win_pct = player.get('win_percentage', 0.0)
                 total_diff = player.get('total_team_differential', 0)
                 avg_diff = total_diff / war_count if war_count > 0 else 0
                 diff_symbol = "+" if avg_diff >= 0 else ""
 
-                # Format war count
-                if war_count == 1.0:
-                    war_display = f"{war_count:.1f} war"
-                else:
-                    war_display = f"{war_count:.1f} wars"
-
+                # Minimalist format: [flag] [name] | [avg] | [wars] | [diff]
                 leaderboard_text.append(
-                    f"{i}. **{player['player_name']}** - {avg_score:.1f} avg ({diff_symbol}{avg_diff:.1f} diff) ({war_display}, {win_pct:.1f}%)"
+                    f"{flag} **{player['player_name']}** | {avg_score:.1f} | {war_count:.1f} wars | {diff_symbol}{avg_diff:.1f}"
                 )
             else:
-                leaderboard_text.append(f"{i}. **{player['player_name']}** - No wars yet")
+                leaderboard_text.append(f"{flag} **{player['player_name']}** | No wars yet")
 
         embed.add_field(
             name="Top Players",
@@ -94,7 +106,7 @@ class LeaderboardView(discord.ui.View):
             sort_method = "Average Score"
 
         embed.set_footer(
-            text=f"Page {self.current_page}/{self.total_pages} • Showing {self.total_players_count} members (trials/allies/kicked excluded) • Sorted by: {sort_method}"
+            text=f"Page {self.current_page}/{self.total_pages} • {self.total_players_count} Members • Sorted by: {sort_method} • Use /setcountry to add your flag"
         )
 
         return embed
@@ -450,27 +462,56 @@ class MarioKartCommands(commands.Cog):
     @app_commands.command(name="setup", description="Initialize guild for Mario Kart stats tracking")
     @app_commands.describe(
         teamname="Name for the first team",
-        players="Players to add (comma-separated): 'Player1, Player2, Player3'",
-        results_channel="Channel where /runocr will be used (e.g., #results)"
+        players="Players to add (@mention users, space-separated): '@User1 @User2 @User3'",
+        results_channel="Channel where OCR will run (e.g., #results)",
+        role_member="Role for full members (@Role)",
+        role_trial="Role for trial members (@Role)",
+        role_ally="Role for ally members (@Role)"
     )
-    async def setup_guild(self, interaction: discord.Interaction, teamname: str, players: str, results_channel: discord.TextChannel):
-        """Initialize guild with basic setup."""
+    async def setup_guild(
+        self,
+        interaction: discord.Interaction,
+        teamname: str,
+        players: str,
+        results_channel: discord.TextChannel,
+        role_member: discord.Role,
+        role_trial: discord.Role,
+        role_ally: discord.Role
+    ):
+        """Initialize guild with basic setup and role configuration."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
-            
+
             # Check if already initialized
             if self.is_guild_initialized(guild_id):
                 await interaction.response.send_message("✅ Guild is already set up! Use other commands to manage your clan.", ephemeral=True)
                 return
-            
-            # Parse players from comma-separated string
-            player_list = [p.strip() for p in players.split(',')]
-            player_list = [p for p in player_list if p]  # Remove empty strings
-            
-            # Validate at least one player
-            if not player_list:
-                await interaction.response.send_message("❌ You must provide at least one player.", ephemeral=True)
+
+            # Parse user mentions from the players string
+            # Discord mentions come as <@123456789> in the string
+            import re
+            user_id_pattern = r'<@!?(\d+)>'
+            user_ids = re.findall(user_id_pattern, players)
+
+            if not user_ids:
+                await interaction.response.send_message(
+                    "❌ You must @mention at least one Discord user.\nExample: `/setup teamname:MyTeam players:@User1 @User2 ...`",
+                    ephemeral=True
+                )
                 return
+
+            # Get member objects for each mentioned user
+            player_members = []
+            for user_id_str in user_ids:
+                member = interaction.guild.get_member(int(user_id_str))
+                if member:
+                    player_members.append(member)
+                else:
+                    await interaction.response.send_message(
+                        f"❌ Could not find member with ID {user_id_str} in this server.",
+                        ephemeral=True
+                    )
+                    return
 
             # Validate bot has required permissions in OCR channel
             bot_member = interaction.guild.get_member(self.bot.user.id)
@@ -492,33 +533,77 @@ class MarioKartCommands(commands.Cog):
 
             # Auto-detect server name from Discord
             servername = interaction.guild.name if interaction.guild else f"Guild {guild_id}"
-            
+
             with self.bot.db.get_connection() as conn:
                 cursor = conn.cursor()
-                
-                # 1. Create guild config
+
+                # 1. Create guild config with role configuration
                 cursor.execute("""
-                    INSERT INTO guild_configs (guild_id, guild_name, team_names, is_active)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO guild_configs (
+                        guild_id, guild_name, team_names, is_active,
+                        role_member_id, role_trial_id, role_ally_id
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (guild_id) DO UPDATE SET
                         guild_name = EXCLUDED.guild_name,
                         is_active = EXCLUDED.is_active,
+                        role_member_id = EXCLUDED.role_member_id,
+                        role_trial_id = EXCLUDED.role_trial_id,
+                        role_ally_id = EXCLUDED.role_ally_id,
                         updated_at = CURRENT_TIMESTAMP
-                """, (guild_id, servername, json.dumps([teamname]), True))
-                
-                # 2. Add all players to players table
+                """, (guild_id, servername, json.dumps([teamname]), True, role_member.id, role_trial.id, role_ally.id))
+
+                # 2. Add all players to players table with Discord user IDs
                 added_players = []
-                for player_name in player_list:
+                role_detection = []
+
+                for member in player_members:
+                    # Detect member_status from Discord roles
+                    user_role_ids = [role.id for role in member.roles]
+
+                    if role_member.id in user_role_ids:
+                        member_status = 'member'
+                        role_name = role_member.name
+                    elif role_trial.id in user_role_ids:
+                        member_status = 'trial'
+                        role_name = role_trial.name
+                    elif role_ally.id in user_role_ids:
+                        member_status = 'ally'
+                        role_name = role_ally.name
+                    else:
+                        # User doesn't have any of the configured roles - reject
+                        await interaction.response.send_message(
+                            f"❌ {member.mention} doesn't have a Member, Trial, or Ally role.\n"
+                            f"Please assign them one of these roles first: {role_member.mention}, {role_trial.mention}, or {role_ally.mention}",
+                            ephemeral=True
+                        )
+                        return
+
+                    # Use display_name as default player_name (can be changed later if needed)
+                    player_name = member.display_name
+
                     cursor.execute("""
-                        INSERT INTO players (player_name, added_by, guild_id, team, nicknames, is_active)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        INSERT INTO players (
+                            discord_user_id, player_name, display_name, discord_username,
+                            added_by, guild_id, team, nicknames, is_active, member_status,
+                            last_role_sync
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (player_name, guild_id) DO UPDATE SET
+                            discord_user_id = EXCLUDED.discord_user_id,
+                            display_name = EXCLUDED.display_name,
+                            discord_username = EXCLUDED.discord_username,
                             is_active = TRUE,
                             team = EXCLUDED.team,
+                            member_status = EXCLUDED.member_status,
+                            last_role_sync = CURRENT_TIMESTAMP,
                             updated_at = CURRENT_TIMESTAMP
-                    """, (player_name, f"setup_{interaction.user.name}", guild_id, teamname, [], True))
+                    """, (member.id, player_name, member.display_name, member.name,
+                          f"setup_{interaction.user.name}", guild_id, teamname, [], True, member_status))
+
                     added_players.append(player_name)
-                
+                    role_detection.append(f"{player_name} → {role_name}")
+
                 conn.commit()
 
             # 3. Set the OCR channel for automatic image processing
@@ -529,20 +614,31 @@ class MarioKartCommands(commands.Cog):
             # Create success response
             embed = discord.Embed(
                 title="🚀 Guild Setup Complete!",
-                description=f"Successfully initialized **{servername}** for Mario Kart clan tracking.",
+                description=f"Successfully initialized **{servername}** for Mario Kart clan tracking with Discord role integration.",
                 color=0x00ff00
             )
-            
+
             embed.add_field(name="Server Name", value=servername, inline=True)
             embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
             embed.add_field(name="Team Name", value=teamname, inline=True)
             embed.add_field(name="Players Added", value=f"{len(added_players)} players", inline=True)
-            
-            # Show all added players
-            players_text = ", ".join(added_players)
-            if len(players_text) > 1000:  # Discord field limit
-                players_text = players_text[:1000] + "..."
-            embed.add_field(name="👥 Team Roster", value=players_text, inline=False)
+
+            # Show role configuration
+            embed.add_field(
+                name="👥 Role Configuration",
+                value=(
+                    f"**Member**: {role_member.mention}\n"
+                    f"**Trial**: {role_trial.mention}\n"
+                    f"**Ally**: {role_ally.mention}"
+                ),
+                inline=False
+            )
+
+            # Show player role detection
+            role_detection_text = "\n".join(role_detection)
+            if len(role_detection_text) > 1000:  # Discord field limit
+                role_detection_text = role_detection_text[:1000] + "..."
+            embed.add_field(name="🎭 Players & Roles Detected", value=role_detection_text, inline=False)
 
             # Show OCR channel configuration
             embed.add_field(
@@ -554,15 +650,16 @@ class MarioKartCommands(commands.Cog):
             embed.add_field(
                 name="🎯 Next Steps",
                 value=(
-                    "• Add more players: `/addplayer <player>`\n"
+                    "• Add more players: `/addplayer @user`\n"
+                    "• Link legacy players: `/linkplayer player:Name user:@User`\n"
                     "• Start tracking wars: `/addwar`\n"
                     "• View stats: `/stats [player]`\n"
-                    "• Manage teams: `/assignplayerstoteam`"
+                    "• Sync roles: `/syncstatus`"
                 ),
                 inline=False
             )
-            
-            embed.set_footer(text="Your guild is now ready for Mario Kart clan management!")
+
+            embed.set_footer(text="Your guild is now ready with automatic role-based member management!")
             await interaction.response.send_message(embed=embed)
             
         except Exception as e:
@@ -865,24 +962,96 @@ class MarioKartCommands(commands.Cog):
 
     @app_commands.command(name="addplayer", description="Add a player to the clan roster")
     @app_commands.describe(
-        player_name="Name of the player to add to the roster",
-        member_status="Member status (default: Member)"
+        user="Discord user to add (@mention)",
+        ingame_name="In-game name for OCR matching (optional, defaults to display name)",
+        country="2-letter country code (US, CA, GB, JP, etc.) for flag display"
     )
-    @app_commands.choices(member_status=MEMBER_STATUS_CHOICES)
     @require_guild_setup
-    async def add_player_to_roster(self, interaction: discord.Interaction, player_name: str, member_status: str = "member"):
-        """Add a player to the clan roster."""
+    async def add_player_to_roster(self, interaction: discord.Interaction, user: discord.Member, ingame_name: str = None, country: str = None):
+        """Add a player to the clan roster with Discord user ID."""
         try:
             guild_id = self.get_guild_id(interaction)
-            # Add player to players table with member status
-            success = self.bot.db.add_roster_player(player_name, str(interaction.user), guild_id, member_status)
-            
-            if success:
-                status_display = member_status.title()
-                await interaction.response.send_message(f"✅ Added **{player_name}** to the clan roster as **{status_display}**!")
+
+            # Get guild role configuration
+            role_config = self.bot.db.get_guild_role_config(guild_id)
+            if not role_config:
+                await interaction.response.send_message(
+                    "❌ Guild roles are not configured. Please run `/setup` first to configure Member, Trial, and Ally roles.",
+                    ephemeral=True
+                )
+                return
+
+            # Detect member_status from Discord roles
+            user_role_ids = [role.id for role in user.roles]
+
+            if role_config['role_member_id'] in user_role_ids:
+                member_status = 'member'
+                role_name = "Member"
+            elif role_config['role_trial_id'] in user_role_ids:
+                member_status = 'trial'
+                role_name = "Trial"
+            elif role_config['role_ally_id'] in user_role_ids:
+                member_status = 'ally'
+                role_name = "Ally"
             else:
-                await interaction.response.send_message(f"❌ **{player_name}** is already in the players table or couldn't be added.")
-                
+                # User doesn't have any of the configured roles - reject
+                await interaction.response.send_message(
+                    f"❌ {user.mention} doesn't have a Member, Trial, or Ally role.\n"
+                    f"Please assign them one of these roles before adding to the roster.",
+                    ephemeral=True
+                )
+                return
+
+            # Validate and normalize country code
+            country_code = None
+            if country:
+                country = country.upper().strip()
+                if len(country) == 2 and country.isalpha():
+                    country_code = country
+                else:
+                    await interaction.response.send_message(
+                        f"❌ Invalid country code '{country}'. Use 2-letter codes like US, CA, GB, JP.",
+                        ephemeral=True
+                    )
+                    return
+
+            # Use ingame_name if provided, otherwise use display_name
+            player_name = ingame_name if ingame_name else user.display_name
+
+            # Add player with Discord user ID
+            success = self.bot.db.add_roster_player_with_discord(
+                discord_user_id=user.id,
+                player_name=player_name,
+                display_name=user.display_name,
+                discord_username=user.name,
+                member_status=member_status,
+                added_by=str(interaction.user),
+                guild_id=guild_id,
+                country_code=country_code
+            )
+
+            if success:
+                embed = discord.Embed(
+                    title="✅ Player Added",
+                    description=f"Added {user.mention} to the clan roster!",
+                    color=0x00ff00
+                )
+                embed.add_field(name="In-Game Name", value=player_name, inline=True)
+                embed.add_field(name="Role Detected", value=f"{role_name}", inline=True)
+                embed.add_field(name="Discord Username", value=f"@{user.name}", inline=True)
+
+                if ingame_name:
+                    embed.set_footer(text="OCR will match using the in-game name you provided")
+                else:
+                    embed.set_footer(text=f"OCR will match using display name. Use ingame_name parameter if different.")
+
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message(
+                    f"❌ {user.mention} is already in the roster or couldn't be added.",
+                    ephemeral=True
+                )
+
         except Exception as e:
             logging.error(f"Error adding player to roster: {e}")
             if not interaction.response.is_done():
@@ -921,6 +1090,309 @@ class MarioKartCommands(commands.Cog):
                 await interaction.response.send_message("❌ Error removing player from roster", ephemeral=True)
             else:
                 await interaction.followup.send("❌ Error removing player from roster", ephemeral=True)
+
+    @app_commands.command(name="linkplayer", description="Link an existing player to their Discord account")
+    @app_commands.describe(
+        player_name="Name of the existing player in the roster",
+        user="Discord user to link (@mention)"
+    )
+    @require_guild_setup
+    async def link_player_to_discord(self, interaction: discord.Interaction, player_name: str, user: discord.Member):
+        """Link an existing player to a Discord user."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+
+            # Get guild role configuration
+            role_config = self.bot.db.get_guild_role_config(guild_id)
+            if not role_config:
+                await interaction.response.send_message(
+                    "❌ Guild roles are not configured. Please run `/setup` first.",
+                    ephemeral=True
+                )
+                return
+
+            # Detect member_status from Discord roles
+            user_role_ids = [role.id for role in user.roles]
+
+            if role_config['role_member_id'] in user_role_ids:
+                member_status = 'member'
+                role_name = "Member"
+            elif role_config['role_trial_id'] in user_role_ids:
+                member_status = 'trial'
+                role_name = "Trial"
+            elif role_config['role_ally_id'] in user_role_ids:
+                member_status = 'ally'
+                role_name = "Ally"
+            else:
+                await interaction.response.send_message(
+                    f"❌ {user.mention} doesn't have a Member, Trial, or Ally role.\n"
+                    f"Please assign them one of these roles before linking.",
+                    ephemeral=True
+                )
+                return
+
+            # Link player to Discord user
+            success = self.bot.db.link_player_to_discord_user(
+                player_name=player_name,
+                discord_user_id=user.id,
+                display_name=user.display_name,
+                discord_username=user.name,
+                member_status=member_status,
+                guild_id=guild_id
+            )
+
+            if success:
+                embed = discord.Embed(
+                    title="🔗 Player Linked",
+                    description=f"Successfully linked **{player_name}** to {user.mention}!",
+                    color=0x00ff00
+                )
+                embed.add_field(name="Player Name", value=player_name, inline=True)
+                embed.add_field(name="Discord User", value=user.mention, inline=True)
+                embed.add_field(name="Role Detected", value=role_name, inline=True)
+                embed.set_footer(text="Role status and display name will now auto-sync from Discord")
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message(
+                    f"❌ Could not link **{player_name}**. Player may not exist or is already linked.",
+                    ephemeral=True
+                )
+
+        except Exception as e:
+            logging.error(f"Error linking player: {e}")
+            await interaction.response.send_message("❌ Error linking player to Discord account", ephemeral=True)
+
+    @app_commands.command(name="listunlinked", description="Show players not yet linked to Discord accounts")
+    @require_guild_setup
+    async def list_unlinked_players(self, interaction: discord.Interaction):
+        """List all players without Discord user ID links."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+
+            unlinked_players = self.bot.db.get_unlinked_players(guild_id)
+
+            if not unlinked_players:
+                embed = discord.Embed(
+                    title="✅ All Players Linked",
+                    description="All active players are linked to Discord accounts!",
+                    color=0x00ff00
+                )
+                await interaction.response.send_message(embed=embed)
+                return
+
+            embed = discord.Embed(
+                title="🔗 Unlinked Players",
+                description=f"Found {len(unlinked_players)} players without Discord links:",
+                color=0xffa500
+            )
+
+            # Group players by team
+            teams = {}
+            for player in unlinked_players:
+                team = player.get('team', 'Unassigned')
+                if team not in teams:
+                    teams[team] = []
+                teams[team].append(player)
+
+            # Display players by team
+            for team, players in teams.items():
+                player_list = []
+                for p in players:
+                    wars = p.get('war_count', 0)
+                    score = p.get('total_score', 0)
+                    status = p.get('member_status', 'unknown').title()
+                    player_list.append(f"• **{p['player_name']}** ({status}) - {wars} wars, {score} pts")
+
+                players_text = "\n".join(player_list)
+                if len(players_text) > 1024:
+                    players_text = players_text[:1020] + "..."
+
+                embed.add_field(name=f"Team: {team}", value=players_text, inline=False)
+
+            embed.add_field(
+                name="💡 How to Link",
+                value="Use `/linkplayer player:PlayerName user:@DiscordUser` to link each player",
+                inline=False
+            )
+
+            await interaction.response.send_message(embed=embed)
+
+        except Exception as e:
+            logging.error(f"Error listing unlinked players: {e}")
+            await interaction.response.send_message("❌ Error retrieving unlinked players", ephemeral=True)
+
+    @app_commands.command(name="syncstatus", description="Sync all player roles from Discord")
+    @require_guild_setup
+    async def sync_player_status(self, interaction: discord.Interaction):
+        """Sync member_status for all linked players from their Discord roles."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+
+            # Get guild role configuration
+            role_config = self.bot.db.get_guild_role_config(guild_id)
+            if not role_config:
+                await interaction.response.send_message(
+                    "❌ Guild roles are not configured. Please run `/setup` first.",
+                    ephemeral=True
+                )
+                return
+
+            # Get all players with discord_user_id
+            all_players = self.bot.db.get_all_players_stats(guild_id)
+            linked_players = [p for p in all_players if p.get('discord_user_id')]
+
+            if not linked_players:
+                await interaction.response.send_message(
+                    "❌ No players are linked to Discord accounts yet.",
+                    ephemeral=True
+                )
+                return
+
+            # Defer response for longer operation
+            await interaction.response.defer()
+
+            synced = 0
+            changes = []
+
+            for player in linked_players:
+                discord_user_id = player.get('discord_user_id')
+                current_status = player.get('member_status', 'unknown')
+
+                # Get Discord member
+                member = interaction.guild.get_member(discord_user_id)
+                if not member:
+                    continue
+
+                # Detect new status from roles
+                user_role_ids = [role.id for role in member.roles]
+                new_status = None
+                role_name = None
+
+                if role_config['role_member_id'] in user_role_ids:
+                    new_status = 'member'
+                    role_name = "Member"
+                elif role_config['role_trial_id'] in user_role_ids:
+                    new_status = 'trial'
+                    role_name = "Trial"
+                elif role_config['role_ally_id'] in user_role_ids:
+                    new_status = 'ally'
+                    role_name = "Ally"
+
+                if new_status and new_status != current_status:
+                    # Sync role and Discord info
+                    self.bot.db.sync_player_role(discord_user_id, new_status, guild_id)
+                    self.bot.db.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
+                    changes.append(f"• **{player['player_name']}**: {current_status.title()} → {role_name}")
+                    synced += 1
+                elif new_status:
+                    # Just sync Discord info (name changes)
+                    self.bot.db.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
+                    synced += 1
+
+            # Create response
+            embed = discord.Embed(
+                title="🔄 Role Sync Complete",
+                description=f"Synced {synced} out of {len(linked_players)} linked players",
+                color=0x00ff00
+            )
+
+            if changes:
+                changes_text = "\n".join(changes)
+                if len(changes_text) > 1024:
+                    changes_text = changes_text[:1020] + "..."
+                embed.add_field(name="📝 Status Changes", value=changes_text, inline=False)
+            else:
+                embed.add_field(name="✅ No Changes", value="All player roles are already up to date!", inline=False)
+
+            embed.set_footer(text="Display names and usernames were also updated")
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            logging.error(f"Error syncing player status: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error syncing player roles", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error syncing player roles", ephemeral=True)
+
+    @app_commands.command(name="setcountry", description="Set country flag for stats display")
+    @app_commands.describe(
+        country="2-letter country code (US, CA, GB, JP, etc.)",
+        user="Discord user (optional - defaults to yourself)"
+    )
+    @require_guild_setup
+    async def set_country(self, interaction: discord.Interaction, country: str, user: discord.Member = None):
+        """Set country code for a player's flag display."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+
+            # Validate country code
+            country = country.upper().strip()
+            if len(country) != 2 or not country.isalpha():
+                await interaction.response.send_message(
+                    f"❌ Invalid country code '{country}'. Use 2-letter codes like US, CA, GB, JP.",
+                    ephemeral=True
+                )
+                return
+
+            # Determine target user
+            target_user = user if user else interaction.user
+            target_member = interaction.guild.get_member(target_user.id)
+
+            if not target_member:
+                await interaction.response.send_message("❌ User not found in server.", ephemeral=True)
+                return
+
+            # Check permissions - only admins can set for others
+            if user and user != interaction.user:
+                # Setting for someone else - require admin
+                if not interaction.user.guild_permissions.administrator:
+                    await interaction.response.send_message(
+                        "❌ Only administrators can set country for other players.",
+                        ephemeral=True
+                    )
+                    return
+
+            # Update country code in database
+            with self.bot.db.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    UPDATE players
+                    SET country_code = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE discord_user_id = %s AND guild_id = %s AND is_active = TRUE
+                """, (country, target_member.id, guild_id))
+
+                if cursor.rowcount == 0:
+                    await interaction.response.send_message(
+                        f"❌ {target_member.mention} is not in the active roster.",
+                        ephemeral=True
+                    )
+                    return
+
+                conn.commit()
+
+            # Get flag emoji
+            flag = country_code_to_flag(country)
+
+            embed = discord.Embed(
+                title="🌍 Country Flag Updated",
+                description=f"Set country flag to {flag} ({country})",
+                color=0x00ff00
+            )
+
+            if user:
+                embed.add_field(name="Player", value=target_member.mention, inline=True)
+            else:
+                embed.add_field(name="Player", value="You", inline=True)
+
+            embed.add_field(name="Flag", value=flag, inline=True)
+            embed.set_footer(text="Your flag will appear in /stats leaderboard")
+
+            await interaction.response.send_message(embed=embed)
+
+        except Exception as e:
+            logging.error(f"Error setting country: {e}")
+            await interaction.response.send_message("❌ Error setting country flag", ephemeral=True)
 
     @app_commands.command(name="help", description="Show bot help information")
     @require_guild_setup

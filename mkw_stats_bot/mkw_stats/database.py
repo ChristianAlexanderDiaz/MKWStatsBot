@@ -32,7 +32,8 @@ class DatabaseManager:
         """
         # Get database URL from environment or parameter
         self.database_url = (
-            database_url or 
+            database_url or
+            os.getenv('DATABASE_PUBLIC_URL') or
             os.getenv('DATABASE_URL') or
             os.getenv('RAILWAY_POSTGRES_URL') or
             self._build_local_url()
@@ -371,7 +372,43 @@ class DatabaseManager:
                 except Exception as e:
                     if log_level == 'debug':
                         logging.debug(f"❌ [STRATEGY5] Alternative JSONB strategy failed: {e}")
-                
+
+                # Strategy 6: Match display_name (Discord display name)
+                strategy6_query = """
+                    SELECT player_name FROM players
+                    WHERE LOWER(display_name) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
+                """
+                if log_level == 'debug':
+                    logging.debug(f"🔍 [STRATEGY6] Display name match: {strategy6_query}")
+                    logging.debug(f"🔍 [STRATEGY6] Parameters: ({name_or_nickname}, {guild_id})")
+
+                cursor.execute(strategy6_query, (name_or_nickname, guild_id))
+                result = cursor.fetchone()
+                if result:
+                    if log_level == 'debug':
+                        logging.debug(f"✅ [STRATEGY6] Found display_name match: {result[0]}")
+                    return result[0]
+                elif log_level == 'debug':
+                    logging.debug(f"❌ [STRATEGY6] No display_name match found")
+
+                # Strategy 7: Match discord_username (Discord username)
+                strategy7_query = """
+                    SELECT player_name FROM players
+                    WHERE LOWER(discord_username) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
+                """
+                if log_level == 'debug':
+                    logging.debug(f"🔍 [STRATEGY7] Discord username match: {strategy7_query}")
+                    logging.debug(f"🔍 [STRATEGY7] Parameters: ({name_or_nickname}, {guild_id})")
+
+                cursor.execute(strategy7_query, (name_or_nickname, guild_id))
+                result = cursor.fetchone()
+                if result:
+                    if log_level == 'debug':
+                        logging.debug(f"✅ [STRATEGY7] Found discord_username match: {result[0]}")
+                    return result[0]
+                elif log_level == 'debug':
+                    logging.debug(f"❌ [STRATEGY7] No discord_username match found")
+
                 # Final debugging: show all available data
                 if log_level == 'debug':
                     cursor.execute("""
@@ -1929,6 +1966,281 @@ class DatabaseManager:
                 
         except Exception as e:
             logging.error(f"❌ Error updating war by ID: {e}")
+            return False
+
+    # Discord User ID Support Methods
+
+    def add_roster_player_with_discord(
+        self,
+        discord_user_id: int,
+        player_name: str,
+        display_name: str,
+        discord_username: str,
+        member_status: str,
+        added_by: str = None,
+        guild_id: int = 0,
+        country_code: str = None
+    ) -> bool:
+        """Add a player to the active roster with Discord user ID."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Check if player with this Discord ID already exists for this guild
+                cursor.execute("""
+                    SELECT id, is_active, player_name FROM players
+                    WHERE discord_user_id = %s AND guild_id = %s
+                """, (discord_user_id, guild_id))
+
+                existing = cursor.fetchone()
+                if existing:
+                    if existing[1]:  # Already active
+                        logging.info(f"Player with Discord ID {discord_user_id} is already in the active roster as {existing[2]}")
+                        return False
+                    else:
+                        # Reactivate player and update info
+                        cursor.execute("""
+                            UPDATE players
+                            SET is_active = TRUE,
+                                player_name = %s,
+                                display_name = %s,
+                                discord_username = %s,
+                                member_status = %s,
+                                country_code = %s,
+                                updated_at = CURRENT_TIMESTAMP,
+                                added_by = %s,
+                                last_role_sync = CURRENT_TIMESTAMP
+                            WHERE discord_user_id = %s AND guild_id = %s
+                        """, (player_name, display_name, discord_username, member_status, country_code, added_by, discord_user_id, guild_id))
+                        logging.info(f"✅ Reactivated player {player_name} (Discord ID: {discord_user_id})")
+                else:
+                    # Add new player with Discord ID
+                    cursor.execute("""
+                        INSERT INTO players (
+                            discord_user_id, player_name, display_name, discord_username,
+                            member_status, added_by, guild_id, country_code, last_role_sync
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    """, (discord_user_id, player_name, display_name, discord_username, member_status, added_by, guild_id, country_code))
+                    logging.info(f"✅ Added player {player_name} with Discord ID {discord_user_id}")
+
+                conn.commit()
+                return True
+
+        except Exception as e:
+            logging.error(f"❌ Error adding player with Discord ID to roster: {e}")
+            return False
+
+    def link_player_to_discord_user(
+        self,
+        player_name: str,
+        discord_user_id: int,
+        display_name: str,
+        discord_username: str,
+        member_status: str,
+        guild_id: int = 0
+    ) -> bool:
+        """Link an existing player to a Discord user."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Check if player exists
+                cursor.execute("""
+                    SELECT id, discord_user_id FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+
+                result = cursor.fetchone()
+                if not result:
+                    logging.error(f"Player {player_name} not found in active roster")
+                    return False
+
+                if result[1] is not None:
+                    logging.warning(f"Player {player_name} is already linked to Discord ID {result[1]}")
+                    return False
+
+                # Link player to Discord user
+                cursor.execute("""
+                    UPDATE players
+                    SET discord_user_id = %s,
+                        display_name = %s,
+                        discord_username = %s,
+                        member_status = %s,
+                        last_role_sync = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND guild_id = %s
+                """, (discord_user_id, display_name, discord_username, member_status, player_name, guild_id))
+
+                conn.commit()
+                logging.info(f"✅ Linked player {player_name} to Discord ID {discord_user_id}")
+                return True
+
+        except Exception as e:
+            logging.error(f"❌ Error linking player to Discord user: {e}")
+            return False
+
+    def sync_player_discord_info(
+        self,
+        discord_user_id: int,
+        display_name: str,
+        discord_username: str,
+        guild_id: int = 0
+    ) -> bool:
+        """Sync player's display name and Discord username from Discord."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    UPDATE players
+                    SET display_name = %s,
+                        discord_username = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE discord_user_id = %s AND guild_id = %s
+                """, (display_name, discord_username, discord_user_id, guild_id))
+
+                if cursor.rowcount > 0:
+                    conn.commit()
+                    logging.debug(f"✅ Synced Discord info for user {discord_user_id}")
+                    return True
+                else:
+                    logging.debug(f"No player found with Discord ID {discord_user_id} in guild {guild_id}")
+                    return False
+
+        except Exception as e:
+            logging.error(f"❌ Error syncing player Discord info: {e}")
+            return False
+
+    def sync_player_role(
+        self,
+        discord_user_id: int,
+        member_status: str,
+        guild_id: int = 0
+    ) -> bool:
+        """Sync player's member_status from their Discord role."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    UPDATE players
+                    SET member_status = %s,
+                        last_role_sync = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE discord_user_id = %s AND guild_id = %s
+                """, (member_status, discord_user_id, guild_id))
+
+                if cursor.rowcount > 0:
+                    conn.commit()
+                    logging.debug(f"✅ Synced role for Discord user {discord_user_id} to {member_status}")
+                    return True
+                else:
+                    logging.debug(f"No player found with Discord ID {discord_user_id} in guild {guild_id}")
+                    return False
+
+        except Exception as e:
+            logging.error(f"❌ Error syncing player role: {e}")
+            return False
+
+    def get_unlinked_players(self, guild_id: int = 0) -> List[Dict]:
+        """Get all active players without a Discord user ID link."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    SELECT player_name, team, member_status, total_score, war_count
+                    FROM players
+                    WHERE discord_user_id IS NULL
+                    AND is_active = TRUE
+                    AND guild_id = %s
+                    ORDER BY player_name
+                """, (guild_id,))
+
+                players = []
+                for row in cursor.fetchall():
+                    players.append({
+                        'player_name': row[0],
+                        'team': row[1],
+                        'member_status': row[2],
+                        'total_score': row[3],
+                        'war_count': float(row[4]) if row[4] else 0
+                    })
+
+                return players
+
+        except Exception as e:
+            logging.error(f"❌ Error getting unlinked players: {e}")
+            return []
+
+    def get_guild_role_config(self, guild_id: int) -> Optional[Dict]:
+        """Get the role configuration for a guild."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    SELECT role_member_id, role_trial_id, role_ally_id
+                    FROM guild_configs
+                    WHERE guild_id = %s AND is_active = TRUE
+                """, (guild_id,))
+
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'role_member_id': result[0],
+                        'role_trial_id': result[1],
+                        'role_ally_id': result[2]
+                    }
+                return None
+
+        except Exception as e:
+            logging.error(f"❌ Error getting guild role config: {e}")
+            return None
+
+    def set_guild_role_config(
+        self,
+        guild_id: int,
+        role_member_id: int,
+        role_trial_id: int,
+        role_ally_id: int
+    ) -> bool:
+        """Set the role configuration for a guild."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Check if guild config exists
+                cursor.execute("""
+                    SELECT id FROM guild_configs WHERE guild_id = %s
+                """, (guild_id,))
+
+                if cursor.fetchone():
+                    # Update existing config
+                    cursor.execute("""
+                        UPDATE guild_configs
+                        SET role_member_id = %s,
+                            role_trial_id = %s,
+                            role_ally_id = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE guild_id = %s
+                    """, (role_member_id, role_trial_id, role_ally_id, guild_id))
+                else:
+                    # Insert new config
+                    cursor.execute("""
+                        INSERT INTO guild_configs (
+                            guild_id, role_member_id, role_trial_id, role_ally_id, is_active
+                        )
+                        VALUES (%s, %s, %s, %s, TRUE)
+                    """, (guild_id, role_member_id, role_trial_id, role_ally_id))
+
+                conn.commit()
+                logging.info(f"✅ Set role config for guild {guild_id}")
+                return True
+
+        except Exception as e:
+            logging.error(f"❌ Error setting guild role config: {e}")
             return False
 
     def close(self):
