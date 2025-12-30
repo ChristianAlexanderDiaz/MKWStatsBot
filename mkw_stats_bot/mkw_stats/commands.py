@@ -35,6 +35,21 @@ def country_code_to_flag(country_code: str) -> str:
     return flag
 
 
+def is_bot_owner(user_id: int) -> bool:
+    """Check if user is the bot owner (Christian/Cynical)."""
+    BOT_OWNER_ID = 291621912914821120
+    return user_id == BOT_OWNER_ID
+
+
+def has_admin_permission(interaction: discord.Interaction) -> bool:
+    """Check if user has admin permission (server admin, server owner, or bot owner)."""
+    return (
+        interaction.user.guild_permissions.administrator or
+        interaction.user.id == interaction.guild.owner_id or
+        is_bot_owner(interaction.user.id)
+    )
+
+
 class LeaderboardView(discord.ui.View):
     """Pagination view for player statistics leaderboard."""
 
@@ -860,20 +875,44 @@ class MarioKartCommands(commands.Cog):
                         await interaction.response.send_message(f"❌ No stats found for player: {player}", ephemeral=True)
             else:
                 # Get all player statistics from players table
-                # First get all players and filter for Members only (exclude Trials, Allies, Kicked)
                 roster_stats = self.bot.db.get_all_players_stats(guild_id)
-                
-                # Filter for only Members in leaderboard
-                member_stats = [player for player in roster_stats if player.get('member_status') == 'member']
-                
+
+                # Get guild role configuration to check actual Discord roles
+                role_config = self.bot.db.get_guild_role_config(guild_id)
+
+                # Filter for only players with the actual Member role in Discord
+                member_stats = []
+                for player in roster_stats:
+                    discord_user_id = player.get('discord_user_id')
+                    if not discord_user_id:
+                        # Skip players not linked to Discord
+                        continue
+
+                    # Check if player is still in the server
+                    member = interaction.guild.get_member(discord_user_id)
+                    if not member:
+                        # Player left or was kicked
+                        continue
+
+                    # Check if they have the Member role (if role config exists)
+                    if role_config and role_config.get('role_member_id'):
+                        member_role_id = role_config['role_member_id']
+                        user_role_ids = [role.id for role in member.roles]
+                        if member_role_id in user_role_ids:
+                            member_stats.append(player)
+                    else:
+                        # No role config, fall back to database member_status
+                        if player.get('member_status') == 'member':
+                            member_stats.append(player)
+
                 if not member_stats:
-                    await interaction.response.send_message("❌ No members found in players table.", ephemeral=True)
+                    await interaction.response.send_message("❌ No members found with the Member role in Discord.", ephemeral=True)
                     return
-                
+
                 # Get war statistics for members who have them
                 players_with_stats = []
                 players_without_stats = []
-                
+
                 for roster_player in member_stats:
                     war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
                     if war_stats:
@@ -1407,10 +1446,10 @@ class MarioKartCommands(commands.Cog):
                 await interaction.response.send_message("❌ User not found in server.", ephemeral=True)
                 return
 
-            # Check permissions - only admins can set for others
+            # Check permissions - only admins/owner can set for others
             if user and user != interaction.user:
-                # Setting for someone else - require admin
-                if not interaction.user.guild_permissions.administrator:
+                # Setting for someone else - require admin permission
+                if not has_admin_permission(interaction):
                     await interaction.response.send_message(
                         "❌ Only administrators can set country for other players.",
                         ephemeral=True
