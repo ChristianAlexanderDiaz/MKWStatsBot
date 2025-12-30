@@ -1314,6 +1314,71 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error syncing player roles", ephemeral=True)
 
+    @app_commands.command(name="setroles", description="Configure Member/Trial/Ally roles for guild")
+    @app_commands.describe(
+        role_member="Role for full members (@Role)",
+        role_trial="Role for trial members (@Role)",
+        role_ally="Role for ally members (@Role)"
+    )
+    @require_guild_setup
+    async def set_roles(self, interaction: discord.Interaction, role_member: discord.Role, role_trial: discord.Role, role_ally: discord.Role):
+        """Configure roles for existing guild."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+
+            # Check if user is admin
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.response.send_message(
+                    "❌ Only administrators can configure guild roles.",
+                    ephemeral=True
+                )
+                return
+
+            # Set the role configuration
+            success = self.bot.db.set_guild_role_config(
+                guild_id=guild_id,
+                role_member_id=role_member.id,
+                role_trial_id=role_trial.id,
+                role_ally_id=role_ally.id
+            )
+
+            if success:
+                embed = discord.Embed(
+                    title="✅ Roles Configured!",
+                    description="Successfully configured Discord roles for member management",
+                    color=0x00ff00
+                )
+
+                embed.add_field(
+                    name="👥 Role Configuration",
+                    value=(
+                        f"**Member**: {role_member.mention}\n"
+                        f"**Trial**: {role_trial.mention}\n"
+                        f"**Ally**: {role_ally.mention}"
+                    ),
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="🎯 Next Steps",
+                    value=(
+                        "• Use `/addplayer @user` to add new players (auto-detects role)\n"
+                        "• Use `/linkplayer player:Name user:@User` to link existing players\n"
+                        "• Use `/syncstatus` to sync all player roles from Discord\n"
+                        "• Use `/listunlinked` to see players needing links"
+                    ),
+                    inline=False
+                )
+
+                embed.set_footer(text="Player status will now auto-sync from Discord roles!")
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message("❌ Failed to configure roles. Try again.", ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"Error setting roles: {e}")
+            await interaction.response.send_message("❌ Error configuring roles", ephemeral=True)
+
     @app_commands.command(name="setcountry", description="Set country flag for stats display")
     @app_commands.describe(
         country="2-letter country code (US, CA, GB, JP, etc.)",
