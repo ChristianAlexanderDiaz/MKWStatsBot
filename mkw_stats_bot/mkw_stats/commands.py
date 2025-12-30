@@ -880,28 +880,31 @@ class MarioKartCommands(commands.Cog):
                 # Get guild role configuration to check actual Discord roles
                 role_config = self.bot.db.get_guild_role_config(guild_id)
 
-                # Filter for only players with the actual Member role in Discord
+                # Filter for Members: check Discord role if linked, otherwise use database status
                 member_stats = []
                 for player in roster_stats:
                     discord_user_id = player.get('discord_user_id')
-                    if not discord_user_id:
-                        # Skip players not linked to Discord
-                        continue
 
-                    # Check if player is still in the server
-                    member = interaction.guild.get_member(discord_user_id)
-                    if not member:
-                        # Player left or was kicked
-                        continue
+                    if discord_user_id:
+                        # Player is linked - check actual Discord role
+                        member = interaction.guild.get_member(discord_user_id)
+                        if not member:
+                            # Player left or was kicked - exclude them
+                            continue
 
-                    # Check if they have the Member role (if role config exists)
-                    if role_config and role_config.get('role_member_id'):
-                        member_role_id = role_config['role_member_id']
-                        user_role_ids = [role.id for role in member.roles]
-                        if member_role_id in user_role_ids:
-                            member_stats.append(player)
+                        # Check if they have the Member role (if role config exists)
+                        if role_config and role_config.get('role_member_id'):
+                            member_role_id = role_config['role_member_id']
+                            user_role_ids = [role.id for role in member.roles]
+                            if member_role_id in user_role_ids:
+                                member_stats.append(player)
+                            # else: linked but doesn't have Member role - exclude
+                        else:
+                            # No role config, use database status
+                            if player.get('member_status') == 'member':
+                                member_stats.append(player)
                     else:
-                        # No role config, fall back to database member_status
+                        # Player not linked - use database member_status as fallback
                         if player.get('member_status') == 'member':
                             member_stats.append(player)
 
@@ -1592,7 +1595,100 @@ class MarioKartCommands(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(name="debugroles", description="[DEBUG] Check role filtering for /stats command")
+    @require_guild_setup
+    async def debug_roles(self, interaction: discord.Interaction):
+        """Debug command to check why /stats shows 'No members found'."""
+        await interaction.response.defer(ephemeral=True)
 
+        guild_id = self.get_guild_id(interaction)
+
+        # Get role configuration
+        role_config = self.bot.db.get_guild_role_config(guild_id)
+
+        debug_lines = []
+        debug_lines.append("=== ROLE CONFIGURATION ===")
+        if role_config and role_config.get('role_member_id'):
+            member_role_id = role_config['role_member_id']
+
+            # Try to get the role from Discord
+            discord_role = interaction.guild.get_role(member_role_id)
+            if discord_role:
+                debug_lines.append(f"Member Role: {discord_role.name} (ID: {member_role_id})")
+                debug_lines.append(f"Role exists in Discord: YES")
+            else:
+                debug_lines.append(f"Member Role ID: {member_role_id}")
+                debug_lines.append(f"Role exists in Discord: NO - ROLE NOT FOUND!")
+        else:
+            debug_lines.append("No Member role configured")
+
+        debug_lines.append("\n=== LINKED PLAYERS ===")
+
+        # Get all roster stats
+        roster_stats = self.bot.db.get_all_players_stats(guild_id)
+
+        linked_players = [p for p in roster_stats if p.get('discord_user_id')]
+        debug_lines.append(f"Total linked players: {len(linked_players)}\n")
+
+        players_with_role = 0
+        players_without_role = 0
+        players_not_in_guild = 0
+
+        for player in linked_players:
+            discord_user_id = player.get('discord_user_id')
+            player_name = player.get('player_name')
+            member_status = player.get('member_status', 'member')
+
+            # Try to get the Discord member
+            member = interaction.guild.get_member(discord_user_id)
+
+            if not member:
+                debug_lines.append(f"❌ {player_name} - NOT IN GUILD (ID: {discord_user_id})")
+                players_not_in_guild += 1
+                continue
+
+            # Check if they have the role
+            if role_config and role_config.get('role_member_id'):
+                member_role_id = role_config['role_member_id']
+                user_role_ids = [role.id for role in member.roles]
+                has_role = member_role_id in user_role_ids
+
+                role_list = ", ".join([r.name for r in member.roles if r.name != "@everyone"])
+
+                if has_role:
+                    debug_lines.append(f"✅ {player_name} - HAS ROLE")
+                    debug_lines.append(f"   Discord: {member.name}, Status: {member_status}")
+                    debug_lines.append(f"   Roles: {role_list}\n")
+                    players_with_role += 1
+                else:
+                    debug_lines.append(f"❌ {player_name} - MISSING ROLE")
+                    debug_lines.append(f"   Discord: {member.name}, Status: {member_status}")
+                    debug_lines.append(f"   Roles: {role_list}")
+                    debug_lines.append(f"   Looking for role ID: {member_role_id}")
+                    debug_lines.append(f"   Has role IDs: {user_role_ids}\n")
+                    players_without_role += 1
+
+        debug_lines.append("=== SUMMARY ===")
+        debug_lines.append(f"Players with role: {players_with_role}")
+        debug_lines.append(f"Players without role: {players_without_role}")
+        debug_lines.append(f"Players not in guild: {players_not_in_guild}")
+
+        if players_with_role == 0:
+            debug_lines.append("\n⚠️ THIS IS WHY /stats SHOWS 'No members found'")
+            if players_without_role > 0:
+                debug_lines.append("→ Linked players don't have the configured Member role")
+
+        # Send in chunks if too long
+        debug_text = "\n".join(debug_lines)
+        if len(debug_text) > 1900:
+            chunks = [debug_text[i:i+1900] for i in range(0, len(debug_text), 1900)]
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    await interaction.followup.send(f"```\n{chunk}\n```", ephemeral=True)
+                else:
+                    await interaction.followup.send(f"```\n{chunk}\n```", ephemeral=True)
+        else:
+            await interaction.followup.send(f"```\n{debug_text}\n```", ephemeral=True)
 
     async def player_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         """Autocomplete callback for player names."""
