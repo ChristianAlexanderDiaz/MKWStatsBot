@@ -85,12 +85,15 @@ class LeaderboardView(discord.ui.View):
             color=0x00ff00
         )
 
-        # Build minimalist leaderboard with flags
+        # Build numbered leaderboard with flags
         leaderboard_text = []
-        for player in page_players:
+        for idx, player in enumerate(page_players):
+            # Calculate actual rank number across all pages
+            rank = start_idx + idx + 1
+
             # Get flag emoji
             country_code = player.get('country_code', '')
-            flag = country_code_to_flag(country_code) if country_code else "🌐"
+            flag = country_code_to_flag(country_code) if country_code else "❓"
 
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
@@ -99,12 +102,12 @@ class LeaderboardView(discord.ui.View):
                 avg_diff = total_diff / war_count if war_count > 0 else 0
                 diff_symbol = "+" if avg_diff >= 0 else ""
 
-                # Minimalist format: [flag] [name] | [avg] | [wars] | [diff]
+                # Numbered format: #. [flag] [name] | [avg] avg | [wars] wars | [diff] diff
                 leaderboard_text.append(
-                    f"{flag} **{player['player_name']}** | {avg_score:.1f} | {war_count:.1f} wars | {diff_symbol}{avg_diff:.1f}"
+                    f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | {war_count:.1f} wars | {diff_symbol}{avg_diff:.1f} diff"
                 )
             else:
-                leaderboard_text.append(f"{flag} **{player['player_name']}** | No wars yet")
+                leaderboard_text.append(f"{rank}. {flag} **{player['player_name']}** | No wars yet")
 
         embed.add_field(
             name="Top Players",
