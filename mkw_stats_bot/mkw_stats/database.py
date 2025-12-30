@@ -467,7 +467,9 @@ class DatabaseManager:
 
                 # Calculate team score and differential
                 team_score = sum(result.get('score', 0) for result in results)
-                team_differential = team_score - 492  # Breakeven for 12-race wars
+                total_points = 82 * race_count
+                opponent_score = total_points - team_score
+                team_differential = team_score - opponent_score
 
                 cursor.execute("""
                     INSERT INTO wars (war_date, race_count, players_data, guild_id, team_score, team_differential)
@@ -1914,13 +1916,16 @@ class DatabaseManager:
 
                 # Calculate new team score and differential
                 new_team_score = sum(p.get('score', 0) for p in combined_results)
-                new_team_differential = new_team_score - 492  # Breakeven for 12-race wars
+                race_count = existing_war.get('race_count', 12)
+                total_points = 82 * race_count
+                opponent_score = total_points - new_team_score
+                new_team_differential = new_team_score - opponent_score
 
                 # Format data in the expected dict structure
                 war_data = {
                     "results": combined_results,
                     "timestamp": datetime.now().isoformat(),
-                    "race_count": existing_war.get('race_count', 12)
+                    "race_count": race_count
                 }
 
                 # Update the war with combined data and new differential

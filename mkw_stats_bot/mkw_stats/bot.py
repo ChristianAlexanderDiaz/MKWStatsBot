@@ -743,7 +743,9 @@ class MarioKartBot(commands.Bot):
             if war_id is not None:
                 # Calculate team differential for player stats
                 team_score = sum(r['score'] for r in parsed_results)
-                team_differential = team_score - 492  # Breakeven for 12-race wars
+                total_points = 82 * total_race_count
+                opponent_score = total_points - team_score
+                team_differential = team_score - opponent_score
 
                 # Update player statistics
                 for result in parsed_results:
@@ -862,7 +864,9 @@ class MarioKartBot(commands.Bot):
                 if war_id is not None:
                     # Calculate team differential for player stats
                     team_score = sum(r['score'] for r in parsed_results)
-                    team_differential = team_score - 492  # Breakeven for 12-race wars
+                    total_points = 82 * total_race_count
+                    opponent_score = total_points - team_score
+                    team_differential = team_score - opponent_score
 
                     # Update player statistics
                     for result in parsed_results:
@@ -1296,7 +1300,9 @@ class MarioKartBot(commands.Bot):
                     if war_id is not None:
                         # Calculate team differential for player stats
                         team_score = sum(p['score'] for p in war_info['players'])
-                        team_differential = team_score - 492  # Breakeven for 12-race wars
+                        total_points = 82 * war_info['total_race_count']
+                        opponent_score = total_points - team_score
+                        team_differential = team_score - opponent_score
 
                         # Update player statistics
                         for result in war_info['players']:

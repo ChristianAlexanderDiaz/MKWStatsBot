@@ -182,7 +182,10 @@ class AddPlayerToWarConfirmView(discord.ui.View):
             # Get the updated war to get the new team_differential
             updated_war = self.commands_cog.bot.db.get_war_by_id(self.war_id, self.guild_id)
             team_score = sum(p['score'] for p in updated_war.get('results', []))
-            team_differential = team_score - 492  # Breakeven for 12-race wars
+            race_count = updated_war.get('race_count', 12)
+            total_points = 82 * race_count
+            opponent_score = total_points - team_score
+            team_differential = team_score - opponent_score
 
             # Add statistics for new players only
             stats_added = []
@@ -1326,14 +1329,6 @@ class MarioKartCommands(commands.Cog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            # Check if user is admin
-            if not interaction.user.guild_permissions.administrator:
-                await interaction.response.send_message(
-                    "❌ Only administrators can configure guild roles.",
-                    ephemeral=True
-                )
-                return
-
             # Set the role configuration
             success = self.bot.db.set_guild_role_config(
                 guild_id=guild_id,
@@ -2232,7 +2227,9 @@ class MarioKartCommands(commands.Cog):
 
             # Calculate team differential for player stats
             team_score = sum(r['score'] for r in resolved_results)
-            team_differential = team_score - 492  # Breakeven for 12-race wars
+            total_points = 82 * races
+            opponent_score = total_points - team_score
+            team_differential = team_score - opponent_score
 
             stats_updated = []
             stats_failed = []
