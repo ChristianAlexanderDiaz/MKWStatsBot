@@ -562,12 +562,12 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT player_name, added_by, created_at, updated_at, team, nicknames, member_status
-                    FROM players 
+                    SELECT player_name, added_by, created_at, updated_at, team, nicknames, member_status, country_code
+                    FROM players
                     WHERE guild_id = %s AND is_active = TRUE
                     ORDER BY member_status, player_name
                 """, (guild_id,))
-                
+
                 results = []
                 for row in cursor.fetchall():
                     results.append({
@@ -577,7 +577,8 @@ class DatabaseManager:
                         'updated_at': row[3].isoformat() if row[3] else None,
                         'team': row[4] if row[4] else 'Unassigned',
                         'nicknames': row[5] if row[5] else [],
-                        'member_status': row[6] if row[6] else 'member'
+                        'member_status': row[6] if row[6] else 'member',
+                        'country_code': row[7] if row[7] else None
                     })
                 
                 return results
@@ -1095,7 +1096,7 @@ class DatabaseManager:
                 cursor.execute("""
                     SELECT id, total_score, total_races, war_count, average_score,
                            last_war_date, created_at, updated_at,
-                           team, nicknames, added_by, total_team_differential
+                           team, nicknames, added_by, total_team_differential, country_code
                     FROM players
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
@@ -1149,6 +1150,7 @@ class DatabaseManager:
                     'nicknames': result[9] if result[9] else [],
                     'added_by': result[10],
                     'total_team_differential': result[11] if result[11] is not None else 0,
+                    'country_code': result[12] if result[12] else None,
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
                     'wins': wins,

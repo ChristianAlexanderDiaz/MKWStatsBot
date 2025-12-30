@@ -744,12 +744,17 @@ class MarioKartCommands(commands.Cog):
                     # Modern minimalistic embed design
                     from datetime import datetime
 
+                    # Get flag emoji
+                    country_code = stats.get('country_code', '')
+                    flag = country_code_to_flag(country_code) if country_code else ""
+                    flag_prefix = f"{flag} " if flag else ""
+
                     # Determine title and color based on context
                     if lastxwars is not None:
-                        title_text = f"{stats['player_name']} (Last {lastxwars} Wars)"
+                        title_text = f"{flag_prefix}{stats['player_name']} (Last {lastxwars} Wars)"
                         scope_text = f"Last {lastxwars} Wars"
                     else:
-                        title_text = f"{stats['player_name']}"
+                        title_text = f"{flag_prefix}{stats['player_name']}"
                         scope_text = "Career Statistics"
 
                     # Dynamic color based on team differential
