@@ -306,11 +306,13 @@ class MarioKartBot(commands.Bot):
     def __init__(self):
         # Initialize the bot's intents
         intents = discord.Intents.default()
-        # Enable message content intenti
+        # Enable message content intent
         intents.message_content = True
         # Enable reactions intent
         intents.reactions = True
-        
+        # Enable members intent (required for get_member() calls)
+        intents.members = True
+
         # Initialize the bot with no command prefix (slash commands only)
         super().__init__(command_prefix=None, intents=intents)
         
