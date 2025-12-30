@@ -562,7 +562,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT player_name, added_by, created_at, updated_at, team, nicknames, member_status, country_code
+                    SELECT player_name, added_by, created_at, updated_at, team, nicknames, member_status, country_code, discord_user_id
                     FROM players
                     WHERE guild_id = %s AND is_active = TRUE
                     ORDER BY member_status, player_name
@@ -578,7 +578,8 @@ class DatabaseManager:
                         'team': row[4] if row[4] else 'Unassigned',
                         'nicknames': row[5] if row[5] else [],
                         'member_status': row[6] if row[6] else 'member',
-                        'country_code': row[7] if row[7] else None
+                        'country_code': row[7] if row[7] else None,
+                        'discord_user_id': row[8] if row[8] else None
                     })
                 
                 return results
