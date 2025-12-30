@@ -971,7 +971,9 @@ class DatabaseManager:
                     new_total_score = result[0] + score
                     new_total_races = result[1] + races_played
                     new_war_count = float(result[2]) + war_participation  # Support fractional wars
-                    new_total_differential = (result[3] or 0) + team_differential
+                    # Scale team_differential by war_participation for fractional wars
+                    scaled_differential = int(team_differential * war_participation)
+                    new_total_differential = (result[3] or 0) + scaled_differential
                     # Correct average calculation: total_score / war_count (preserves per-war average)
                     new_average = round(new_total_score / new_war_count, 2)
 
@@ -1036,7 +1038,9 @@ class DatabaseManager:
                 new_total_score = max(0, current_total_score - score)
                 new_total_races = max(0, current_total_races - races_played)
                 new_war_count = max(0.0, current_war_count - war_participation)
-                new_total_differential = (current_total_differential or 0) - team_differential
+                # Scale team_differential by war_participation for fractional wars
+                scaled_differential = int(team_differential * war_participation)
+                new_total_differential = (current_total_differential or 0) - scaled_differential
 
                 logging.info(f"🔍 Calculated new stats: {new_total_score} points, {new_total_races} races, {new_war_count} wars, differential: {new_total_differential}")
 
@@ -1223,7 +1227,9 @@ class DatabaseManager:
                     total_score += score
                     total_races += races_played
                     total_war_participation += float(war_participation)
-                    total_team_differential += (team_diff or 0)
+                    # Scale team_differential by war_participation for fractional wars
+                    scaled_differential = int((team_diff or 0) * war_participation)
+                    total_team_differential += scaled_differential
 
                     # Calculate win/loss/tie
                     if team_diff is not None:
