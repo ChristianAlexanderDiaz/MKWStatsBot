@@ -182,7 +182,7 @@ Shows all players organized by teams.
 ### Assign Players to Team
 
 ```
-/assignplayerstoteam players:Cynical,Willow,Ghost team_name:Team Alpha
+/assignplayers players:Cynical,Willow,Ghost team_name:Team Alpha
 ```
 
 **Note**: Separate multiple players with commas (no spaces after commas).
@@ -394,14 +394,14 @@ Yes! Create teams and assign players:
 ```
 /addteam team_name:Team Alpha
 /addteam team_name:Team Bravo
-/assignplayerstoteam players:Player1,Player2 team_name:Team Alpha
+/assignplayers players:Player1,Player2 team_name:Team Alpha
 ```
 
 ### What if a player changes teams?
 
 Just reassign them:
 ```
-/assignplayerstoteam players:PlayerName team_name:New Team
+/assignplayers players:PlayerName team_name:New Team
 ```
 
 Their stats stay with them!
@@ -441,7 +441,7 @@ Access the web dashboard for a better review experience:
 | `/addnickname` | Add OCR nickname |
 | `/addwar` | Manually add war |
 | `/showallwars` | View war history |
-| `/assignplayerstoteam` | Assign to team |
+| `/assignplayers` | Assign to team |
 | `/help` | Show bot help |
 
 ---

@@ -1454,7 +1454,7 @@ class MarioKartCommands(commands.Cog):
                 "`/renameteam <old_name> <new_name>` - Rename a team\n"
                 "`/showallteams` - Show all teams and their players\n"
                 "`/assignplayerstoteam <player1> <player2>... <team>` - Assign players to team (1 or more)\n"
-                "`/unassignplayerfromteam <player>` - Set player to Unassigned\n"
+                "`/unassignplayer <player>` - Set player to Unassigned\n"
                 "`/showspecificteamroster <team>` - Show specific team roster"
             ),
             inline=False
@@ -1490,8 +1490,40 @@ class MarioKartCommands(commands.Cog):
 
 
 
-    @app_commands.command(name="assignplayerstoteam", description="Assign multiple players to a team")
+    async def player_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        """Autocomplete callback for player names."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            all_players = self.bot.db.get_all_players_stats(guild_id)
+
+            # Filter players based on current input
+            filtered = [p['player_name'] for p in all_players if current.lower() in p['player_name'].lower()]
+
+            # Return up to 25 choices (Discord limit)
+            return [app_commands.Choice(name=name, value=name) for name in filtered[:25]]
+        except Exception as e:
+            logging.error(f"Error in player autocomplete: {e}")
+            return []
+
+    async def team_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        """Autocomplete callback for team names."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            team_names = self.bot.db.get_guild_team_names(guild_id)
+            team_names.append('Unassigned')  # Always include Unassigned option
+
+            # Filter teams based on current input
+            filtered = [name for name in team_names if current.lower() in name.lower()]
+
+            # Return up to 25 choices (Discord limit)
+            return [app_commands.Choice(name=name, value=name) for name in filtered[:25]]
+        except Exception as e:
+            logging.error(f"Error in team autocomplete: {e}")
+            return []
+
+    @app_commands.command(name="assignplayers", description="Assign multiple players to a team")
     @app_commands.describe(players="Space-separated list of player names (minimum 1 player)", team_name="Team to assign players to")
+    @app_commands.autocomplete(players=player_autocomplete, team_name=team_autocomplete)
     @require_guild_setup
     async def assign_players_to_team(self, interaction: discord.Interaction, players: str, team_name: str):
         """Assign multiple players to a team."""
@@ -1572,8 +1604,9 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ Error assigning players to team", ephemeral=True)
 
-    @app_commands.command(name="unassignplayerfromteam", description="Unassign a player from their team (set to Unassigned)")
+    @app_commands.command(name="unassignplayer", description="Unassign a player from their team (set to Unassigned)")
     @app_commands.describe(player_name="Name of the player to unassign from their team")
+    @app_commands.autocomplete(player_name=player_autocomplete)
     @require_guild_setup
     async def unassign_player_from_team(self, interaction: discord.Interaction, player_name: str):
         """Unassign a player from their team (set to Unassigned)."""
