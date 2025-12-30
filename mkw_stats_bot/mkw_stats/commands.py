@@ -907,9 +907,11 @@ class MarioKartCommands(commands.Cog):
                             if player.get('member_status') == 'member':
                                 member_stats.append(player)
                     else:
-                        # Player not linked - use database member_status as fallback
-                        if player.get('member_status') == 'member':
-                            member_stats.append(player)
+                        # Player not linked - only show if role config is NOT set
+                        # When role config exists, unlinked players are excluded entirely
+                        if not (role_config and role_config.get('role_member_id')):
+                            if player.get('member_status') == 'member':
+                                member_stats.append(player)
 
                 if not member_stats:
                     await interaction.response.send_message("❌ No members found with the Member role in Discord.", ephemeral=True)
