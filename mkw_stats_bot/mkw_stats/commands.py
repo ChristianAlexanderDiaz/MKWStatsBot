@@ -1504,6 +1504,97 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error setting country: {e}")
             await interaction.response.send_message("❌ Error setting country flag", ephemeral=True)
 
+    @app_commands.command(name="bulksetcountry", description="Set countries for multiple players at once")
+    @app_commands.describe(
+        players_countries="Format: Player1:US, Player2:CA, Player3:GB (see country codes: https://www.iban.com/country-codes)"
+    )
+    @require_guild_setup
+    async def bulk_set_country(self, interaction: discord.Interaction, players_countries: str):
+        """Set countries for multiple players at once."""
+        try:
+            await interaction.response.defer(ephemeral=True)
+
+            guild_id = self.get_guild_id(interaction)
+
+            # Parse input: "Connor:US, Chez:CA, Mirymeg:US"
+            pairs = [pair.strip() for pair in players_countries.split(',')]
+
+            updated = []
+            errors = []
+
+            for pair in pairs:
+                if ':' not in pair:
+                    errors.append(f"❌ Invalid format: `{pair}` (use Player:CC)")
+                    continue
+
+                player_name, country_code = pair.split(':', 1)
+                player_name = player_name.strip()
+                country_code = country_code.strip().upper()
+
+                # Validate country code
+                if len(country_code) != 2 or not country_code.isalpha():
+                    errors.append(f"❌ Invalid country code for {player_name}: `{country_code}`")
+                    continue
+
+                # Update player country
+                with self.bot.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE players
+                        SET country_code = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                    """, (country_code, player_name, guild_id))
+
+                    if cursor.rowcount > 0:
+                        flag = country_code_to_flag(country_code)
+                        updated.append(f"{flag} {player_name}")
+                        conn.commit()
+                    else:
+                        errors.append(f"❌ Player not found: {player_name}")
+
+            # Build response embed
+            embed = discord.Embed(
+                title="🌍 Bulk Country Update",
+                color=0x00ff00 if updated else 0xff0000
+            )
+
+            if updated:
+                # Chunk updated players if too many
+                if len(updated) <= 25:
+                    embed.add_field(
+                        name=f"✅ Updated {len(updated)} players",
+                        value="\n".join(updated),
+                        inline=False
+                    )
+                else:
+                    # Show first 25, then count
+                    embed.add_field(
+                        name=f"✅ Updated {len(updated)} players",
+                        value="\n".join(updated[:25]) + f"\n... and {len(updated) - 25} more",
+                        inline=False
+                    )
+
+            if errors:
+                error_text = "\n".join(errors[:10])
+                if len(errors) > 10:
+                    error_text += f"\n... and {len(errors) - 10} more errors"
+                embed.add_field(
+                    name=f"⚠️ Errors ({len(errors)})",
+                    value=error_text,
+                    inline=False
+                )
+
+            if not updated and not errors:
+                embed.description = "No players processed"
+
+            embed.set_footer(text="Country codes: https://www.iban.com/country-codes")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"Error in bulk set country: {e}")
+            await interaction.followup.send("❌ Error setting countries", ephemeral=True)
+
     @app_commands.command(name="help", description="Show bot help information")
     @require_guild_setup
     async def help_command(self, interaction: discord.Interaction):
