@@ -1508,7 +1508,7 @@ class MarioKartCommands(commands.Cog):
 
     @app_commands.command(name="bulksetcountry", description="Set countries for multiple players at once")
     @app_commands.describe(
-        players_countries="Format: Player1:US, Player2:CA, Player3:GB (see country codes: https://www.iban.com/country-codes)"
+        players_countries="Format: @User:US, PlayerName:CA, @User2:GB (supports mentions and names)"
     )
     @require_guild_setup
     async def bulk_set_country(self, interaction: discord.Interaction, players_countries: str):
@@ -1518,41 +1518,76 @@ class MarioKartCommands(commands.Cog):
 
             guild_id = self.get_guild_id(interaction)
 
-            # Parse input: "Connor:US, Chez:CA, Mirymeg:US"
+            # Parse input: "@Christian:US, Connor:CA, @Cam:GB"
             pairs = [pair.strip() for pair in players_countries.split(',')]
 
             updated = []
             errors = []
 
+            import re
+            # Pattern to match Discord mentions: <@123456> or <@!123456>
+            mention_pattern = re.compile(r'<@!?(\d+)>')
+
             for pair in pairs:
                 if ':' not in pair:
-                    errors.append(f"❌ Invalid format: `{pair}` (use Player:CC)")
+                    errors.append(f"❌ Invalid format: `{pair}` (use @User:CC or Player:CC)")
                     continue
 
-                player_name, country_code = pair.split(':', 1)
-                player_name = player_name.strip()
+                player_identifier, country_code = pair.split(':', 1)
+                player_identifier = player_identifier.strip()
                 country_code = country_code.strip().upper()
 
                 # Validate country code
                 if len(country_code) != 2 or not country_code.isalpha():
-                    errors.append(f"❌ Invalid country code for {player_name}: `{country_code}`")
+                    errors.append(f"❌ Invalid country code: `{country_code}`")
                     continue
 
-                # Update player country
-                with self.bot.db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE players
-                        SET country_code = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
-                    """, (country_code, player_name, guild_id))
+                # Check if it's a Discord mention
+                mention_match = mention_pattern.search(player_identifier)
 
-                    if cursor.rowcount > 0:
-                        flag = country_code_to_flag(country_code)
-                        updated.append(f"{flag} {player_name}")
-                        conn.commit()
-                    else:
-                        errors.append(f"❌ Player not found: {player_name}")
+                if mention_match:
+                    # It's a mention - extract user ID
+                    user_id = int(mention_match.group(1))
+                    member = interaction.guild.get_member(user_id)
+
+                    if not member:
+                        errors.append(f"❌ User not found in server: <@{user_id}>")
+                        continue
+
+                    # Update by discord_user_id
+                    with self.bot.db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE players
+                            SET country_code = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE discord_user_id = %s AND guild_id = %s AND is_active = TRUE
+                        """, (country_code, user_id, guild_id))
+
+                        if cursor.rowcount > 0:
+                            flag = country_code_to_flag(country_code)
+                            updated.append(f"{flag} {member.mention}")
+                            conn.commit()
+                        else:
+                            errors.append(f"❌ {member.mention} not in active roster")
+                else:
+                    # Plain text player name
+                    player_name = player_identifier
+
+                    # Update player country by name
+                    with self.bot.db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE players
+                            SET country_code = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                        """, (country_code, player_name, guild_id))
+
+                        if cursor.rowcount > 0:
+                            flag = country_code_to_flag(country_code)
+                            updated.append(f"{flag} {player_name}")
+                            conn.commit()
+                        else:
+                            errors.append(f"❌ Player not found: {player_name}")
 
             # Build response embed
             embed = discord.Embed(
