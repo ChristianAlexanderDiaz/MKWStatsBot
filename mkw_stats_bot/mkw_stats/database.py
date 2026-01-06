@@ -503,7 +503,8 @@ class DatabaseManager:
                         if player_row:
                             player_id = player_row[0]
                             score = result.get('score', 0)
-                            races_played = result.get('races_played', race_count)
+                            # Support both 'races' (OCR) and 'races_played' (manual commands)
+                            races_played = result.get('races', result.get('races_played', race_count))
                             war_participation = result.get('war_participation', races_played / race_count if race_count > 0 else 1.0)
 
                             # Insert into player_war_performances

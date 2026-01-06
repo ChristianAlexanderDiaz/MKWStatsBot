@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class EditPlayerModal(ui.Modal, title="Edit Player"):
-    """Modal for editing player name and score."""
+    """Modal for editing player name, score, and races played."""
 
     player_name = ui.TextInput(
         label="Player Name",
@@ -27,6 +27,13 @@ class EditPlayerModal(ui.Modal, title="Edit Player"):
         max_length=3
     )
 
+    races_played = ui.TextInput(
+        label="Races Played",
+        placeholder="Enter races played (1-12)",
+        required=True,
+        max_length=2
+    )
+
     def __init__(self, view: 'OCRConfirmationView', player_index: int):
         super().__init__()
         self.view = view
@@ -36,6 +43,7 @@ class EditPlayerModal(ui.Modal, title="Edit Player"):
         current_player = view.results[player_index]
         self.player_name.default = current_player['name']
         self.player_score.default = str(current_player['score'])
+        self.races_played.default = str(current_player.get('races', 12))
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission."""
@@ -49,9 +57,19 @@ class EditPlayerModal(ui.Modal, title="Edit Player"):
                 )
                 return
 
+            # Validate races played
+            races = int(self.races_played.value)
+            if not (1 <= races <= 12):
+                await interaction.response.send_message(
+                    "❌ Races played must be between 1 and 12",
+                    ephemeral=True
+                )
+                return
+
             # Update player in results
             self.view.results[self.player_index]['name'] = self.player_name.value.strip()
             self.view.results[self.player_index]['score'] = score
+            self.view.results[self.player_index]['races'] = races
             self.view.results[self.player_index]['raw_name'] = self.player_name.value.strip()
 
             # Refresh the view
@@ -59,7 +77,7 @@ class EditPlayerModal(ui.Modal, title="Edit Player"):
 
         except ValueError:
             await interaction.response.send_message(
-                "❌ Score must be a valid number",
+                "❌ Score and races must be valid numbers",
                 ephemeral=True
             )
 
@@ -81,6 +99,14 @@ class AddPlayerModal(ui.Modal, title="Add Player"):
         max_length=3
     )
 
+    races_played = ui.TextInput(
+        label="Races Played",
+        placeholder="Enter races played (1-12)",
+        required=True,
+        max_length=2,
+        default="12"
+    )
+
     def __init__(self, view: 'OCRConfirmationView'):
         super().__init__()
         self.view = view
@@ -93,6 +119,15 @@ class AddPlayerModal(ui.Modal, title="Add Player"):
             if not (1 <= score <= 180):
                 await interaction.response.send_message(
                     "❌ Score must be between 1 and 180",
+                    ephemeral=True
+                )
+                return
+
+            # Validate races played
+            races = int(self.races_played.value)
+            if not (1 <= races <= 12):
+                await interaction.response.send_message(
+                    "❌ Races played must be between 1 and 12",
                     ephemeral=True
                 )
                 return
@@ -132,7 +167,7 @@ class AddPlayerModal(ui.Modal, title="Add Player"):
                 'name': name,
                 'raw_name': name,
                 'score': score,
-                'races': 12,
+                'races': races,
                 'raw_line': f"{name} {score}",
                 'preset_used': 'manual_add',
                 'confidence': 1.0,
@@ -145,7 +180,7 @@ class AddPlayerModal(ui.Modal, title="Add Player"):
 
         except ValueError:
             await interaction.response.send_message(
-                "❌ Score must be a valid number",
+                "❌ Score and races must be valid numbers",
                 ephemeral=True
             )
 

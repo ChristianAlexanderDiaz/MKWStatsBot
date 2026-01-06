@@ -48,9 +48,9 @@ class OCRConfirmationView(discord.ui.View):
                 placeholder="Select player to edit",
                 options=[
                     discord.SelectOption(
-                        label=f"{i+1}. {result['name']} ({result['score']} pts)",
+                        label=f"{i+1}. {result['name']} ({result['score']} pts, {result.get('races', 12)} races)",
                         value=str(i),
-                        description=f"Edit {result['name']}'s name or score"
+                        description=f"Edit {result['name']}'s name, score, or races"
                     )
                     for i, result in enumerate(self.results)
                 ],
@@ -64,7 +64,7 @@ class OCRConfirmationView(discord.ui.View):
                 placeholder="Select player to remove",
                 options=[
                     discord.SelectOption(
-                        label=f"{i+1}. {result['name']} ({result['score']} pts)",
+                        label=f"{i+1}. {result['name']} ({result['score']} pts, {result.get('races', 12)} races)",
                         value=str(i),
                         description=f"Remove {result['name']} from results"
                     )
@@ -223,9 +223,10 @@ class OCRConfirmationView(discord.ui.View):
         for i, result in enumerate(self.results, 1):
             name = result['name']
             score = result['score']
+            races = result.get('races', 12)
             # Pad name to 12 characters for alignment
             padded_name = name[:12].ljust(12)
-            players_text += f"{i}. {padded_name} {score} pts\n"
+            players_text += f"{i}. {padded_name} {score} pts ({races} races)\n"
 
         players_text += "```"
 

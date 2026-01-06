@@ -3161,22 +3161,38 @@ class MarioKartCommands(commands.Cog):
             try:
                 # Use shared OCR processing logic
                 guild_id = self.get_guild_id_from_interaction(interaction)
-                
+
                 success, embed, processed_results = await self.bot.process_ocr_image(
                     temp_path, guild_id, recent_image.filename, original_message
                 )
-                
+
                 if not success:
                     # Show error embed briefly then remove it (like addwar does)
                     error_msg = await interaction.followup.send(embed=embed)
                     # Auto-delete the embed after 5 seconds to keep channel clean
                     asyncio.create_task(self.bot._countdown_and_delete_message(error_msg, embed, 5))
                     return
-                
-                # Success - show confirmation embed and add reactions
-                response_msg = await interaction.followup.send(embed=embed)
-                await self._add_ocr_confirmation(response_msg, processed_results, guild_id, interaction.user.id, original_message)
-                
+
+                # Success - create interactive view for confirmation (same as channel-based OCR)
+                from mkw_stats_bot.mkw_stats.bot import OCRConfirmationView
+
+                view = OCRConfirmationView(
+                    results=processed_results,
+                    guild_id=guild_id,
+                    user_id=interaction.user.id,
+                    original_message_obj=original_message,
+                    bot=self.bot
+                )
+
+                # Create modern embed
+                embed = view.create_embed()
+
+                # Send message with view
+                response_msg = await interaction.followup.send(embed=embed, view=view)
+
+                # Store message reference in view for timeout handling
+                view.message = response_msg
+
             finally:
                 # Clean up temporary files
                 try:
