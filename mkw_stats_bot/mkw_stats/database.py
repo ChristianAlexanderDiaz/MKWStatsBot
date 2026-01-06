@@ -70,18 +70,23 @@ class DatabaseManager:
             return f"postgresql://{user}@{host}:{port}/{database}"
     
     def _parse_database_url(self, url: str) -> Dict:
-        """Parse DATABASE_URL into connection parameters."""
+        """Parse DATABASE_URL into connection parameters with timeouts."""
         parsed = urlparse(url)
         params = {
             'host': parsed.hostname,
             'port': parsed.port or 5432,
             'database': parsed.path[1:],  # Remove leading slash
             'user': parsed.username,
+            # Connection timeout: 10 seconds to establish connection
+            'connect_timeout': 10,
+            # Statement timeout: 30 seconds for query execution
+            # Prevents long-running queries from exhausting connection pool
+            'options': '-c statement_timeout=30000',
         }
-        
+
         if parsed.password:
             params['password'] = parsed.password
-            
+
         return params
     
     @contextmanager
