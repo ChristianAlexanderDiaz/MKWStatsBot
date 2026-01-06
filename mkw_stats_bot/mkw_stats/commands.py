@@ -1632,98 +1632,80 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error in bulk set country: {e}")
             await interaction.followup.send("❌ Error setting countries", ephemeral=True)
 
-    @app_commands.command(name="help", description="Show bot help information")
+    @app_commands.command(name="help", description="Show bot commands")
     @require_guild_setup
     async def help_command(self, interaction: discord.Interaction):
         """Show bot help information."""
         embed = discord.Embed(
-            title="🏁 MKWStatsBot Help",
-            description="I automatically process Mario Kart war result images and track statistics!",
-            color=0x00ff00
+            title="Commands",
+            color=0x2b2d31
         )
-        
+
         embed.add_field(
-            name="📷 Automatic Processing",
-            value="• Upload war result images\n"
-                  "• I extract player names, scores, and war metadata\n"
-                  "• Validates 6v6 format with confirmation\n"
-                  "• Saves to database automatically",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🔧 Player & Roster Commands",
+            name="Stats & Roster",
             value=(
-                "`/stats [player]` - Show player stats or leaderboard\n"
-                "`/roster` - Show complete clan roster by teams\n"
-                f"`/addplayer <player> [status]` - Add player to roster ({get_member_status_text()})\n"
-                "`/removeplayer <player>` - Remove player from roster"
+                "`/stats [player]` - View stats or leaderboard\n"
+                "`/roster` - View roster by teams\n"
+                "`/addplayer <name> [status]` - Add player\n"
+                "`/removeplayer <name>` - Remove player"
             ),
             inline=False
         )
-        
+
         embed.add_field(
-            name="👤 Member Status Commands",
+            name="Wars",
             value=(
-                f"`/setmemberstatus <player> <status>` - Set player status ({get_member_status_text()})\n"
-                "`/showtrials` - Show all trial members\n"
-                "`/showkicked` - Show all kicked members"
+                "`/wars [limit]` - View recent wars\n"
+                "`/addwar <scores>` - Add war manually\n"
+                "`/appendplayertowar <id> <scores>` - Add players to war\n"
+                "`/removewar <id>` - Delete war"
             ),
             inline=False
         )
-        
+
         embed.add_field(
-            name="⚔️ War Management Commands",
+            name="Teams",
             value=(
-                "`/addwar` - Add war with player scores\n"
-                "`/showallwars [limit]` - List all wars with pagination\n"
-                "`/appendplayertowar <war_id> <player_scores>` - Add new players to existing war\n"
-                "`/removewar <war_id>` - Delete war and revert statistics\n"
-                "📷 Upload images for automatic OCR processing"
+                "`/showallteams` - View all teams\n"
+                "`/addteam <name>` - Create team\n"
+                "`/removeteam <name>` - Delete team\n"
+                "`/renameteam <old> <new>` - Rename team\n"
+                "`/assignplayerstoteam <players> <team>` - Assign to team\n"
+                "`/unassignplayer <name>` - Unassign player"
             ),
             inline=False
         )
-        
+
         embed.add_field(
-            name="👥 Team Management Commands",
+            name="Nicknames",
             value=(
-                "`/addteam <team_name>` - Create a new team\n"
-                "`/removeteam <team_name>` - Remove a team\n"
-                "`/renameteam <old_name> <new_name>` - Rename a team\n"
-                "`/showallteams` - Show all teams and their players\n"
-                "`/assignplayerstoteam <player1> <player2>... <team>` - Assign players to team (1 or more)\n"
-                "`/unassignplayer <player>` - Set player to Unassigned\n"
-                "`/showspecificteamroster <team>` - Show specific team roster"
+                "`/addnickname <player> <nick>` - Add nickname\n"
+                "`/removenickname <player> <nick>` - Remove nickname\n"
+                "`/nicknamesfor <player>` - View nicknames"
             ),
             inline=False
         )
-        
+
         embed.add_field(
-            name="🏷️ Nickname Management Commands",
+            name="Member Status",
             value=(
-                "`/addnickname <player> <nickname>` - Add nickname to player\n"
-                "`/removenickname <player> <nickname>` - Remove nickname from player\n"
-                "`/nicknamesfor <player>` - Show all nicknames for player\n"
-                "💡 Nicknames help with OCR recognition of player names"
+                "`/setmemberstatus <player> <status>` - Set status\n"
+                "`/showtrials` - View trial members\n"
+                "`/showkicked` - View kicked members"
             ),
             inline=False
         )
-        
+
         embed.add_field(
-            name="🏁 War Processing",
-            value="• Detects 6v6 format (12 total players)\n"
-                  "• Extracts race count (usually 12)\n"
-                  "• Uses message timestamp for date/time\n"
-                  "• Validates player names against roster",
+            name="OCR",
+            value=(
+                "Upload images to the OCR channel for auto-scanning\n"
+                "`/scanimage` - Manually scan last image\n"
+                "`/setchannel <channel>` - Set OCR channel"
+            ),
             inline=False
         )
-        
-        embed.add_field(
-            name="✅ Confirmation System",
-            value="✅ = Save to database\n❌ = Cancel\n✏️ = Manual edit",
-            inline=False
-        )
-        
+
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="debugroles", description="[DEBUG] Check role filtering for /stats command")
@@ -2575,74 +2557,69 @@ class MarioKartCommands(commands.Cog):
             except discord.errors.InteractionResponded:
                 await interaction.followup.send("❌ Error adding war. Check the command format and try again.", ephemeral=True)
 
-    @app_commands.command(name="showallwars", description="Show all wars with pagination")
+    @app_commands.command(name="wars", description="Show recent wars")
     @app_commands.describe(limit="Number of wars to show (default: 10, max: 50)")
     @require_guild_setup
     async def show_all_wars(self, interaction: discord.Interaction, limit: int = 10):
         """Show all wars with pagination."""
         try:
             guild_id = self.get_guild_id(interaction)
-            
+
             # Validate limit
             if limit < 1 or limit > 50:
                 await interaction.response.send_message("❌ Limit must be between 1 and 50.", ephemeral=True)
                 return
-            
+
             # Get wars from database
             wars = self.bot.db.get_all_wars(limit, guild_id)
-            
+
             if not wars:
-                await interaction.response.send_message("❌ No wars found in the database.")
+                await interaction.response.send_message("❌ No wars found.", ephemeral=True)
                 return
-            
+
             embed = discord.Embed(
-                title="⚔️ War History",
-                description=f"Showing {len(wars)} most recent wars:",
-                color=0x9932cc
+                title="War History",
+                color=0x2b2d31
             )
-            
+
             for war in wars:
                 war_id = war.get('id')
                 war_date = war.get('war_date')
-                race_count = war.get('race_count')
-                players_data = war.get('results', [])  # Fix: use 'results' instead of 'players_data'
-                
-                # Count unique players
-                player_count = len(players_data)
-                
-                # Create complete player list with scores
+                race_count = war.get('race_count', 12)
+                players_data = war.get('results', [])
+
+                # Create player list - show race count only if not default (12)
                 if players_data:
                     player_entries = []
                     for p in players_data:
                         name = p.get('name', 'Unknown')
                         score = p.get('score', 0)
                         races = p.get('races_played', race_count)
-                        if races == race_count:
-                            player_entries.append(f"{name}: {score}")
+                        if races != race_count:
+                            player_entries.append(f"{name} ({races}): {score}")
                         else:
-                            player_entries.append(f"{name}({races}): {score}")
-                    
+                            player_entries.append(f"{name}: {score}")
+
                     player_list = ", ".join(player_entries)
-                    
-                    # If the list is too long for Discord field limit, truncate
-                    if len(player_list) > 1000:
-                        # Find a good breaking point
-                        truncated = player_list[:900]
+
+                    # Truncate if too long
+                    if len(player_list) > 900:
+                        truncated = player_list[:850]
                         last_comma = truncated.rfind(', ')
                         if last_comma > 0:
-                            player_list = truncated[:last_comma] + f"... +{len(players_data) - truncated[:last_comma].count(',') - 1} more"
+                            player_list = truncated[:last_comma] + "..."
                         else:
                             player_list = truncated + "..."
                 else:
                     player_list = "No players"
-                
+
                 embed.add_field(
-                    name=f"War ID: {war_id} - {war_date}",
-                    value=f"🏁 {race_count} races | 👥 {player_count} players\n📋 {player_list}",
+                    name=f"#{war_id}  ·  {war_date}",
+                    value=player_list,
                     inline=False
                 )
-            
-            embed.set_footer(text=f"Use /updatewar <id> or /removewar <id> to modify wars | Showing {limit} most recent wars (oldest first)")
+
+            embed.set_footer(text=f"Showing {len(wars)} wars")
             await interaction.response.send_message(embed=embed)
             
         except Exception as e:
