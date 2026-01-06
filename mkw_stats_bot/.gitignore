@@ -289,4 +289,4 @@ exports/
 
 # Keep sample data files
 !data/formats/
-!testing/sample_images/example_*.png 
+!testing/sample_images/example_*.png

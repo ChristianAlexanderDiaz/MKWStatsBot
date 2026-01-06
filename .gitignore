@@ -61,3 +61,6 @@ out/
 *.png 
 
 node_modules/
+
+# Claude Code config
+.claude/
