@@ -13,7 +13,7 @@
 
 A production-grade, multi-service platform for managing Mario Kart clan statistics. Built with modern web technologies, this project demonstrates full-stack development, real-time data processing, OCR integration, and cloud deployment best practices.
 
-**Live Status**: Actively deployed | **Users**: 50+ Discord members | **Data**: 450+ wars tracked
+**Status**: Actively deployed | **Users**: 50+ Discord members | **Data**: 450+ wars tracked
 
 ## 🏗️ Architecture
 
