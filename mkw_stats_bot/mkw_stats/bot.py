@@ -261,8 +261,15 @@ class OCRConfirmationView(discord.ui.View):
 
                 # Schedule deletion
                 asyncio.create_task(self.bot._countdown_and_delete_message(self.message, embed, 30))
-            except:
+            except discord.NotFound:
+                # Message was already deleted
                 pass
+            except discord.Forbidden:
+                logger.warning("Missing permissions to edit OCR confirmation message on timeout")
+            except discord.HTTPException as e:
+                logger.error(f"Failed to edit OCR confirmation message on timeout: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error editing OCR confirmation message on timeout: {e}", exc_info=True)
 
 
 class ReportIssueView(discord.ui.View):
@@ -293,8 +300,15 @@ class ReportIssueView(discord.ui.View):
         if self.message:
             try:
                 await self.message.delete()
-            except:
+            except discord.NotFound:
+                # Message was already deleted
                 pass
+            except discord.Forbidden:
+                logger.warning("Missing permissions to delete report issue message on timeout")
+            except discord.HTTPException as e:
+                logger.error(f"Failed to delete report issue message on timeout: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error deleting report issue message on timeout: {e}", exc_info=True)
 
 
 class MarioKartBot(commands.Bot):
