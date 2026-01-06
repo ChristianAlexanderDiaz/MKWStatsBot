@@ -4,6 +4,7 @@ Adapted from mkw_stats_bot/mkw_stats/database.py to share the same database.
 """
 import psycopg2
 import psycopg2.pool
+import psycopg2.errors
 import json
 import logging
 import uuid
@@ -43,29 +44,49 @@ class DatabaseManager:
         self._init_dashboard_tables()
 
     def _parse_database_url(self, url: str) -> Dict:
-        """Parse DATABASE_URL into connection parameters."""
+        """Parse DATABASE_URL into connection parameters with timeouts."""
         parsed = urlparse(url)
         params = {
             'host': parsed.hostname,
             'port': parsed.port or 5432,
             'database': parsed.path[1:],
             'user': parsed.username,
+            # Connection timeout: 10 seconds to establish connection
+            'connect_timeout': 10,
+            # Statement timeout: 30 seconds for query execution
+            # Prevents long-running queries from exhausting connection pool
+            'options': '-c statement_timeout=30000',
         }
+
         if parsed.password:
             params['password'] = parsed.password
+
         return params
 
     @contextmanager
     def get_connection(self):
-        """Get a connection from the pool."""
+        """Get a connection from the pool with timeout error handling."""
         conn = None
         try:
             conn = self.connection_pool.getconn()
             yield conn
-        except Exception as e:
+        except psycopg2.OperationalError as e:
+            # Connection timeout or network issue (10 second timeout)
+            logger.error(f"❌ Dashboard API database connection timeout or network error: {e}")
             if conn:
                 conn.rollback()
-            raise e
+            raise
+        except psycopg2.errors.QueryCanceled as e:
+            # Statement timeout - query exceeded 30 seconds
+            logger.error(f"❌ Dashboard API database query timeout (exceeded 30s statement_timeout): {e}")
+            if conn:
+                conn.rollback()
+            raise
+        except Exception as e:
+            # Other database errors
+            if conn:
+                conn.rollback()
+            raise
         finally:
             if conn:
                 self.connection_pool.putconn(conn)

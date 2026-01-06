@@ -113,7 +113,7 @@ class DatabaseManager:
             # Other database errors
             if conn:
                 conn.rollback()
-            raise e
+            raise
         finally:
             if conn:
                 self.connection_pool.putconn(conn)
