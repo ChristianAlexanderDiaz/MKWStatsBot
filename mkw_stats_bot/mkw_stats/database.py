@@ -13,6 +13,7 @@ Production-ready with Railway PostgreSQL deployment.
 
 import psycopg2
 import psycopg2.pool
+import psycopg2.errors
 import json
 import logging
 from typing import List, Dict, Optional
@@ -91,12 +92,25 @@ class DatabaseManager:
     
     @contextmanager
     def get_connection(self):
-        """Get a connection from the pool."""
+        """Get a connection from the pool with timeout error handling."""
         conn = None
         try:
             conn = self.connection_pool.getconn()
             yield conn
+        except psycopg2.OperationalError as e:
+            # Connection timeout or network issue (10 second timeout)
+            logging.error(f"❌ Database connection timeout or network error: {e}")
+            if conn:
+                conn.rollback()
+            raise
+        except psycopg2.errors.QueryCanceled as e:
+            # Statement timeout - query exceeded 30 seconds
+            logging.error(f"❌ Database query timeout (exceeded 30s statement_timeout): {e}")
+            if conn:
+                conn.rollback()
+            raise
         except Exception as e:
+            # Other database errors
             if conn:
                 conn.rollback()
             raise e
