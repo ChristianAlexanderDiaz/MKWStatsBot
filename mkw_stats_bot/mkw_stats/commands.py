@@ -3174,7 +3174,7 @@ class MarioKartCommands(commands.Cog):
                     return
 
                 # Success - create interactive view for confirmation (same as channel-based OCR)
-                from mkw_stats_bot.mkw_stats.bot import OCRConfirmationView
+                from mkw_stats.bot import OCRConfirmationView
 
                 view = OCRConfirmationView(
                     results=processed_results,
