@@ -725,6 +725,10 @@ class MarioKartBot(commands.Bot):
 
     async def handle_ocr_war_submission_from_view(self, interaction: discord.Interaction, view: OCRConfirmationView):
         """Handle OCR war submission from interactive view."""
+        # Defer the interaction immediately to prevent timeout
+        # This gives us 15 minutes instead of 3 seconds to respond
+        await interaction.response.defer()
+
         try:
             results = view.results
             guild_id = view.guild_id
@@ -826,7 +830,7 @@ class MarioKartBot(commands.Bot):
                 )
 
             # Update message with result (disable view)
-            await interaction.response.edit_message(embed=embed, view=None)
+            await interaction.edit_original_response(embed=embed, view=None)
 
             # Schedule deletion
             asyncio.create_task(self._countdown_and_delete_message(view.message, embed))
@@ -838,7 +842,7 @@ class MarioKartBot(commands.Bot):
                 description=f"An error occurred while saving results: {str(e)}",
                 color=0xff0000
             )
-            await interaction.response.edit_message(embed=embed, view=None)
+            await interaction.edit_original_response(embed=embed, view=None)
             asyncio.create_task(self._countdown_and_delete_message(view.message, embed))
 
     async def handle_ocr_war_submission(self, message: discord.Message, confirmation_data: Dict):
