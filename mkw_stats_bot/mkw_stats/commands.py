@@ -3167,7 +3167,9 @@ class MarioKartCommands(commands.Cog):
                 # Send message with view
                 response_msg = await interaction.followup.send(embed=embed, view=view)
 
-                # Store message reference in view for timeout handling
+                # Store message reference in view IMMEDIATELY after send to prevent timeout race condition
+                # The timeout clock starts at view initialization, so we must set the message reference
+                # as soon as possible after the message is sent
                 view.message = response_msg
 
             finally:

@@ -580,14 +580,16 @@ class MarioKartBot(commands.Bot):
                     bot=self
                 )
 
+                # Store message reference in view BEFORE async operations to prevent timeout race condition
+                # The timeout clock starts at view initialization, so we must set the message reference
+                # immediately to ensure the timeout handler can access it if it fires early
+                view.message = processing_msg
+
                 # Create modern embed
                 embed = view.create_embed()
 
                 # Update message with view
                 await processing_msg.edit(content="", embed=embed, view=view)
-
-                # Store message reference in view for timeout handling
-                view.message = processing_msg
                 
             finally:
                 # Clean up temp file
