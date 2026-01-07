@@ -151,8 +151,8 @@ class AddPlayerModal(ui.Modal, title="Add Player"):
                 # Add player to roster with default team 'Unassigned'
                 added = db.add_roster_player(
                     name,
-                    str(interaction.user),
-                    guild_id,
+                    added_by=str(interaction.user),
+                    guild_id=guild_id,
                     member_status='member'
                 )
                 if not added:

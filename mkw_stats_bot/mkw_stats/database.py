@@ -231,9 +231,25 @@ class DatabaseManager:
             logging.error(f"❌ Error getting OCR channel: {e}")
             return None
     
+    def _validate_guild_id(self, guild_id: int, operation_name: str = "database operation") -> None:
+        """
+        Validate guild_id to prevent cross-guild data contamination.
+
+        Args:
+            guild_id: Guild ID to validate
+            operation_name: Name of the operation for error messaging
+
+        Raises:
+            ValueError: If guild_id is invalid (0 or negative)
+        """
+        if guild_id <= 0:
+            error_msg = f"Invalid guild_id={guild_id} for {operation_name}. Guild ID must be positive."
+            logging.error(f"❌ {error_msg}")
+            raise ValueError(error_msg)
+
     def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0, log_level: str = 'error') -> Optional[str]:
         """Resolve a name or nickname to players table player name.
-        
+
         Args:
             name_or_nickname: The name or nickname to resolve
             guild_id: Guild ID for data isolation
@@ -436,13 +452,16 @@ class DatabaseManager:
             # log_level == 'none' means no logging
             return None
     
-    def add_race_results(self, results: List[Dict], race_count: int = 12, guild_id: int = 0) -> Optional[int]:
+    def add_race_results(self, results: List[Dict], race_count: int = 12, *, guild_id: int) -> Optional[int]:
         """
         Add race results for multiple players.
         results: [{'name': 'PlayerName', 'score': 85}, ...]
         race_count: number of races in this session (default 12)
         Returns: war_id if successful, None if failed
         """
+        # Validate guild_id to prevent cross-guild data contamination
+        self._validate_guild_id(guild_id, "add_race_results")
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -653,8 +672,11 @@ class DatabaseManager:
             logging.error(f"❌ Error getting roster players: {e}")
             return []
     
-    def add_roster_player(self, player_name: str, added_by: str = None, guild_id: int = 0, member_status: str = 'member') -> bool:
+    def add_roster_player(self, player_name: str, added_by: str = None, *, guild_id: int, member_status: str = 'member') -> bool:
         """Add a player to the active roster with optional member status."""
+        # Validate guild_id to prevent cross-guild data contamination
+        self._validate_guild_id(guild_id, "add_roster_player")
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1482,8 +1504,11 @@ class DatabaseManager:
         logging.info(f"🔍 Duplicate war detected: {len(normalized_new)} players with identical names and scores")
         return True
     
-    def remove_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[int]:
+    def remove_war_by_id(self, war_id: int, *, guild_id: int) -> Optional[int]:
         """Remove a war by ID and update player statistics."""
+        # Validate guild_id to prevent cross-guild data contamination
+        self._validate_guild_id(guild_id, "remove_war_by_id")
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1890,8 +1915,11 @@ class DatabaseManager:
             logging.error(f"❌ Error getting member status counts: {e}")
             return {}
 
-    def append_players_to_war_by_id(self, war_id: int, new_players: List[Dict], guild_id: int = 0) -> bool:
+    def append_players_to_war_by_id(self, war_id: int, new_players: List[Dict], *, guild_id: int) -> bool:
         """Append new players to an existing war without modifying existing players."""
+        # Validate guild_id to prevent cross-guild data contamination
+        self._validate_guild_id(guild_id, "append_players_to_war_by_id")
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1951,8 +1979,11 @@ class DatabaseManager:
             logging.error(f"❌ Error appending players to war by ID: {e}")
             return False
 
-    def update_war_by_id(self, war_id: int, results: List[Dict], race_count: int, guild_id: int = 0) -> bool:
+    def update_war_by_id(self, war_id: int, results: List[Dict], race_count: int, *, guild_id: int) -> bool:
         """Update an existing war with new player data."""
+        # Validate guild_id to prevent cross-guild data contamination
+        self._validate_guild_id(guild_id, "update_war_by_id")
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1993,10 +2024,14 @@ class DatabaseManager:
         discord_username: str,
         member_status: str,
         added_by: str = None,
-        guild_id: int = 0,
+        *,
+        guild_id: int,
         country_code: str = None
     ) -> bool:
         """Add a player to the active roster with Discord user ID."""
+        # Validate guild_id to prevent cross-guild data contamination
+        self._validate_guild_id(guild_id, "add_roster_player_with_discord")
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -2275,29 +2310,32 @@ if __name__ == "__main__":
     # Test health check
     if db.health_check():
         print("✅ PostgreSQL connection successful")
-        
+
+        # Use test guild_id (guild_id must be > 0 for validation)
+        test_guild_id = 12345
+
         # Test adding roster players
-        db.add_roster_player("TestPlayer", "system")
-        
+        db.add_roster_player("TestPlayer", added_by="system", guild_id=test_guild_id)
+
         # Test adding war results
         test_results = [
             {'name': 'TestPlayer', 'score': 95},
             {'name': 'Player2', 'score': 88}
         ]
-        
-        success = db.add_race_results(test_results)
+
+        success = db.add_race_results(test_results, guild_id=test_guild_id)
         print(f"✅ War results added: {success}")
-        
+
         # Test queries
-        roster = db.get_roster_players()
+        roster = db.get_roster_players(test_guild_id)
         print(f"✅ Roster players: {roster}")
         
         # Test database info
         info = db.get_database_info()
         print(f"✅ Database info: {info}")
-        
+
         # Initialize with test player
-        db.add_roster_player("TestPlayer", "system")
+        db.add_roster_player("TestPlayer", added_by="system", guild_id=test_guild_id)
         print(f"✅ Added TestPlayer to roster")
         
         db.close()

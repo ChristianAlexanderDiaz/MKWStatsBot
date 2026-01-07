@@ -69,9 +69,9 @@ def simulate_race_results():
     print("📊 Adding test results:")
     for result in test_results:
         print(f"  {result['name']}: {result['score']}")
-    
+
     # Add to database
-    success = db.add_race_results(test_results)
+    success = db.add_race_results(test_results, guild_id=1)
     
     if success:
         print("✅ Results added successfully!")
