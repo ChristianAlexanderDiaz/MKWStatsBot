@@ -35,7 +35,7 @@ def test_roster_commands():
         
         # Test 2: Add new player (!mkadd)
         print("\n2️⃣ Testing !mkadd NewPlayer:")
-        success = db.add_roster_player("NewPlayer", "test_user")
+        success = db.add_roster_player("NewPlayer", added_by="test_user", guild_id=1)
         if success:
             print("✅ Successfully added NewPlayer")
         else:
@@ -47,7 +47,7 @@ def test_roster_commands():
         
         # Test 3: Try to add duplicate player (!mkadd duplicate)
         print("\n3️⃣ Testing !mkadd NewPlayer (duplicate):")
-        success = db.add_roster_player("NewPlayer", "test_user")
+        success = db.add_roster_player("NewPlayer", added_by="test_user", guild_id=1)
         if not success:
             print("✅ Correctly rejected duplicate player")
         else:
@@ -55,7 +55,7 @@ def test_roster_commands():
         
         # Test 4: Add another player
         print("\n4️⃣ Testing !mkadd SecondPlayer:")
-        success = db.add_roster_player("SecondPlayer", "test_user")
+        success = db.add_roster_player("SecondPlayer", added_by="test_user", guild_id=1)
         if success:
             print("✅ Successfully added SecondPlayer")
         else:

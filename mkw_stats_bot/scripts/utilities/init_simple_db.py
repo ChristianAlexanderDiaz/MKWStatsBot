@@ -27,9 +27,9 @@ def main():
             return False
         
         print("✅ Database connection successful")
-        
+
         # Add test player to roster
-        success = db.add_roster_player("TestPlayer", "system")
+        success = db.add_roster_player("TestPlayer", added_by="system", guild_id=1)
         if success:
             print("✅ Added TestPlayer to roster")
         else:
