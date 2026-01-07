@@ -748,7 +748,7 @@ class MarioKartBot(commands.Bot):
             total_race_count = max(result['races'] for result in parsed_results)
 
             # Add war to database
-            war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id)
+            war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id=guild_id)
 
             if war_id is not None:
                 # Calculate team differential for player stats
@@ -867,9 +867,9 @@ class MarioKartBot(commands.Bot):
                 
                 # Calculate total race count for the war (use max race count from all players)
                 total_race_count = max(result['races'] for result in parsed_results)
-                
+
                 # Add war to database
-                war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id)
+                war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id=guild_id)
 
                 if war_id is not None:
                     # Calculate team differential for player stats
@@ -1305,7 +1305,7 @@ class MarioKartBot(commands.Bot):
             for war_info in successful_wars:
                 try:
                     # Add war to database
-                    war_id = self.db.add_race_results(war_info['players'], war_info['total_race_count'], guild_id)
+                    war_id = self.db.add_race_results(war_info['players'], war_info['total_race_count'], guild_id=guild_id)
 
                     if war_id is not None:
                         # Calculate team differential for player stats

@@ -193,7 +193,7 @@ class AddPlayerToWarConfirmView(discord.ui.View):
         current_date = datetime.datetime.now().strftime('%Y-%m-%d')
 
         success = self.commands_cog.bot.db.append_players_to_war_by_id(
-            self.war_id, self.new_players, self.guild_id
+            self.war_id, self.new_players, guild_id=self.guild_id
         )
 
         if success:
@@ -310,7 +310,7 @@ class RemoveWarConfirmView(discord.ui.View):
         await interaction.response.edit_message(view=self)
 
         # Remove the war and revert player stats
-        stats_reverted = self.commands_cog.bot.db.remove_war_by_id(self.war_id, self.guild_id)
+        stats_reverted = self.commands_cog.bot.db.remove_war_by_id(self.war_id, guild_id=self.guild_id)
 
         if stats_reverted is not None:
             war_date = self.war.get('war_date')
@@ -2466,9 +2466,9 @@ class MarioKartCommands(commands.Cog):
                     )
                     await interaction.edit_original_response(embed=timeout_embed)
                     return
-            
+
             # Store war in database
-            war_id = self.bot.db.add_race_results(resolved_results, races, guild_id)
+            war_id = self.bot.db.add_race_results(resolved_results, races, guild_id=guild_id)
             
             if war_id is None:
                 await interaction.response.send_message("❌ Failed to add war to database. Check logs for details.", ephemeral=True)
