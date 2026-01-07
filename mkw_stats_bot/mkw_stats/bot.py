@@ -648,9 +648,16 @@ class MarioKartBot(commands.Bot):
             # Add message ID to results for tracking
             for result in results:
                 result['message_id'] = confirmation_data['original_message_id']
-            
+
+            # Get guild ID from message context
+            guild_id = message.guild.id if message.guild else None
+            if not guild_id:
+                logger.error("Cannot save race results: guild_id is None")
+                await message.channel.send("❌ **Error:** Could not determine guild ID.")
+                return
+
             # Save to database
-            success = self.db.add_race_results(results)
+            success = self.db.add_race_results(results, guild_id=guild_id)
             
             if success:
                 # Create success embed

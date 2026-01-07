@@ -2309,21 +2309,24 @@ if __name__ == "__main__":
     # Test health check
     if db.health_check():
         print("✅ PostgreSQL connection successful")
-        
+
+        # Use test guild_id (guild_id must be > 0 for validation)
+        test_guild_id = 12345
+
         # Test adding roster players
-        db.add_roster_player("TestPlayer", "system")
-        
+        db.add_roster_player("TestPlayer", "system", test_guild_id)
+
         # Test adding war results
         test_results = [
             {'name': 'TestPlayer', 'score': 95},
             {'name': 'Player2', 'score': 88}
         ]
-        
-        success = db.add_race_results(test_results)
+
+        success = db.add_race_results(test_results, guild_id=test_guild_id)
         print(f"✅ War results added: {success}")
-        
+
         # Test queries
-        roster = db.get_roster_players()
+        roster = db.get_roster_players(test_guild_id)
         print(f"✅ Roster players: {roster}")
         
         # Test database info
