@@ -2315,7 +2315,7 @@ if __name__ == "__main__":
         test_guild_id = 12345
 
         # Test adding roster players
-        db.add_roster_player("TestPlayer", "system", test_guild_id)
+        db.add_roster_player("TestPlayer", added_by="system", guild_id=test_guild_id)
 
         # Test adding war results
         test_results = [
@@ -2333,9 +2333,9 @@ if __name__ == "__main__":
         # Test database info
         info = db.get_database_info()
         print(f"✅ Database info: {info}")
-        
+
         # Initialize with test player
-        db.add_roster_player("TestPlayer", "system")
+        db.add_roster_player("TestPlayer", added_by="system", guild_id=test_guild_id)
         print(f"✅ Added TestPlayer to roster")
         
         db.close()
