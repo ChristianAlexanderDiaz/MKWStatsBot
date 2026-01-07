@@ -144,12 +144,16 @@ class DatabaseManager:
                         war_date DATE NOT NULL,
                         race_count INTEGER NOT NULL,
                         players_data JSONB NOT NULL,
+                        guild_id BIGINT NOT NULL,
+                        team_score INTEGER DEFAULT 0,
+                        team_differential INTEGER DEFAULT 0,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
-                
+
                 # Create indexes for wars
                 cursor.execute("""
+                    CREATE INDEX idx_wars_guild_id ON wars(guild_id);
                     CREATE INDEX idx_wars_date ON wars(war_date DESC);
                     CREATE INDEX idx_wars_created ON wars(created_at DESC);
                 """)
