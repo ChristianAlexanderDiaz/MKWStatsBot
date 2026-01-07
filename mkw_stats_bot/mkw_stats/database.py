@@ -452,7 +452,7 @@ class DatabaseManager:
             # log_level == 'none' means no logging
             return None
     
-    def add_race_results(self, results: List[Dict], race_count: int = 12, guild_id: int = 0) -> Optional[int]:
+    def add_race_results(self, results: List[Dict], race_count: int = 12, *, guild_id: int) -> Optional[int]:
         """
         Add race results for multiple players.
         results: [{'name': 'PlayerName', 'score': 85}, ...]
@@ -672,7 +672,7 @@ class DatabaseManager:
             logging.error(f"❌ Error getting roster players: {e}")
             return []
     
-    def add_roster_player(self, player_name: str, added_by: str = None, guild_id: int = 0, member_status: str = 'member') -> bool:
+    def add_roster_player(self, player_name: str, added_by: str = None, *, guild_id: int, member_status: str = 'member') -> bool:
         """Add a player to the active roster with optional member status."""
         # Validate guild_id to prevent cross-guild data contamination
         self._validate_guild_id(guild_id, "add_roster_player")
@@ -1504,7 +1504,7 @@ class DatabaseManager:
         logging.info(f"🔍 Duplicate war detected: {len(normalized_new)} players with identical names and scores")
         return True
     
-    def remove_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[int]:
+    def remove_war_by_id(self, war_id: int, *, guild_id: int) -> Optional[int]:
         """Remove a war by ID and update player statistics."""
         # Validate guild_id to prevent cross-guild data contamination
         self._validate_guild_id(guild_id, "remove_war_by_id")
@@ -1915,7 +1915,7 @@ class DatabaseManager:
             logging.error(f"❌ Error getting member status counts: {e}")
             return {}
 
-    def append_players_to_war_by_id(self, war_id: int, new_players: List[Dict], guild_id: int = 0) -> bool:
+    def append_players_to_war_by_id(self, war_id: int, new_players: List[Dict], *, guild_id: int) -> bool:
         """Append new players to an existing war without modifying existing players."""
         # Validate guild_id to prevent cross-guild data contamination
         self._validate_guild_id(guild_id, "append_players_to_war_by_id")
@@ -1979,7 +1979,7 @@ class DatabaseManager:
             logging.error(f"❌ Error appending players to war by ID: {e}")
             return False
 
-    def update_war_by_id(self, war_id: int, results: List[Dict], race_count: int, guild_id: int = 0) -> bool:
+    def update_war_by_id(self, war_id: int, results: List[Dict], race_count: int, *, guild_id: int) -> bool:
         """Update an existing war with new player data."""
         # Validate guild_id to prevent cross-guild data contamination
         self._validate_guild_id(guild_id, "update_war_by_id")
@@ -2024,7 +2024,8 @@ class DatabaseManager:
         discord_username: str,
         member_status: str,
         added_by: str = None,
-        guild_id: int = 0,
+        *,
+        guild_id: int,
         country_code: str = None
     ) -> bool:
         """Add a player to the active roster with Discord user ID."""
