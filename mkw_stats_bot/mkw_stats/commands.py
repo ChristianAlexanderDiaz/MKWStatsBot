@@ -869,7 +869,7 @@ class MarioKartCommands(commands.Cog):
                                 scores_list.append(f"{score_value} ({race_count})")
                             else:
                                 scores_list.append(str(score_value))
-                        scores_text = ', '.join(scores_list)
+                        scores_text = f"```\n{', '.join(scores_list)}\n```"
                         embed.add_field(name="📜 Last 10 Wars", value=scores_text, inline=False)
 
                     # Footer
