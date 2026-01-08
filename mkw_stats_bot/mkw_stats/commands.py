@@ -865,10 +865,11 @@ class MarioKartCommands(commands.Cog):
                             race_count = score.get('race_count', 12)
                             # Only show race count if it's not the standard 12 races
                             if race_count != 12:
-                                scores_list.append(f"{score_value} ({race_count})")
+                                # Add italics formatting for scores with race count notation
+                                scores_list.append(f"*{score_value} ({race_count})*")
                             else:
                                 scores_list.append(str(score_value))
-                        scores_text = f"```\n{', '.join(scores_list)}\n```"
+                        scores_text = ', '.join(scores_list)
                         embed.add_field(name="📜 Last 10 Wars", value=scores_text, inline=False)
 
                     # Footer
