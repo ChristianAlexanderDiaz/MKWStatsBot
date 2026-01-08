@@ -865,8 +865,8 @@ class MarioKartCommands(commands.Cog):
                             race_count = score.get('race_count', 12)
                             # Only show race count if it's not the standard 12 races
                             if race_count != 12:
-                                # Add italics formatting for scores with race count notation
-                                scores_list.append(f"*{score_value} ({race_count})*")
+                                # Add race count notation for non-standard wars
+                                scores_list.append(f"{score_value} ({race_count})")
                             else:
                                 scores_list.append(str(score_value))
                         scores_text = f"```\n{', '.join(scores_list)}\n```"
