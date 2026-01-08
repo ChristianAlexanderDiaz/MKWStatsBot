@@ -26,8 +26,8 @@ from datetime import datetime
 
 class RegionSelector:
     def __init__(self):
-        self.image_path = "data/formats/Table6v6.png"
-        self.output_path = "data/formats/selected_regions.json"
+        self.image_path = "data/formats/IMG_9254.png"
+        self.output_path = "data/formats/selected_regioßns.json"
         self.image = None
         self.clone = None
         self.start_point = None

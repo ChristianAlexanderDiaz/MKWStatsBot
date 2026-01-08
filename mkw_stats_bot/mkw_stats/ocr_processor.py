@@ -39,6 +39,7 @@ ocr_lock = threading.Lock()
 class TableFormat(Enum):
     """Enumeration of supported Mario Kart table formats."""
     LARGE = "large"
+    MEDIUM = "medium"
     SMALL = "small"
 
 # Table format definitions with crop coordinates and width-based detection
@@ -50,6 +51,16 @@ TABLE_FORMATS = {
             'start_x': 576,
             'start_y': 100,
             'end_x': 1068,
+            # end_y: dynamic (set to img_height in crop_image_to_target_region)
+        }
+    },
+    TableFormat.MEDIUM: {
+        'name': 'Medium Format',
+        'expected_width': 1290,
+        'crop_coords': {
+            'start_x': 434,
+            'start_y': 84,
+            'end_x': 796,
             # end_y: dynamic (set to img_height in crop_image_to_target_region)
         }
     },
