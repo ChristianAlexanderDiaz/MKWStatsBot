@@ -1380,7 +1380,7 @@ class DatabaseManager:
             guild_id: Guild ID
 
         Returns:
-            List of dicts with war_date and score, ordered newest to oldest
+            List of dicts with war_date, score, and race_count, ordered newest to oldest
         """
         try:
             with self.get_connection() as conn:
@@ -1399,9 +1399,9 @@ class DatabaseManager:
 
                 player_id = result[0]
 
-                # Get last N war scores
+                # Get last N war scores with race count
                 cursor.execute("""
-                    SELECT w.war_date, pwp.score
+                    SELECT w.war_date, pwp.score, w.race_count
                     FROM player_war_performances pwp
                     JOIN wars w ON pwp.war_id = w.id
                     WHERE pwp.player_id = %s AND w.guild_id = %s
@@ -1413,7 +1413,8 @@ class DatabaseManager:
                 return [
                     {
                         'war_date': row[0].isoformat() if row[0] else None,
-                        'score': row[1]
+                        'score': row[1],
+                        'race_count': row[2]
                     }
                     for row in results
                 ]

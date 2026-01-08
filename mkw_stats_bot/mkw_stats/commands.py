@@ -858,8 +858,18 @@ class MarioKartCommands(commands.Cog):
                     # Last 10 War Scores
                     last_scores = self.bot.db.get_player_last_war_scores(resolved_player, limit=10, guild_id=guild_id)
                     if last_scores:
-                        scores_list = [str(score['score']) for score in last_scores]
-                        scores_text = f"```\n{', '.join(scores_list)}\n```"
+                        # Format scores with race count notation for non-standard wars
+                        scores_list = []
+                        for score in last_scores:
+                            score_value = score['score']
+                            race_count = score.get('race_count', 12)
+                            # Only show race count if it's not the standard 12 races
+                            if race_count != 12:
+                                # Add italics formatting for scores with race count notation
+                                scores_list.append(f"*{score_value} ({race_count})*")
+                            else:
+                                scores_list.append(str(score_value))
+                        scores_text = ', '.join(scores_list)
                         embed.add_field(name="📜 Last 10 Wars", value=scores_text, inline=False)
 
                     # Footer
