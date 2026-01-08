@@ -119,7 +119,9 @@ class LeaderboardView(discord.ui.View):
         if self.sortby and self.sortby.lower() == 'winrate':
             sort_method = "Win Rate"
         elif self.sortby and self.sortby.lower() == 'avgdiff':
-            sort_method = "Average Differential"
+            sort_method = "Team Differential"
+        elif self.sortby and self.sortby.lower() == 'mostwars':
+            sort_method = "Most Wars"
         else:
             sort_method = "Average Score"
 
@@ -721,7 +723,8 @@ class MarioKartCommands(commands.Cog):
     @app_commands.choices(sortby=[
         app_commands.Choice(name="Average Score", value="average"),
         app_commands.Choice(name="Win Rate", value="winrate"),
-        app_commands.Choice(name="Average Differential", value="avgdiff")
+        app_commands.Choice(name="Team Differential", value="avgdiff"),
+        app_commands.Choice(name="Most Wars", value="mostwars")
     ])
     @require_guild_setup
     async def stats_slash(self, interaction: discord.Interaction, player: str = None, lastxwars: int = None, sortby: str = None):
@@ -832,7 +835,7 @@ class MarioKartCommands(commands.Cog):
                         win_pct = stats.get('win_percentage', 0.0)
 
                         differential_text = f"```\nAvg:   {avg_diff_symbol}{avg_diff:.1f}\n{wins}-{losses}-{ties} ({win_pct:.1f}%)\nTotal: {total_diff_symbol}{total_diff}\n```\n*{diff_text}*"
-                        embed.add_field(name=f"{diff_emoji} Differential", value=differential_text, inline=True)
+                        embed.add_field(name=f"{diff_emoji} Team Differential", value=differential_text, inline=True)
 
                     # Activity Stats (war count, races, last war)
                     war_count = float(stats.get('war_count', 0))
@@ -937,6 +940,9 @@ class MarioKartCommands(commands.Cog):
                         key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 0) > 0 else 0,
                         reverse=True
                     )
+                elif sortby and sortby.lower() == 'mostwars':
+                    # Sort by most wars participated in
+                    players_with_stats.sort(key=lambda x: x.get('war_count', 0), reverse=True)
                 else:
                     players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
                 
@@ -2467,42 +2473,50 @@ class MarioKartCommands(commands.Cog):
                     await interaction.edit_original_response(embed=timeout_embed)
                     return
 
-            # Store war in database
-            war_id = self.bot.db.add_race_results(resolved_results, races, guild_id=guild_id)
-            
-            if war_id is None:
-                await interaction.response.send_message("❌ Failed to add war to database. Check logs for details.", ephemeral=True)
+            # Store war in database and update player stats atomically
+            result_data = self.bot.db.add_war_with_stats_atomic(resolved_results, races, guild_id=guild_id)
+
+            if not result_data['success']:
+                # Operation failed - show detailed error message
+                error_msg = result_data['error']
+                failed_player = result_data['failed_player']
+
+                error_embed = discord.Embed(
+                    title="❌ Failed to Add War",
+                    description="The war was not saved due to an error.",
+                    color=0xff4444
+                )
+
+                if failed_player:
+                    error_embed.add_field(
+                        name="Failed Player",
+                        value=failed_player,
+                        inline=False
+                    )
+
+                error_embed.add_field(
+                    name="Error Details",
+                    value=f"```{error_msg}```",
+                    inline=False
+                )
+
+                error_embed.set_footer(text="No changes were made to the database. Please fix the error and try again.")
+
+                # Use appropriate response method
+                if interaction.response.is_done():
+                    await interaction.edit_original_response(embed=error_embed)
+                else:
+                    await interaction.response.send_message(embed=error_embed, ephemeral=True)
                 return
-            
-            # Update player statistics
+
+            # Success! Extract data from result
+            war_id = result_data['war_id']
+            stats_updated = result_data['players_updated']
+            stats_failed = []  # No failures in atomic transaction
+
+            # Get current date for display
             import datetime
             current_date = datetime.datetime.now().strftime('%Y-%m-%d')
-
-            # Calculate team differential for player stats
-            team_score = sum(r['score'] for r in resolved_results)
-            total_points = 82 * races
-            opponent_score = total_points - team_score
-            team_differential = team_score - opponent_score
-
-            stats_updated = []
-            stats_failed = []
-
-            for result in resolved_results:
-                success = self.bot.db.update_player_stats(
-                    result['name'],
-                    result['score'],
-                    result['races_played'],
-                    result['war_participation'],
-                    current_date,
-                    guild_id,
-                    team_differential
-                )
-                if success:
-                    stats_updated.append(result['name'])
-                    logging.info(f"✅ Stats updated for {result['name']}")
-                else:
-                    stats_failed.append(result['name'])
-                    logging.error(f"❌ Stats update failed for {result['name']}")
             
             # Create success response
             embed = discord.Embed(

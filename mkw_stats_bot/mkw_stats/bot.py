@@ -660,7 +660,10 @@ class MarioKartBot(commands.Bot):
                 success = await self.handle_ocr_war_submission(message, confirmation_data)
                 return
             
-            # Standard race results handling
+            # Standard race results handling (DEPRECATED - modern flows use OCR war submission)
+            # TODO: Remove this code path once confirmed it's no longer reachable
+            logger.warning("⚠️ Using deprecated 'standard race results' code path - consider updating to OCR war submission")
+
             # Add message ID to results for tracking
             for result in results:
                 result['message_id'] = confirmation_data['original_message_id']
@@ -672,31 +675,53 @@ class MarioKartBot(commands.Bot):
                 await message.channel.send("❌ **Error:** Could not determine guild ID.")
                 return
 
-            # Save to database
-            success = self.db.add_race_results(results, guild_id=guild_id)
-            
-            if success:
+            # Save to database and update player stats atomically
+            race_count = 12  # Default race count for legacy code path
+            result_data = self.db.add_war_with_stats_atomic(results, race_count, guild_id=guild_id)
+
+            if result_data['success']:
+                war_id = result_data['war_id']
+
                 # Create success embed
                 embed = discord.Embed(
                     title="✅ Results Saved Successfully!",
-                    description=f"Saved results for {len(results)} clan members.",
+                    description=f"Saved results for {len(results)} clan members (War ID: {war_id}).",
                     color=0x00ff00
                 )
-                
+
                 # Add individual results
                 results_text = ""
                 for result in results:
                     results_text += f"**{result['name']}**: {result['score']}\n"
-                
+
                 embed.add_field(name="Saved Results", value=results_text, inline=False)
-                embed.set_footer(text="Results have been added to the database and averages updated.")
-                
+                embed.set_footer(text="Results have been added to the database and player stats updated.")
+
             else:
+                # Operation failed - show detailed error message
+                error_msg = result_data['error']
+                failed_player = result_data['failed_player']
+
                 embed = discord.Embed(
-                    title="❌ Database Error",
-                    description="Failed to save results to database. Please try again.",
+                    title="❌ Failed to Save Results",
+                    description="The results were not saved due to an error. No changes were made to the database.",
                     color=0xff0000
                 )
+
+                if failed_player:
+                    embed.add_field(
+                        name="Failed Player",
+                        value=failed_player,
+                        inline=False
+                    )
+
+                embed.add_field(
+                    name="Error Details",
+                    value=f"```{error_msg}```",
+                    inline=False
+                )
+
+                embed.set_footer(text="Please fix the error and try again.")
             
             await message.edit(embed=embed)
             try:
@@ -767,27 +792,11 @@ class MarioKartBot(commands.Bot):
             # Calculate total race count for the war
             total_race_count = max(result['races'] for result in parsed_results)
 
-            # Add war to database
-            war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id=guild_id)
+            # Add war to database and update player stats atomically
+            result_data = commands_cog.bot.db.add_war_with_stats_atomic(parsed_results, total_race_count, guild_id=guild_id)
 
-            if war_id is not None:
-                # Calculate team differential for player stats
-                team_score = sum(r['score'] for r in parsed_results)
-                total_points = 82 * total_race_count
-                opponent_score = total_points - team_score
-                team_differential = team_score - opponent_score
-
-                # Update player statistics
-                for result in parsed_results:
-                    commands_cog.bot.db.update_player_stats(
-                        result['name'],
-                        result['score'],
-                        result['races'],
-                        result['races'] / total_race_count,
-                        datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                        guild_id,
-                        team_differential
-                    )
+            if result_data['success']:
+                war_id = result_data['war_id']
 
                 # Add checkmark to original image message
                 try:
@@ -823,11 +832,30 @@ class MarioKartBot(commands.Bot):
                 embed.set_footer(text=f"War added via OCR • Type: 6v6 • Races: {total_race_count}")
 
             else:
+                # Operation failed - show detailed error message
+                error_msg = result_data['error']
+                failed_player = result_data['failed_player']
+
                 embed = discord.Embed(
-                    title="❌ Database Error",
-                    description="Failed to save war to database. Please try manual submission.",
+                    title="❌ Failed to Save War",
+                    description="The war was not saved due to an error. No changes were made to the database.",
                     color=0xff0000
                 )
+
+                if failed_player:
+                    embed.add_field(
+                        name="Failed Player",
+                        value=failed_player,
+                        inline=False
+                    )
+
+                embed.add_field(
+                    name="Error Details",
+                    value=f"```{error_msg}```",
+                    inline=False
+                )
+
+                embed.set_footer(text="Please fix the error and try again.")
 
             # Update message with result (disable view)
             await interaction.edit_original_response(embed=embed, view=None)
@@ -888,27 +916,11 @@ class MarioKartBot(commands.Bot):
                 # Calculate total race count for the war (use max race count from all players)
                 total_race_count = max(result['races'] for result in parsed_results)
 
-                # Add war to database
-                war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id=guild_id)
+                # Add war to database and update player stats atomically
+                result_data = commands_cog.bot.db.add_war_with_stats_atomic(parsed_results, total_race_count, guild_id=guild_id)
 
-                if war_id is not None:
-                    # Calculate team differential for player stats
-                    team_score = sum(r['score'] for r in parsed_results)
-                    total_points = 82 * total_race_count
-                    opponent_score = total_points - team_score
-                    team_differential = team_score - opponent_score
-
-                    # Update player statistics
-                    for result in parsed_results:
-                        commands_cog.bot.db.update_player_stats(
-                            result['name'],
-                            result['score'],
-                            result['races'],  # Use individual race count
-                            result['races'] / total_race_count,  # war_participation (races played / total races)
-                            datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                            guild_id,
-                            team_differential
-                        )
+                if result_data['success']:
+                    war_id = result_data['war_id']
                     
                     # Add checkmark to original image message
                     if 'original_message_obj' in confirmation_data:
@@ -946,13 +958,32 @@ class MarioKartBot(commands.Bot):
                         inline=False
                     )
                     embed.set_footer(text=f"War added via OCR • Type: 6v6 • Races: {total_race_count}")
-                    
+
                 else:
+                    # Operation failed - show detailed error message
+                    error_msg = result_data['error']
+                    failed_player = result_data['failed_player']
+
                     embed = discord.Embed(
-                        title="❌ Database Error",
-                        description="Failed to save war to database. Please try manual submission.",
+                        title="❌ Failed to Save War",
+                        description="The war was not saved due to an error. No changes were made to the database.",
                         color=0xff0000
                     )
+
+                    if failed_player:
+                        embed.add_field(
+                            name="Failed Player",
+                            value=failed_player,
+                            inline=False
+                        )
+
+                    embed.add_field(
+                        name="Error Details",
+                        value=f"```{error_msg}```",
+                        inline=False
+                    )
+
+                    embed.set_footer(text="Please fix the error and try again.")
                 
             except Exception as parse_error:
                 logger.error(f"Error parsing OCR results for war submission: {parse_error}")
@@ -1324,28 +1355,12 @@ class MarioKartBot(commands.Bot):
             
             for war_info in successful_wars:
                 try:
-                    # Add war to database
-                    war_id = self.db.add_race_results(war_info['players'], war_info['total_race_count'], guild_id=guild_id)
+                    # Add war to database and update player stats atomically
+                    result_data = self.db.add_war_with_stats_atomic(war_info['players'], war_info['total_race_count'], guild_id=guild_id)
 
-                    if war_id is not None:
-                        # Calculate team differential for player stats
-                        team_score = sum(p['score'] for p in war_info['players'])
-                        total_points = 82 * war_info['total_race_count']
-                        opponent_score = total_points - team_score
-                        team_differential = team_score - opponent_score
+                    if result_data['success']:
+                        war_id = result_data['war_id']
 
-                        # Update player statistics
-                        for result in war_info['players']:
-                            self.db.update_player_stats(
-                                result['name'],
-                                result['score'],
-                                result['races'],
-                                result['races'] / war_info['total_race_count'],
-                                datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                                guild_id,
-                                team_differential
-                            )
-                        
                         # Store successful save info
                         saved_wars.append({
                             'filename': war_info['filename'],
@@ -1353,7 +1368,7 @@ class MarioKartBot(commands.Bot):
                             'players': war_info['players'],
                             'total_race_count': war_info['total_race_count']
                         })
-                        
+
                         # Add checkmark to original image message
                         try:
                             await war_info['message'].add_reaction("✅")
@@ -1365,9 +1380,16 @@ class MarioKartBot(commands.Bot):
                             logger.warning(f"Failed to add reaction to message: {e}")
                             pass
                     else:
+                        # Save failed - add to failures with detailed error
+                        error_msg = result_data['error']
+                        failed_player = result_data['failed_player']
+                        error_detail = f"{error_msg}"
+                        if failed_player:
+                            error_detail = f"Player '{failed_player}': {error_msg}"
+
                         save_failures.append({
                             'filename': war_info['filename'],
-                            'error': 'Database save failed'
+                            'error': error_detail
                         })
                         
                 except Exception as e:

@@ -565,7 +565,213 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"❌ Error adding race results: {e}")
             return None
-    
+
+    def add_war_with_stats_atomic(self, results: List[Dict], race_count: int = 12, *, guild_id: int) -> Dict:
+        """
+        Add war results and update player stats in a single atomic transaction.
+
+        This method ensures that if ANY player stats update fails, the ENTIRE operation
+        (including war insertion) is rolled back to maintain data consistency.
+
+        Args:
+            results: List of player results [{'name': 'PlayerName', 'score': 85, 'races': 12}, ...]
+            race_count: Number of races in this session (default 12)
+            guild_id: Guild ID for multi-guild support
+
+        Returns:
+            Dict with keys:
+                - success (bool): Whether the operation succeeded
+                - war_id (int): War ID if successful, None otherwise
+                - players_updated (list): List of player names successfully updated
+                - error (str): Error message if failed
+                - failed_player (str): Name of player that caused failure, if applicable
+        """
+        # Validate guild_id to prevent cross-guild data contamination
+        self._validate_guild_id(guild_id, "add_war_with_stats_atomic")
+
+        conn = None
+        cursor = None
+
+        try:
+            # Get connection from pool
+            conn = self.connection_pool.getconn()
+            cursor = conn.cursor()
+
+            # ============================================================
+            # STEP 1: Insert war into wars table
+            # ============================================================
+
+            # Store the war session data
+            session_data = {
+                'race_count': race_count,
+                'results': results,
+                'timestamp': datetime.now().isoformat()
+            }
+
+            # Use Eastern Time instead of UTC (automatically handles EST/EDT)
+            import zoneinfo
+            try:
+                eastern_tz = zoneinfo.ZoneInfo('America/New_York')
+                eastern_now = datetime.now(eastern_tz)
+            except ImportError:
+                # Fallback for Python < 3.9 or if zoneinfo not available
+                eastern_tz = timezone(timedelta(hours=-5))  # EST
+                eastern_now = datetime.now(eastern_tz)
+
+            war_date = eastern_now.date()
+
+            # Calculate team score and differential
+            team_score = sum(result.get('score', 0) for result in results)
+            total_points = 82 * race_count
+            opponent_score = total_points - team_score
+            team_differential = team_score - opponent_score
+
+            cursor.execute("""
+                INSERT INTO wars (war_date, race_count, players_data, guild_id, team_score, team_differential)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (
+                war_date,
+                race_count,
+                json.dumps(session_data),
+                guild_id,
+                team_score,
+                team_differential
+            ))
+
+            war_id = cursor.fetchone()[0]
+            logging.info(f"✅ Inserted war {war_id} into wars table (not yet committed)")
+
+            # ============================================================
+            # STEP 2: Insert into player_war_performances and update stats
+            # ============================================================
+
+            players_updated = []
+            performances_added = 0
+
+            for result in results:
+                player_name = result.get('name')
+                resolved_name = self.resolve_player_name(player_name, guild_id, log_level='none')
+
+                if not resolved_name:
+                    # Player not found - rollback everything
+                    raise ValueError(f"Player '{player_name}' not found in roster")
+
+                logging.info(f"Player resolution: '{player_name}' -> {resolved_name}")
+
+                # Get player_id and current stats
+                cursor.execute("""
+                    SELECT id, total_score, total_races, war_count, total_team_differential
+                    FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (resolved_name, guild_id))
+
+                player_row = cursor.fetchone()
+                if not player_row:
+                    raise ValueError(f"Player '{resolved_name}' exists in roster but not found in players table")
+
+                player_id = player_row[0]
+                current_total_score = player_row[1]
+                current_total_races = player_row[2]
+                current_war_count = float(player_row[3])
+                current_total_differential = player_row[4] or 0
+
+                # Calculate new values
+                score = result.get('score', 0)
+                races_played = result.get('races', result.get('races_played', race_count))
+                war_participation = result.get('war_participation', races_played / race_count if race_count > 0 else 1.0)
+
+                # Insert into player_war_performances
+                cursor.execute("""
+                    INSERT INTO player_war_performances
+                    (player_id, war_id, score, races_played, war_participation)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (player_id, war_id) DO NOTHING
+                """, (player_id, war_id, score, races_played, war_participation))
+                performances_added += 1
+
+                # Update player stats
+                new_total_score = current_total_score + score
+                new_total_races = current_total_races + races_played
+                new_war_count = current_war_count + war_participation
+                scaled_differential = int(team_differential * war_participation)
+                new_total_differential = current_total_differential + scaled_differential
+                new_average = round(new_total_score / new_war_count, 2)
+
+                cursor.execute("""
+                    UPDATE players
+                    SET total_score = %s, total_races = %s, war_count = %s,
+                        average_score = %s, last_war_date = %s, total_team_differential = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND guild_id = %s
+                """, (new_total_score, new_total_races, new_war_count, new_average, war_date, new_total_differential, resolved_name, guild_id))
+
+                players_updated.append(resolved_name)
+                logging.info(f"✅ Updated stats for {resolved_name}: +{score} points, +{races_played} races, +{war_participation} wars, differential: {team_differential:+d}")
+
+            # ============================================================
+            # STEP 3: Commit transaction - ALL OR NOTHING
+            # ============================================================
+
+            conn.commit()
+            logging.info(f"✅ Transaction committed: War {war_id} saved with {len(players_updated)} player stats updated, {performances_added} performances tracked")
+
+            return {
+                'success': True,
+                'war_id': war_id,
+                'players_updated': players_updated,
+                'error': None,
+                'failed_player': None
+            }
+
+        except psycopg2.errors.NumericValueOutOfRange as e:
+            # Specific handling for numeric overflow errors
+            if conn:
+                conn.rollback()
+            error_msg = str(e)
+            # Extract the problematic field from error message
+            logging.error(f"❌ Numeric overflow error: {error_msg}")
+            return {
+                'success': False,
+                'war_id': None,
+                'players_updated': [],
+                'error': f"Database numeric overflow: {error_msg}",
+                'failed_player': result.get('name') if 'result' in locals() else None
+            }
+
+        except ValueError as e:
+            # Player not found or validation error
+            if conn:
+                conn.rollback()
+            logging.error(f"❌ Validation error: {e}")
+            return {
+                'success': False,
+                'war_id': None,
+                'players_updated': [],
+                'error': str(e),
+                'failed_player': result.get('name') if 'result' in locals() else None
+            }
+
+        except Exception as e:
+            # Any other error - rollback everything
+            if conn:
+                conn.rollback()
+            logging.error(f"❌ Error in atomic war transaction: {e}")
+            return {
+                'success': False,
+                'war_id': None,
+                'players_updated': [],
+                'error': f"Database error: {str(e)}",
+                'failed_player': result.get('name') if 'result' in locals() else None
+            }
+
+        finally:
+            # Always return connection to pool
+            if cursor:
+                cursor.close()
+            if conn:
+                self.connection_pool.putconn(conn)
+
     def get_player_info(self, name_or_nickname: str, guild_id: int = 0) -> Optional[Dict]:
         """Get basic roster info for a player."""
         main_name = self.resolve_player_name(name_or_nickname, guild_id)
