@@ -2,10 +2,11 @@
 """
 Enhanced Region Selection Tool for Mario Kart OCR
 
-Interactive tool to select regions on Table6v6.png with name/score separator.
+Interactive tool to select regions on any image with name/score separator.
 
 Usage:
-    python region_selector.py
+    python region_selector.py [image_path]
+    python region_selector.py mkw_stats_bot/data/formats/IMG_9254.png
 
 Two-Step Process:
     1. Click and drag to select main region (yellow box)
@@ -22,12 +23,14 @@ Controls:
 import cv2
 import json
 import os
+import sys
+import argparse
 from datetime import datetime
 
 class RegionSelector:
-    def __init__(self):
-        self.image_path = "data/formats/IMG_9254.png"
-        self.output_path = "data/formats/selected_regioßns.json"
+    def __init__(self, image_path=None):
+        self.image_path = image_path or "data/formats/IMG_9254.png"
+        self.output_path = "data/formats/selected_regions.json"
         self.image = None
         self.clone = None
         self.start_point = None
@@ -40,10 +43,10 @@ class RegionSelector:
         self.separator_placed = False
         
     def load_image(self):
-        """Load the Table6v6.png image."""
+        """Load the specified image."""
         if not os.path.exists(self.image_path):
             print(f"❌ Error: {self.image_path} not found!")
-            print("Please place Table6v6.png in the data/formats/ directory.")
+            print(f"Please provide a valid image path or place the image in the correct directory.")
             return False
             
         self.image = cv2.imread(self.image_path)
@@ -155,13 +158,13 @@ class RegionSelector:
         # Prepare output data
         output_data = {
             "regions": [region_with_separator],
-            "image_source": "Table6v6.png",
+            "image_source": os.path.basename(self.image_path),
             "image_size": {
                 "width": self.image.shape[1],
                 "height": self.image.shape[0]
             },
             "created_date": datetime.now().isoformat(),
-            "description": "OCR region selection with name/score separator for Ice Mario table format"
+            "description": "OCR region selection with name/score separator for Mario Kart table format"
         }
         
         try:
@@ -232,7 +235,26 @@ class RegionSelector:
 
 def main():
     """Main function."""
-    selector = RegionSelector()
+    parser = argparse.ArgumentParser(
+        description="Enhanced Region Selection Tool for Mario Kart OCR",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python region_selector.py
+  python region_selector.py data/formats/Table1.png
+  python region_selector.py mkw_stats_bot/data/formats/IMG_9254.png
+        """
+    )
+    parser.add_argument(
+        'image_path',
+        nargs='?',
+        default=None,
+        help='Path to the image file (default: data/formats/IMG_9254.png)'
+    )
+
+    args = parser.parse_args()
+
+    selector = RegionSelector(image_path=args.image_path)
     selector.run()
 
 if __name__ == "__main__":
