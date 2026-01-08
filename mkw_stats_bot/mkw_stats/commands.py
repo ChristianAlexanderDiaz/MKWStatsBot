@@ -119,7 +119,9 @@ class LeaderboardView(discord.ui.View):
         if self.sortby and self.sortby.lower() == 'winrate':
             sort_method = "Win Rate"
         elif self.sortby and self.sortby.lower() == 'avgdiff':
-            sort_method = "Average Differential"
+            sort_method = "Team Differential"
+        elif self.sortby and self.sortby.lower() == 'warcount':
+            sort_method = "Number of Wars"
         else:
             sort_method = "Average Score"
 
@@ -721,7 +723,8 @@ class MarioKartCommands(commands.Cog):
     @app_commands.choices(sortby=[
         app_commands.Choice(name="Average Score", value="average"),
         app_commands.Choice(name="Win Rate", value="winrate"),
-        app_commands.Choice(name="Average Differential", value="avgdiff")
+        app_commands.Choice(name="Team Differential", value="avgdiff"),
+        app_commands.Choice(name="Number of Wars", value="warcount")
     ])
     @require_guild_setup
     async def stats_slash(self, interaction: discord.Interaction, player: str = None, lastxwars: int = None, sortby: str = None):
@@ -932,11 +935,14 @@ class MarioKartCommands(commands.Cog):
                 if sortby and sortby.lower() == 'winrate':
                     players_with_stats.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
                 elif sortby and sortby.lower() == 'avgdiff':
-                    # Sort by average differential (total_team_differential / war_count)
+                    # Sort by team differential (total_team_differential / war_count)
                     players_with_stats.sort(
-                        key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 0) > 0 else 0,
+                        key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 1) > 0 else 0,
                         reverse=True
                     )
+                elif sortby and sortby.lower() == 'warcount':
+                    # Sort by number of wars (war_count)
+                    players_with_stats.sort(key=lambda x: x.get('war_count', 0), reverse=True)
                 else:
                     players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
                 
