@@ -842,6 +842,8 @@ class MarioKartCommands(commands.Cog):
                     total_races = stats.get('total_races', 0)
                     if stats.get('last_war_date'):
                         try:
+                            # Parse the date - it's stored as just a date (no time)
+                            # Display in EST timezone
                             date_obj = datetime.strptime(stats['last_war_date'], '%Y-%m-%d')
                             last_war = date_obj.strftime('%b %d, %Y')
                         except (ValueError, TypeError) as e:
@@ -852,6 +854,13 @@ class MarioKartCommands(commands.Cog):
 
                     activity_text = f"```\nWars:       {war_count:.1f}\nRaces:      {total_races}\nLast War:   {last_war}\n```"
                     embed.add_field(name="📅 Activity", value=activity_text, inline=True)
+
+                    # Last 10 War Scores
+                    last_scores = self.bot.db.get_player_last_war_scores(resolved_player, limit=10, guild_id=guild_id)
+                    if last_scores:
+                        scores_list = [str(score['score']) for score in last_scores]
+                        scores_text = f"```\n{', '.join(scores_list)}\n```"
+                        embed.add_field(name="📜 Last 10 Wars", value=scores_text, inline=False)
 
                     # Footer
                     embed.set_footer(text=f"Guild-Specific {scope_text}")

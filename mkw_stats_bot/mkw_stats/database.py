@@ -1369,6 +1369,58 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"❌ Error getting distinct war count for {player_name}: {e}")
             return 0
+
+    def get_player_last_war_scores(self, player_name: str, limit: int = 10, guild_id: int = 0) -> List[Dict]:
+        """
+        Get the last N war scores for a player.
+
+        Args:
+            player_name: Name of the player
+            limit: Number of recent war scores to retrieve (default 10)
+            guild_id: Guild ID
+
+        Returns:
+            List of dicts with war_date and score, ordered newest to oldest
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get player ID
+                cursor.execute("""
+                    SELECT id
+                    FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+
+                result = cursor.fetchone()
+                if not result:
+                    return []
+
+                player_id = result[0]
+
+                # Get last N war scores
+                cursor.execute("""
+                    SELECT w.war_date, pwp.score
+                    FROM player_war_performances pwp
+                    JOIN wars w ON pwp.war_id = w.id
+                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                    ORDER BY w.created_at DESC
+                    LIMIT %s
+                """, (player_id, guild_id, limit))
+
+                results = cursor.fetchall()
+                return [
+                    {
+                        'war_date': row[0].isoformat() if row[0] else None,
+                        'score': row[1]
+                    }
+                    for row in results
+                ]
+
+        except Exception as e:
+            logging.error(f"❌ Error getting last war scores for {player_name}: {e}")
+            return []
     
     def get_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[Dict]:
         """Get specific war details by ID."""
