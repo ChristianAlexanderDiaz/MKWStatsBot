@@ -937,7 +937,7 @@ class MarioKartCommands(commands.Cog):
                 elif sortby and sortby.lower() == 'avgdiff':
                     # Sort by team differential (total_team_differential / war_count)
                     players_with_stats.sort(
-                        key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 0) > 0 else 0,
+                        key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 1) > 0 else 0,
                         reverse=True
                     )
                 elif sortby and sortby.lower() == 'warcount':
