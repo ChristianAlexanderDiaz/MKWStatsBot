@@ -16,6 +16,7 @@ import psycopg2.pool
 import psycopg2.errors
 import json
 import logging
+import statistics
 from typing import List, Dict, Optional
 from datetime import datetime, timezone, timedelta
 import os
@@ -1167,6 +1168,17 @@ class DatabaseManager:
                 highest_score = score_stats[0] if score_stats and score_stats[0] is not None else 0
                 lowest_score = score_stats[1] if score_stats and score_stats[1] is not None else 0
 
+                # Calculate standard deviation of scores from all wars (consistency metric)
+                cursor.execute("""
+                    SELECT STDDEV_POP(pwp.score)
+                    FROM player_war_performances pwp
+                    JOIN wars w ON pwp.war_id = w.id
+                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                """, (player_id, guild_id))
+
+                stddev_result = cursor.fetchone()
+                score_stddev = float(stddev_result[0]) if stddev_result and stddev_result[0] is not None else 0.0
+
                 # Calculate win/loss/tie record from team differentials
                 cursor.execute("""
                     SELECT COUNT(CASE WHEN w.team_differential > 0 THEN 1 END),
@@ -1200,6 +1212,7 @@ class DatabaseManager:
                     'country_code': result[12] if result[12] else None,
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
+                    'score_stddev': score_stddev,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,
@@ -1272,12 +1285,14 @@ class DatabaseManager:
                 wins = 0
                 losses = 0
                 ties = 0
+                scores_list = []  # For standard deviation calculation
 
                 for perf in performances:
                     war_date, race_count, team_diff, score, races_played, war_participation = perf
                     total_score += score
                     total_races += races_played
                     total_war_participation += float(war_participation)
+                    scores_list.append(score)  # Collect scores for stddev calculation
                     # Scale team_differential by war_participation for fractional wars
                     scaled_differential = int((team_diff or 0) * war_participation)
                     total_team_differential += scaled_differential
@@ -1312,6 +1327,12 @@ class DatabaseManager:
                 if lowest_score is None:
                     lowest_score = 0
 
+                # Calculate standard deviation from collected scores
+                if len(scores_list) > 0:
+                    score_stddev = statistics.pstdev(scores_list)  # Population standard deviation
+                else:
+                    score_stddev = 0.0
+
                 return {
                     'player_name': player_name,
                     'total_score': total_score,
@@ -1327,6 +1348,7 @@ class DatabaseManager:
                     'total_team_differential': total_team_differential,
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
+                    'score_stddev': score_stddev,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,

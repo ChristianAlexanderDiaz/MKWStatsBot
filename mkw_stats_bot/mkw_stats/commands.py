@@ -801,12 +801,13 @@ class MarioKartCommands(commands.Cog):
                         color=color
                     )
 
-                    # Performance Overview (highest, average, lowest scores)
+                    # Performance Overview (highest, average, lowest scores, stddev)
                     highest_score = stats.get('highest_score', 0)
                     avg_score = stats.get('average_score', 0.0)
                     lowest_score = stats.get('lowest_score', 0)
+                    score_stddev = stats.get('score_stddev', 0.0)
 
-                    performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
+                    performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\nStdDev:     {score_stddev:.1f}\n```"
                     embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
 
                     # Team Differential (highlight wins/losses)
