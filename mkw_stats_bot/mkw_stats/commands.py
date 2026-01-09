@@ -9,6 +9,7 @@ import aiohttp
 import tempfile
 import os
 import traceback
+from typing import List, Dict, Any, Optional
 from . import config
 # OCR processor initialized in bot.py at startup for instant response
 
@@ -129,8 +130,11 @@ class LeaderboardView(discord.ui.View):
                         diff_symbol = "+" if avg_diff >= 0 else ""
                         player_str += f" | {diff_symbol}{avg_diff:.1f} diff"
                     elif self.sortby == 'cv':
-                        cv_pct = player.get('cv_percent', 0.0)
-                        player_str += f" | {cv_pct:.1f}%"
+                        cv_pct = player.get('cv_percent')
+                        if cv_pct is not None:
+                            player_str += f" | {cv_pct:.1f}%"
+                        else:
+                            player_str += " | N/A"
 
                 leaderboard_text.append(player_str)
             else:
@@ -730,7 +734,7 @@ class MarioKartCommands(commands.Cog):
         
         return nicknames
 
-    def _filter_active_members(self, roster_stats: list, interaction: discord.Interaction, role_config: dict) -> list:
+    def _filter_active_members(self, roster_stats: List[Dict[str, Any]], interaction: discord.Interaction, role_config: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Filter roster for active members based on Discord roles.
 
         Args:
@@ -772,7 +776,7 @@ class MarioKartCommands(commands.Cog):
 
         return member_stats
 
-    def _sort_player_stats(self, players_with_stats: list, sortby: str) -> list:
+    def _sort_player_stats(self, players_with_stats: List[Dict[str, Any]], sortby: Optional[str]) -> List[Dict[str, Any]]:
         """Sort player statistics by specified criteria.
 
         Args:
@@ -805,7 +809,7 @@ class MarioKartCommands(commands.Cog):
 
         return players_with_stats
 
-    async def _display_player_stats(self, interaction: discord.Interaction, player_name: str, stats: dict, lastxwars: int = None, guild_id: int = None):
+    async def _display_player_stats(self, interaction: discord.Interaction, player_name: str, stats: Dict[str, Any], lastxwars: Optional[int] = None, guild_id: Optional[int] = None) -> None:
         """Display individual player statistics with embed.
 
         Args:
@@ -862,8 +866,11 @@ class MarioKartCommands(commands.Cog):
         embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
 
         # Consistency metric (CV% only)
-        cv_percent = stats.get('cv_percent', 0.0)
-        consistency_text = f"```\n{cv_percent:.1f}%\n```"
+        cv_percent = stats.get('cv_percent')
+        if cv_percent is not None:
+            consistency_text = f"```\n{cv_percent:.1f}%\n```"
+        else:
+            consistency_text = "```\nN/A\n(Need 2+ wars)\n```"
         embed.add_field(name="📊 Consistency", value=consistency_text, inline=True)
 
         # Team Differential (highlight wins/losses)
