@@ -733,8 +733,8 @@ class MarioKartCommands(commands.Cog):
     @app_commands.command(name="stats", description="View player statistics or leaderboard")
     @app_commands.describe(
         player="Player name to view stats for (optional - shows leaderboard if empty)",
-        lastxwars="Show stats for last X wars only (optional - shows all-time if empty)",
-        sortby="Leaderboard sort method"
+        sortby="Leaderboard sort method",
+        lastxwars="Show stats for last X wars only (optional - shows all-time if empty)"
     )
     @app_commands.choices(sortby=[
         app_commands.Choice(name="Average Score", value="average"),
@@ -826,10 +826,9 @@ class MarioKartCommands(commands.Cog):
                     performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
                     embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
 
-                    # Consistency metrics (CV% and StdDev)
-                    score_stddev = stats.get('score_stddev', 0.0)
+                    # Consistency metric (CV% only)
                     cv_percent = stats.get('cv_percent', 0.0)
-                    consistency_text = f"```\nCV%:        {cv_percent:.1f}%\nStdDev:     {score_stddev:.1f}\n```"
+                    consistency_text = f"```\n{cv_percent:.1f}%\n```"
                     embed.add_field(name="📊 Consistency", value=consistency_text, inline=True)
 
                     # Team Differential (highlight wins/losses)
@@ -987,7 +986,10 @@ class MarioKartCommands(commands.Cog):
                     players_with_stats.sort(key=lambda x: x.get('war_count', 0), reverse=True)
                 elif sortby and sortby.lower() == 'cv':
                     # Sort by CV% ascending (lower is better)
-                    players_with_stats.sort(key=lambda x: x.get('cv_percent', float('inf')))
+                    # Filter out players with insufficient data (< 2 wars minimum)
+                    players_with_cv = [p for p in players_with_stats if p.get('war_count', 0) >= 2]
+                    players_with_cv.sort(key=lambda x: x.get('cv_percent', float('inf')))
+                    players_with_stats = players_with_cv
                 else:
                     players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
                 
