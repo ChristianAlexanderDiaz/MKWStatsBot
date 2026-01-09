@@ -1179,6 +1179,11 @@ class DatabaseManager:
                 stddev_result = cursor.fetchone()
                 score_stddev = float(stddev_result[0]) if stddev_result and stddev_result[0] is not None else 0.0
 
+                # Calculate CV% (Coefficient of Variation)
+                average_score = float(result[4]) if result[4] else 0.0
+                # Only calculate CV% for players with at least 2 wars (need variance)
+                cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
+
                 # Calculate win/loss/tie record from team differentials
                 cursor.execute("""
                     SELECT COUNT(CASE WHEN w.team_differential > 0 THEN 1 END),
@@ -1213,6 +1218,7 @@ class DatabaseManager:
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
                     'score_stddev': score_stddev,
+                    'cv_percent': cv_percent,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,
@@ -1292,7 +1298,9 @@ class DatabaseManager:
                     total_score += score
                     total_races += races_played
                     total_war_participation += float(war_participation)
-                    scores_list.append(score)  # Collect scores for stddev calculation
+                    # Normalize score by participation for stddev calculation
+                    normalized_score = score / war_participation if war_participation > 0 else score
+                    scores_list.append(normalized_score)  # Collect normalized scores for stddev calculation
                     # Scale team_differential by war_participation for fractional wars
                     scaled_differential = int((team_diff or 0) * war_participation)
                     total_team_differential += scaled_differential
@@ -1333,6 +1341,10 @@ class DatabaseManager:
                 else:
                     score_stddev = 0.0
 
+                # Calculate CV% (Coefficient of Variation)
+                # Only calculate CV% for players with at least 2 wars (need variance)
+                cv_percent = (score_stddev / average_score * 100) if average_score > 0 and len(scores_list) >= 2 else None
+
                 return {
                     'player_name': player_name,
                     'total_score': total_score,
@@ -1349,6 +1361,7 @@ class DatabaseManager:
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
                     'score_stddev': score_stddev,
+                    'cv_percent': cv_percent,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,
