@@ -1179,6 +1179,10 @@ class DatabaseManager:
                 stddev_result = cursor.fetchone()
                 score_stddev = float(stddev_result[0]) if stddev_result and stddev_result[0] is not None else 0.0
 
+                # Calculate CV% (Coefficient of Variation)
+                average_score = float(result[4]) if result[4] else 0.0
+                cv_percent = (score_stddev / average_score * 100) if average_score > 0 else 0.0
+
                 # Calculate win/loss/tie record from team differentials
                 cursor.execute("""
                     SELECT COUNT(CASE WHEN w.team_differential > 0 THEN 1 END),
@@ -1213,6 +1217,7 @@ class DatabaseManager:
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
                     'score_stddev': score_stddev,
+                    'cv_percent': cv_percent,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,
@@ -1333,6 +1338,9 @@ class DatabaseManager:
                 else:
                     score_stddev = 0.0
 
+                # Calculate CV% (Coefficient of Variation)
+                cv_percent = (score_stddev / average_score * 100) if average_score > 0 else 0.0
+
                 return {
                     'player_name': player_name,
                     'total_score': total_score,
@@ -1349,6 +1357,7 @@ class DatabaseManager:
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
                     'score_stddev': score_stddev,
+                    'cv_percent': cv_percent,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,

@@ -79,13 +79,29 @@ class LeaderboardView(discord.ui.View):
         end_idx = min(start_idx + self.players_per_page, len(self.all_players))
         page_players = self.all_players[start_idx:end_idx]
 
+        # Dynamic title based on sort
+        if self.sortby:
+            sort_names = {
+                "average": "Average Score",
+                "winrate": "Win Rate",
+                "avgdiff": "Team Differential",
+                "warcount": "Number of Wars",
+                "cv": "Consistency"
+            }
+            title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average Score')}"
+        else:
+            title = "📊 Player Statistics Leaderboard"
+
         # Create embed
         embed = discord.Embed(
-            title="📊 Player Statistics Leaderboard",
+            title=title,
             color=0x00ff00
         )
 
         # Build numbered leaderboard with flags
+        # Determine what to show in third column based on sort
+        show_third_column = self.sortby in ['winrate', 'avgdiff', 'cv']
+
         leaderboard_text = []
         for idx, player in enumerate(page_players):
             # Calculate actual rank number across all pages
@@ -98,14 +114,25 @@ class LeaderboardView(discord.ui.View):
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
                 war_count = float(player.get('war_count', 0))
-                total_diff = player.get('total_team_differential', 0)
-                avg_diff = total_diff / war_count if war_count > 0 else 0
-                diff_symbol = "+" if avg_diff >= 0 else ""
 
-                # Numbered format: #. [flag] [name] | [avg] avg | [wars] wars | [diff] diff
-                leaderboard_text.append(
-                    f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | {war_count:.1f} wars | {diff_symbol}{avg_diff:.1f} diff"
-                )
+                # Base format: #. [flag] [name] | [avg] avg | [wars] wars
+                player_str = f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | {war_count:.1f} wars"
+
+                # Add third column based on sort type
+                if show_third_column:
+                    if self.sortby == 'winrate':
+                        win_pct = player.get('win_percentage', 0.0)
+                        player_str += f" | {win_pct:.1f}%"
+                    elif self.sortby == 'avgdiff':
+                        total_diff = player.get('total_team_differential', 0)
+                        avg_diff = total_diff / war_count if war_count > 0 else 0
+                        diff_symbol = "+" if avg_diff >= 0 else ""
+                        player_str += f" | {diff_symbol}{avg_diff:.1f} diff"
+                    elif self.sortby == 'cv':
+                        cv_pct = player.get('cv_percent', 0.0)
+                        player_str += f" | {cv_pct:.1f}%"
+
+                leaderboard_text.append(player_str)
             else:
                 leaderboard_text.append(f"{rank}. {flag} **{player['player_name']}** | No wars yet")
 
@@ -115,19 +142,8 @@ class LeaderboardView(discord.ui.View):
             inline=False
         )
 
-        # Footer with page info and sort method
-        if self.sortby and self.sortby.lower() == 'winrate':
-            sort_method = "Win Rate"
-        elif self.sortby and self.sortby.lower() == 'avgdiff':
-            sort_method = "Team Differential"
-        elif self.sortby and self.sortby.lower() == 'warcount':
-            sort_method = "Number of Wars"
-        else:
-            sort_method = "Average Score"
-
-        embed.set_footer(
-            text=f"Page {self.current_page}/{self.total_pages} • {self.total_players_count} Members • Sorted by: {sort_method} • Use /setcountry to add your flag"
-        )
+        # Footer with page info
+        embed.set_footer(text=f"Page {self.current_page}/{self.total_pages} • {self.total_players_count} Members")
 
         return embed
 
@@ -724,10 +740,11 @@ class MarioKartCommands(commands.Cog):
         app_commands.Choice(name="Average Score", value="average"),
         app_commands.Choice(name="Win Rate", value="winrate"),
         app_commands.Choice(name="Team Differential", value="avgdiff"),
-        app_commands.Choice(name="Number of Wars", value="warcount")
+        app_commands.Choice(name="Number of Wars", value="warcount"),
+        app_commands.Choice(name="Consistency (CV%)", value="cv")
     ])
     @require_guild_setup
-    async def stats_slash(self, interaction: discord.Interaction, player: str = None, lastxwars: int = None, sortby: str = None):
+    async def stats_slash(self, interaction: discord.Interaction, player: str = None, sortby: str = None, lastxwars: int = None):
         """View statistics for a specific player or all players."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
@@ -801,14 +818,19 @@ class MarioKartCommands(commands.Cog):
                         color=color
                     )
 
-                    # Performance Overview (highest, average, lowest scores, stddev)
+                    # Performance Overview (highest, average, lowest scores)
                     highest_score = stats.get('highest_score', 0)
                     avg_score = stats.get('average_score', 0.0)
                     lowest_score = stats.get('lowest_score', 0)
-                    score_stddev = stats.get('score_stddev', 0.0)
 
-                    performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\nStdDev:     {score_stddev:.1f}\n```"
+                    performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
                     embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
+
+                    # Consistency metrics (CV% and StdDev)
+                    score_stddev = stats.get('score_stddev', 0.0)
+                    cv_percent = stats.get('cv_percent', 0.0)
+                    consistency_text = f"```\nCV%:        {cv_percent:.1f}%\nStdDev:     {score_stddev:.1f}\n```"
+                    embed.add_field(name="📊 Consistency", value=consistency_text, inline=True)
 
                     # Team Differential (highlight wins/losses)
                     if total_diff is not None:
@@ -963,6 +985,9 @@ class MarioKartCommands(commands.Cog):
                 elif sortby and sortby.lower() == 'warcount':
                     # Sort by number of wars (war_count)
                     players_with_stats.sort(key=lambda x: x.get('war_count', 0), reverse=True)
+                elif sortby and sortby.lower() == 'cv':
+                    # Sort by CV% ascending (lower is better)
+                    players_with_stats.sort(key=lambda x: x.get('cv_percent', float('inf')))
                 else:
                     players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
                 
