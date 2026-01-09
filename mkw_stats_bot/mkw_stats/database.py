@@ -171,7 +171,7 @@ class DatabaseManager:
                         -- Statistics fields
                         total_score INTEGER DEFAULT 0,
                         total_races INTEGER DEFAULT 0,
-                        war_count INTEGER DEFAULT 0,
+                        war_count DECIMAL(8,3) DEFAULT 0,  -- Supports fractional wars (0.583 = 7/12 races), max 99999.999
                         average_score DECIMAL(5,2) DEFAULT 0.0,
                         last_war_date DATE,
                         -- Metadata
