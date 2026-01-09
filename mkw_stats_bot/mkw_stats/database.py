@@ -1179,11 +1179,6 @@ class DatabaseManager:
                 stddev_result = cursor.fetchone()
                 score_stddev = float(stddev_result[0]) if stddev_result and stddev_result[0] is not None else 0.0
 
-                # Calculate CV% (Coefficient of Variation)
-                average_score = float(result[4]) if result[4] else 0.0
-                # Only calculate CV% for players with at least 2 wars (need variance)
-                cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
-
                 # Calculate win/loss/tie record from team differentials
                 cursor.execute("""
                     SELECT COUNT(CASE WHEN w.team_differential > 0 THEN 1 END),
@@ -1200,6 +1195,11 @@ class DatabaseManager:
                 ties = record_stats[2] if record_stats else 0
                 total_wars = wins + losses + ties
                 win_percentage = (wins / total_wars * 100) if total_wars > 0 else 0.0
+
+                # Calculate CV% (Coefficient of Variation)
+                average_score = float(result[4]) if result[4] else 0.0
+                # Only calculate CV% for players with at least 2 wars (need variance)
+                cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
 
                 return {
                     'player_name': player_name,
