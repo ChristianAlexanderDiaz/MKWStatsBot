@@ -801,12 +801,13 @@ class MarioKartCommands(commands.Cog):
                         color=color
                     )
 
-                    # Performance Overview (highest, average, lowest scores)
+                    # Performance Overview (highest, average, lowest scores, stddev)
                     highest_score = stats.get('highest_score', 0)
                     avg_score = stats.get('average_score', 0.0)
                     lowest_score = stats.get('lowest_score', 0)
+                    score_stddev = stats.get('score_stddev', 0.0)
 
-                    performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
+                    performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\nStdDev:     {score_stddev:.1f}\n```"
                     embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
 
                     # Team Differential (highlight wins/losses)
@@ -2336,7 +2337,7 @@ class MarioKartCommands(commands.Cog):
 
     @app_commands.command(name="addwar", description="Add a war with player scores")
     @app_commands.describe(
-        player_scores="Player scores in format: 'Player1: 104, Player2: 105, Player3: 50'",
+        player_scores="Player scores in format: 'Player1: 104, Player2: 105'. For substitutes use 'Player (races): score'",
         races="Number of races played (1-12, default: 12)"
     )
     @require_guild_setup
@@ -2367,19 +2368,20 @@ class MarioKartCommands(commands.Cog):
                         name, score_str = part.split(':', 1)
                         name = name.strip()
                         original_name = name  # Store original before parsing
-                        score = int(score_str.strip())
-                        
+                        score_str = score_str.strip()
+
                         # Check for individual race count in parentheses
+                        # Support both: "Cynical (5): 80" and "Cynical(5): 80"
                         individual_races = races  # Default to war race count
                         if '(' in name and ')' in name:
-                            # Extract: "Stickman(7)" -> name="Stickman", individual_races=7
+                            # Extract: "Stickman (7)" or "Stickman(7)" -> name="Stickman", individual_races=7
                             base_name = name[:name.index('(')].strip()
                             race_count_str = name[name.index('(')+1:name.index(')')].strip()
                             try:
                                 individual_races = int(race_count_str)
                                 name = base_name
-                                
-                                # Validate individual race count  
+
+                                # Validate individual race count
                                 if individual_races < 1:
                                     await interaction.response.send_message(f"❌ Invalid race count for {base_name}: {individual_races}. Must be at least 1.", ephemeral=True)
                                     return
@@ -2392,6 +2394,9 @@ class MarioKartCommands(commands.Cog):
                             except ValueError:
                                 await interaction.response.send_message(f"❌ Invalid race count format in: `{name}`. Use PlayerName(races): Score.", ephemeral=True)
                                 return
+
+                        # Parse score (after we've extracted race count from name)
+                        score = int(score_str)
                         
                         # Dynamic score validation based on races played
                         min_score = individual_races * 1  # All last place (1 point per race)
@@ -2442,17 +2447,21 @@ class MarioKartCommands(commands.Cog):
             if failed_players:
                 await interaction.response.send_message(f"❌ These players are not in the players table: {', '.join(failed_players)}\nUse `/addplayer <player>` to add them first.", ephemeral=True)
                 return
-            
+
+            # Derive war-level race count from maximum individual player race count
+            # This matches OCR behavior: if any player played 10 races, the war had 10 races
+            actual_war_race_count = max(result['races_played'] for result in resolved_results)
+
             # Check for duplicate war before adding to database
             last_war_results = self.bot.db.get_last_war_for_duplicate_check(guild_id)
             is_duplicate = self.bot.db.check_for_duplicate_war(resolved_results, last_war_results)
-            
+
             # Track if we've already responded to the interaction
             already_responded = False
-            
+
             if is_duplicate:
                 # Show duplicate warning embed with reactions
-                duplicate_embed = create_duplicate_war_embed(resolved_results, races)
+                duplicate_embed = create_duplicate_war_embed(resolved_results, actual_war_race_count)
                 
                 await interaction.response.send_message(embed=duplicate_embed)
                 confirmation_msg = await interaction.original_response()
@@ -2492,8 +2501,8 @@ class MarioKartCommands(commands.Cog):
                     await interaction.edit_original_response(embed=timeout_embed)
                     return
 
-            # Store war in database
-            war_id = self.bot.db.add_race_results(resolved_results, races, guild_id=guild_id)
+            # Store war in database with actual race count (already calculated above)
+            war_id = self.bot.db.add_race_results(resolved_results, actual_war_race_count, guild_id=guild_id)
             
             if war_id is None:
                 await interaction.response.send_message("❌ Failed to add war to database. Check logs for details.", ephemeral=True)
@@ -2503,9 +2512,9 @@ class MarioKartCommands(commands.Cog):
             import datetime
             current_date = datetime.datetime.now().strftime('%Y-%m-%d')
 
-            # Calculate team differential for player stats
+            # Calculate team differential for player stats using actual war race count
             team_score = sum(r['score'] for r in resolved_results)
-            total_points = 82 * races
+            total_points = 82 * actual_war_race_count
             opponent_score = total_points - team_score
             team_differential = team_score - opponent_score
 
@@ -2528,17 +2537,17 @@ class MarioKartCommands(commands.Cog):
                 else:
                     stats_failed.append(result['name'])
                     logging.error(f"❌ Stats update failed for {result['name']}")
-            
+
             # Create success response
             embed = discord.Embed(
                 title=f"⚔️ War Added Successfully! (ID: {war_id})",
                 color=0x00ff00
             )
-            
+
             # Show war details
             player_list = []
             for result in resolved_results:
-                if result['races_played'] == races:
+                if result['races_played'] == actual_war_race_count:
                     # Full participation - no parentheses
                     player_list.append(f"**{result['name']}**: {result['score']} points")
                 else:
@@ -2683,9 +2692,10 @@ class MarioKartCommands(commands.Cog):
                     try:
                         name, score_str = part.split(':', 1)
                         name = name.strip()
-                        score = int(score_str.strip())
-                        
+                        score_str = score_str.strip()
+
                         # Handle individual race count in parentheses
+                        # Support both: "Cynical (5): 80" and "Cynical(5): 80"
                         individual_races = races
                         if '(' in name and ')' in name:
                             base_name = name[:name.index('(')].strip()
@@ -2693,13 +2703,16 @@ class MarioKartCommands(commands.Cog):
                             try:
                                 individual_races = int(race_count_str)
                                 name = base_name
-                                
+
                                 if individual_races < 1 or individual_races > races:
                                     await interaction.response.send_message(f"❌ Invalid race count for {base_name}: {individual_races}", ephemeral=True)
                                     return
                             except ValueError:
                                 await interaction.response.send_message(f"❌ Invalid race count format in: `{name}`", ephemeral=True)
                                 return
+
+                        # Parse score (after extracting race count from name)
+                        score = int(score_str)
                         
                         # Validate score
                         min_score = individual_races * 1
