@@ -1036,6 +1036,27 @@ class MarioKartCommands(commands.Cog):
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
 
+            # Auto-default to Discord user if lastxwars is specified but player is not
+            if not player and lastxwars is not None:
+                # Look up player by Discord user ID
+                with self.bot.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT player_name
+                        FROM players
+                        WHERE discord_user_id = %s AND guild_id = %s AND is_active = TRUE
+                    """, (interaction.user.id, guild_id))
+                    result = cursor.fetchone()
+
+                    if result:
+                        player = result[0]
+                    else:
+                        await interaction.response.send_message(
+                            f"❌ You're not linked to a player in this guild. Ask an admin to add you with `/addplayer`.",
+                            ephemeral=True
+                        )
+                        return
+
             if player:
                 # Resolve nickname to actual player name first
                 resolved_player = self.bot.db.resolve_player_name(player, guild_id)
