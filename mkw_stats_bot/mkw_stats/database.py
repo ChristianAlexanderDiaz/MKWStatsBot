@@ -1297,12 +1297,13 @@ class DatabaseManager:
                     war_date, race_count, team_diff, score, races_played, war_participation = perf
                     total_score += score
                     total_races += races_played
-                    total_war_participation += float(war_participation)
+                    war_participation_float = float(war_participation)
+                    total_war_participation += war_participation_float
                     # Normalize score by participation for stddev calculation
-                    normalized_score = score / war_participation if war_participation > 0 else score
+                    normalized_score = score / war_participation_float if war_participation_float > 0 else score
                     scores_list.append(normalized_score)  # Collect normalized scores for stddev calculation
                     # Scale team_differential by war_participation for fractional wars
-                    scaled_differential = int((team_diff or 0) * war_participation)
+                    scaled_differential = int((team_diff or 0) * war_participation_float)
                     total_team_differential += scaled_differential
 
                     # Calculate win/loss/tie
