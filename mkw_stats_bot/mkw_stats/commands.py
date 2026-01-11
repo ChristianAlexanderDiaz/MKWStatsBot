@@ -866,12 +866,32 @@ class MarioKartCommands(commands.Cog):
             color=color
         )
 
-        # Performance Overview (highest, average, lowest scores)
+        # Performance Overview (highest, average, avg10, lowest scores)
         highest_score = stats.get('highest_score', 0)
         avg_score = stats.get('average_score', 0.0)
         lowest_score = stats.get('lowest_score', 0)
 
-        performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
+        # Fetch avg10 for consistent reference metric
+        # Optimize: reuse stats if lastxwars already equals 10
+        avg10_score = None
+        if lastxwars == 10:
+            # Reuse existing calculation to avoid duplicate query
+            avg10_score = avg_score
+        else:
+            # Fetch avg10, but only show if player has at least 10 wars
+            avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
+            if avg10_stats:
+                # Only display avg10 if player has participated in at least 10 wars
+                war_count = avg10_stats.get('war_count', 0)
+                if war_count >= 10:
+                    avg10_score = avg10_stats.get('average_score', 0.0)
+
+        # Build performance text with avg10
+        if avg10_score is not None:
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nLowest:     {lowest_score}\n```"
+        else:
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
+
         embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
 
         # Consistency metric (CV% only)
@@ -988,15 +1008,30 @@ class MarioKartCommands(commands.Cog):
         sortby="Leaderboard sort method",
         lastxwars="Show stats for last X wars only (optional - shows all-time if empty)"
     )
-    @app_commands.choices(sortby=[
-        app_commands.Choice(name="Average Score", value="average"),
-        app_commands.Choice(name="Win Rate", value="winrate"),
-        app_commands.Choice(name="Team Differential", value="avgdiff"),
-        app_commands.Choice(name="Number of Wars", value="warcount"),
-        app_commands.Choice(name="Consistency (CV%)", value="cv")
-    ])
+    @app_commands.choices(
+        sortby=[
+            app_commands.Choice(name="Average Score", value="average"),
+            app_commands.Choice(name="Win Rate", value="winrate"),
+            app_commands.Choice(name="Team Differential", value="avgdiff"),
+            app_commands.Choice(name="Number of Wars", value="warcount"),
+            app_commands.Choice(name="Consistency (CV%)", value="cv")
+        ],
+        lastxwars=[
+            app_commands.Choice(name="Last 5 Wars", value=5),
+            app_commands.Choice(name="Last 10 Wars", value=10),
+            app_commands.Choice(name="Last 20 Wars", value=20),
+            app_commands.Choice(name="Last 50 Wars", value=50),
+            app_commands.Choice(name="Last 100 Wars", value=100)
+        ]
+    )
     @require_guild_setup
-    async def stats_slash(self, interaction: discord.Interaction, player: str = None, sortby: str = None, lastxwars: int = None):
+    async def stats_slash(
+        self,
+        interaction: discord.Interaction,
+        player: Optional[str] = None,
+        sortby: Optional[str] = None,
+        lastxwars: Optional[int] = None
+    ):
         """View statistics for a specific player or all players."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
