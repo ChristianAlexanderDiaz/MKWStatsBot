@@ -116,25 +116,34 @@ class LeaderboardView(discord.ui.View):
                 avg_score = player.get('average_score', 0.0)
                 war_count = float(player.get('war_count', 0))
 
-                # Base format: #. [flag] [name] | [avg] avg | [wars] wars
-                player_str = f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | {war_count:.1f} wars"
+                # Bold the column being sorted by
+                # Default (None) or "average" sorts by avg, "warcount" sorts by wars
+                if self.sortby in [None, 'average']:
+                    # Bold average score
+                    player_str = f"{rank}. {flag} **{player['player_name']}** | **{avg_score:.1f}** avg | {war_count:.1f} wars"
+                elif self.sortby == 'warcount':
+                    # Bold war count
+                    player_str = f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | **{war_count:.1f}** wars"
+                else:
+                    # For other sorts (winrate, avgdiff, cv), don't bold base columns
+                    player_str = f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | {war_count:.1f} wars"
 
-                # Add third column based on sort type
+                # Add third column based on sort type (and bold it)
                 if show_third_column:
                     if self.sortby == 'winrate':
                         win_pct = player.get('win_percentage', 0.0)
-                        player_str += f" | {win_pct:.1f}%"
+                        player_str += f" | **{win_pct:.1f}%**"
                     elif self.sortby == 'avgdiff':
                         total_diff = player.get('total_team_differential', 0)
                         avg_diff = total_diff / war_count if war_count > 0 else 0
                         diff_symbol = "+" if avg_diff >= 0 else ""
-                        player_str += f" | {diff_symbol}{avg_diff:.1f} diff"
+                        player_str += f" | **{diff_symbol}{avg_diff:.1f}** diff"
                     elif self.sortby == 'cv':
                         cv_pct = player.get('cv_percent')
                         if cv_pct is not None:
-                            player_str += f" | {cv_pct:.1f}%"
+                            player_str += f" | **{cv_pct:.1f}%**"
                         else:
-                            player_str += " | N/A"
+                            player_str += " | **N/A**"
 
                 leaderboard_text.append(player_str)
             else:
