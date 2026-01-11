@@ -871,11 +871,20 @@ class MarioKartCommands(commands.Cog):
         avg_score = stats.get('average_score', 0.0)
         lowest_score = stats.get('lowest_score', 0)
 
-        # Always fetch avg10 for consistent reference metric
+        # Fetch avg10 for consistent reference metric
+        # Optimize: reuse stats if lastxwars already equals 10
         avg10_score = None
-        avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
-        if avg10_stats:
-            avg10_score = avg10_stats.get('average_score', 0.0)
+        if lastxwars == 10:
+            # Reuse existing calculation to avoid duplicate query
+            avg10_score = avg_score
+        else:
+            # Fetch avg10, but only show if player has at least 10 wars
+            avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
+            if avg10_stats:
+                # Only display avg10 if player has participated in at least 10 wars
+                war_count = avg10_stats.get('war_count', 0)
+                if war_count >= 10:
+                    avg10_score = avg10_stats.get('average_score', 0.0)
 
         # Build performance text with avg10
         if avg10_score is not None:
@@ -1016,7 +1025,13 @@ class MarioKartCommands(commands.Cog):
         ]
     )
     @require_guild_setup
-    async def stats_slash(self, interaction: discord.Interaction, player: str = None, sortby: str = None, lastxwars: int = None):
+    async def stats_slash(
+        self,
+        interaction: discord.Interaction,
+        player: Optional[str] = None,
+        sortby: Optional[str] = None,
+        lastxwars: Optional[int] = None
+    ):
         """View statistics for a specific player or all players."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
