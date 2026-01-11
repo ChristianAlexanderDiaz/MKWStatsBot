@@ -821,6 +821,11 @@ class MarioKartCommands(commands.Cog):
     async def _display_player_stats(self, interaction: discord.Interaction, player_name: str, stats: Dict[str, Any], lastxwars: Optional[int] = None, guild_id: Optional[int] = None) -> None:
         """Display individual player statistics with embed.
 
+        Includes HtSk (Hotstreak) metric when player has at least 10 wars:
+        - HtSk = avg10 - avg
+        - Positive value = player improving (recent performance better than lifetime average)
+        - Negative value = player declining (recent performance worse than lifetime average)
+
         Args:
             interaction: Discord interaction to respond to
             player_name: Resolved player name
@@ -874,9 +879,16 @@ class MarioKartCommands(commands.Cog):
         # Fetch avg10 for consistent reference metric
         # Optimize: reuse stats if lastxwars already equals 10
         avg10_score = None
+        htsk_score = None
         if lastxwars == 10:
             # Reuse existing calculation to avoid duplicate query
             avg10_score = avg_score
+            # HtSk = avg10 - avg (use overall avg from career stats)
+            # When viewing last 10 wars, we need to fetch overall avg for comparison
+            overall_stats = self.bot.db.get_player_stats(player_name, guild_id)
+            if overall_stats:
+                overall_avg = overall_stats.get('average_score', 0.0)
+                htsk_score = avg10_score - overall_avg
         else:
             # Fetch avg10, but only show if player has at least 10 wars
             avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
@@ -885,9 +897,15 @@ class MarioKartCommands(commands.Cog):
                 war_count = avg10_stats.get('war_count', 0)
                 if war_count >= 10:
                     avg10_score = avg10_stats.get('average_score', 0.0)
+                    # HtSk = avg10 - avg (current avg_score is the overall average)
+                    htsk_score = avg10_score - avg_score
 
-        # Build performance text with avg10
-        if avg10_score is not None:
+        # Build performance text with avg10 and HtSk
+        if avg10_score is not None and htsk_score is not None:
+            htsk_sign = "+" if htsk_score >= 0 else ""
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
+        elif avg10_score is not None:
+            # Show avg10 but not HtSk (shouldn't happen, but fallback)
             performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nLowest:     {lowest_score}\n```"
         else:
             performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
