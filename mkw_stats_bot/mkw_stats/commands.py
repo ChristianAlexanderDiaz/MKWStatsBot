@@ -821,10 +821,15 @@ class MarioKartCommands(commands.Cog):
     async def _display_player_stats(self, interaction: discord.Interaction, player_name: str, stats: Dict[str, Any], lastxwars: Optional[int] = None, guild_id: Optional[int] = None) -> None:
         """Display individual player statistics with embed.
 
-        Includes HtSk (Hotstreak) metric when player has at least 10 wars:
-        - HtSk = avg10 - avg
-        - Positive value = player improving (recent performance better than lifetime average)
-        - Negative value = player declining (recent performance worse than lifetime average)
+        Performance metrics shown when player has at least 10 wars:
+        - avg10: Simple average of last 10 wars (treats all wars equally)
+        - Form: Exponentially weighted moving average (recent wars weighted more heavily)
+        - HtSk (Hotstreak): avg10 - avg (shows if player improving/declining vs career average)
+
+        Form Score significance:
+        - Form > avg10: Player "heating up" (recent games improving)
+        - Form < avg10: Player "cooling off" (recent games declining)
+        - Form ≈ avg10: Player stable (consistent performance)
 
         Args:
             interaction: Discord interaction to respond to
@@ -905,8 +910,16 @@ class MarioKartCommands(commands.Cog):
         if avg10_score is not None and avg10_score > 0 and overall_avg > 0:
             htsk_score = avg10_score - overall_avg
 
-        # Build performance text with avg10 and HtSk
-        if avg10_score is not None and htsk_score is not None:
+        # Fetch Form Score (only if player has 10+ wars)
+        form_score = None
+        if self.bot.db.get_player_distinct_war_count(player_name, guild_id) >= 10:
+            form_score = self.bot.db.get_player_form_score(player_name, guild_id)
+
+        # Build performance text with avg10, Form, and HtSk
+        if avg10_score is not None and htsk_score is not None and form_score is not None:
+            htsk_sign = "+" if htsk_score >= 0 else ""
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nForm:       {form_score:.1f}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
+        elif avg10_score is not None and htsk_score is not None:
             htsk_sign = "+" if htsk_score >= 0 else ""
             performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
         elif avg10_score is not None:
@@ -3548,6 +3561,121 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error in bulkscanimage command: {e}")
             logging.error(traceback.format_exc())
             await interaction.followup.send(f"❌ An error occurred: {str(e)}")
+
+    @app_commands.command(name="sendcommand", description="[ADMIN ONLY - TEMPORARY] Execute a bot command in a different channel")
+    @app_commands.describe(
+        command_name="Name of the command to execute (e.g., 'bulkscanimage', 'scanimage', 'addwar', etc.)",
+        channel="Target channel where the command will be executed",
+        args="[Optional] Command arguments as a string (e.g., 'limit:10' for bulkscanimage)"
+    )
+    @require_guild_setup
+    async def send_command(self, interaction: discord.Interaction, command_name: str, channel: discord.TextChannel, args: str = None):
+        """
+        [TEMPORARY ADMIN COMMAND] Execute any bot command in a different channel.
+
+        This allows the bot owner to run commands in channels they don't have permission to access,
+        but the bot does. Useful when server owners want bot functionality without giving themselves
+        direct channel permissions.
+
+        Examples:
+        - /sendcommand command_name:bulkscanimage channel:#results args:limit:10
+        - /sendcommand command_name:scanimage channel:#results
+        """
+        # Check if user is bot owner (Cynical - 291621912914821120)
+        if not is_bot_owner(interaction.user.id):
+            await interaction.response.send_message(
+                "❌ This command is restricted to the bot owner only.",
+                ephemeral=True
+            )
+            return
+
+        logging.info(f"🔧 [ADMIN] User {interaction.user.name} executing /{command_name} in {channel.name} with args: {args}")
+
+        # Check if bot has permissions in the target channel
+        bot_member = interaction.guild.get_member(self.bot.user.id)
+        if not bot_member:
+            await interaction.response.send_message("❌ Unable to get bot member information.", ephemeral=True)
+            return
+
+        channel_perms = channel.permissions_for(bot_member)
+        required_perms = ['view_channel', 'send_messages', 'read_message_history']
+        missing_perms = [perm for perm in required_perms if not getattr(channel_perms, perm, False)]
+
+        if missing_perms:
+            missing_list = "\n".join([f"• {perm.replace('_', ' ').title()}" for perm in missing_perms])
+            await interaction.response.send_message(
+                f"❌ **Bot is missing permissions in {channel.mention}:**\n{missing_list}\n\n"
+                f"Please grant these permissions to the bot and try again.",
+                ephemeral=True
+            )
+            return
+
+        # Find the command method
+        command_method = None
+        for cmd in self.walk_app_commands():
+            if cmd.name == command_name:
+                command_method = cmd.callback
+                break
+
+        if not command_method:
+            await interaction.response.send_message(
+                f"❌ Command '{command_name}' not found.\n\n"
+                f"Use `/help` to see available commands, or check the command name spelling.",
+                ephemeral=True
+            )
+            return
+
+        # Parse args if provided
+        kwargs = {}
+        if args:
+            try:
+                # Parse args like "limit:10" or "player_scores:Alice:150,Bob:140"
+                for arg_pair in args.split():
+                    if ':' in arg_pair:
+                        key, value = arg_pair.split(':', 1)
+                        # Try to convert to int if possible
+                        try:
+                            kwargs[key] = int(value)
+                        except ValueError:
+                            kwargs[key] = value
+            except Exception as e:
+                await interaction.response.send_message(
+                    f"❌ Failed to parse arguments: {str(e)}\n\n"
+                    f"Expected format: `key:value` separated by spaces\n"
+                    f"Example: `limit:10` or `player_scores:Alice:150,Bob:140`",
+                    ephemeral=True
+                )
+                return
+
+        # Create a proxy interaction that uses the target channel
+        class InteractionProxy:
+            """Proxy object that wraps the interaction but overrides the channel."""
+            def __init__(self, original_interaction, target_channel):
+                self._original = original_interaction
+                self.channel = target_channel
+
+            def __getattr__(self, name):
+                # Delegate all other attributes to the original interaction
+                return getattr(self._original, name)
+
+        proxy_interaction = InteractionProxy(interaction, channel)
+
+        try:
+            # Call the actual command method with the proxy interaction
+            await command_method(self, proxy_interaction, **kwargs)
+            logging.info(f"✅ [ADMIN] Successfully executed /{command_name} in {channel.name}")
+        except TypeError as e:
+            # Wrong arguments provided
+            await interaction.response.send_message(
+                f"❌ Invalid arguments for command '{command_name}': {str(e)}\n\n"
+                f"Check the command signature and try again.",
+                ephemeral=True
+            )
+        except Exception as e:
+            logging.error(f"Error executing sendcommand: {e}")
+            logging.error(traceback.format_exc())
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"❌ Error executing command: {str(e)}", ephemeral=True)
 
     async def _countdown_and_delete_confirmation(self, message: discord.Message, embed: discord.Embed, countdown_seconds: int = 60):
         """Countdown and delete confirmation message for bulk scan."""

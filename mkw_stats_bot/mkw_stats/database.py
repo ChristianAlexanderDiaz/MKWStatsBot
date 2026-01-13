@@ -1372,7 +1372,92 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"❌ Error getting player stats for last {x_wars} wars: {e}")
             return None
-    
+
+    def get_player_form_score(self, player_name: str, guild_id: int = 0) -> Optional[float]:
+        """
+        Calculate Form Score (Momentum) using exponentially weighted moving average.
+
+        Form Score shows player trajectory by weighting recent performances more heavily
+        than older ones. Uses decay factor of 0.85 for last 10 wars.
+
+        Formula: form_score = sum(score_i * weight_i) / sum(weight_i)
+        where weight_i = (0.85)^i for i wars ago
+
+        Args:
+            player_name: Name of the player
+            guild_id: Guild ID
+
+        Returns:
+            Form Score as float (rounded to 1 decimal), or None if player has < 10 wars
+
+        Examples:
+            - Improving player [60,70,80,90,100]: Form > avg10
+            - Declining player [100,90,80,70,60]: Form < avg10
+            - Stable player [85,85,85]: Form ≈ avg10
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get player ID
+                cursor.execute("""
+                    SELECT id FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+
+                player_info = cursor.fetchone()
+                if not player_info:
+                    return None
+
+                player_id = player_info[0]
+
+                # Get last 10 war scores (normalized for participation)
+                cursor.execute("""
+                    SELECT
+                        pwp.score,
+                        pwp.war_participation
+                    FROM player_war_performances pwp
+                    JOIN wars w ON pwp.war_id = w.id
+                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                    ORDER BY w.created_at DESC
+                    LIMIT 10
+                """, (player_id, guild_id))
+
+                performances = cursor.fetchall()
+
+                # Only calculate if player has at least 10 wars
+                if len(performances) < 10:
+                    return None
+
+                # Calculate exponentially weighted moving average
+                # Decay factor: 0.85 (recent wars weighted ~15% more than slightly older)
+                decay_factor = 0.85
+                weighted_sum = 0.0
+                weight_sum = 0.0
+
+                for i, perf in enumerate(performances):
+                    score, war_participation = perf
+                    war_participation_float = float(war_participation)
+
+                    # Normalize score by participation (so fractional wars are comparable)
+                    normalized_score = score / war_participation_float if war_participation_float > 0 else score
+
+                    # Calculate weight: decay_factor^i (most recent = i=0, weight=1.0)
+                    weight = decay_factor ** i
+
+                    weighted_sum += normalized_score * weight
+                    weight_sum += weight
+
+                # Calculate form score
+                form_score = weighted_sum / weight_sum if weight_sum > 0 else 0.0
+
+                # Round to 1 decimal place for display
+                return round(form_score, 1)
+
+        except Exception as e:
+            logging.error(f"❌ Error calculating form score for {player_name}: {e}")
+            return None
+
     def get_player_distinct_war_count(self, player_name: str, guild_id: int = 0) -> int:
         """
         Get the number of distinct wars a player has participated in.
