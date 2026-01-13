@@ -24,6 +24,10 @@ from contextlib import contextmanager
 from urllib.parse import urlparse
 
 class DatabaseManager:
+    # Form Score calculation constants
+    FORM_SCORE_DECAY_FACTOR = 0.85  # Exponential weight decay (recent wars weighted ~15% more)
+    FORM_SCORE_MIN_WARS = 10  # Minimum wars required for Form Score calculation
+
     def __init__(self, database_url: str = None):
         """
         Initialize PostgreSQL database connection.
@@ -1378,24 +1382,28 @@ class DatabaseManager:
         Calculate Form Score (Momentum) using exponentially weighted moving average.
 
         Form Score shows player trajectory by weighting recent performances more heavily
-        than older ones. Uses decay factor of 0.85 for last 10 wars.
+        than older ones. Converts to soccer-style rating (0.0-10.0+).
 
         Formula: form_score = sum(score_i * weight_i) / sum(weight_i)
-        where weight_i = (0.85)^i for i wars ago
+        where weight_i = (FORM_SCORE_DECAY_FACTOR)^i for i wars ago
 
         Args:
             player_name: Name of the player
-            guild_id: Guild ID
+            guild_id: Guild ID (must be valid, non-zero for multi-guild isolation)
 
         Returns:
-            Form Score as float (rounded to 1 decimal), or None if player has < 10 wars
+            Soccer-style rating (0.0-10.0+), or None if player has < 10 valid wars
 
-        Examples:
-            - Improving player [60,70,80,90,100]: Form > avg10
-            - Declining player [100,90,80,70,60]: Form < avg10
-            - Stable player [85,85,85]: Form ≈ avg10
+        Rating Scale:
+            - 84 (avg MKW) = 6.0 (average)
+            - 100 (golden) = 9.0 (excellent)
+            - 110 (elite) = 10.0 (perfect)
+            - 110+ = >10.0 (legendary)
         """
         try:
+            # Validate guild_id for multi-guild isolation
+            self._validate_guild_id(guild_id, "get_player_form_score")
+
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -1411,7 +1419,7 @@ class DatabaseManager:
 
                 player_id = player_info[0]
 
-                # Get last 10 war scores (normalized for participation)
+                # Get recent war performances (fetch extra to handle invalid entries)
                 cursor.execute("""
                     SELECT
                         pwp.score,
@@ -1420,36 +1428,50 @@ class DatabaseManager:
                     JOIN wars w ON pwp.war_id = w.id
                     WHERE pwp.player_id = %s AND w.guild_id = %s
                     ORDER BY w.created_at DESC
-                    LIMIT 10
+                    LIMIT 20
                 """, (player_id, guild_id))
 
-                performances = cursor.fetchall()
+                all_performances = cursor.fetchall()
 
-                # Only calculate if player has at least 10 wars
-                if len(performances) < 10:
+                # Filter out invalid performances and normalize scores
+                performances_used = []
+                for score, war_participation in all_performances:
+                    war_participation_float = float(war_participation)
+
+                    # Skip invalid entries (no participation)
+                    if war_participation_float <= 0:
+                        continue
+
+                    # Normalize score by participation (so fractional wars are comparable)
+                    normalized_score = score / war_participation_float
+                    performances_used.append(normalized_score)
+
+                    # Stop once we have enough valid performances
+                    if len(performances_used) >= self.FORM_SCORE_MIN_WARS:
+                        break
+
+                # Only calculate if player has at least 10 valid wars
+                if len(performances_used) < self.FORM_SCORE_MIN_WARS:
                     return None
 
                 # Calculate exponentially weighted moving average
-                # Decay factor: 0.85 (recent wars weighted ~15% more than slightly older)
-                decay_factor = 0.85
                 weighted_sum = 0.0
                 weight_sum = 0.0
 
-                for i, perf in enumerate(performances):
-                    score, war_participation = perf
-                    war_participation_float = float(war_participation)
-
-                    # Normalize score by participation (so fractional wars are comparable)
-                    normalized_score = score / war_participation_float if war_participation_float > 0 else score
-
+                for i, normalized_score in enumerate(performances_used):
                     # Calculate weight: decay_factor^i (most recent = i=0, weight=1.0)
-                    weight = decay_factor ** i
+                    weight = self.FORM_SCORE_DECAY_FACTOR ** i
 
                     weighted_sum += normalized_score * weight
                     weight_sum += weight
 
                 # Calculate raw form score (MKW score range)
-                raw_form_score = weighted_sum / weight_sum if weight_sum > 0 else 0.0
+                # Defensive: weight_sum should always be > 0 with valid performances
+                if weight_sum <= 0:
+                    logging.warning(f"Unexpected zero weight_sum for {player_name} in guild {guild_id}")
+                    return None
+
+                raw_form_score = weighted_sum / weight_sum
 
                 # Convert to soccer-style rating (0.0-10.0+ scale)
                 # Scale: 84=6.0 (avg), 100=9.0 (golden), 110=10.0 (perfect), 110+=off the charts
