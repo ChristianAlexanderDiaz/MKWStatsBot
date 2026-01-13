@@ -910,15 +910,31 @@ class MarioKartCommands(commands.Cog):
         if avg10_score is not None and avg10_score > 0 and overall_avg > 0:
             htsk_score = avg10_score - overall_avg
 
-        # Fetch Form Score (only if player has 10+ wars)
-        form_score = None
-        if self.bot.db.get_player_distinct_war_count(player_name, guild_id) >= 10:
-            form_score = self.bot.db.get_player_form_score(player_name, guild_id)
+        # Fetch Form Score - method already returns None if < 10 wars
+        form_score = self.bot.db.get_player_form_score(player_name, guild_id)
+
+        # Add soccer-style rating indicator for clarity
+        form_display = ""
+        if form_score is not None:
+            # Soccer rating scale indicators (0.0-10.0+)
+            # 9.0+ = Elite/World Class (⭐), 8.0-8.9 = Excellent (🔥), 7.0-7.9 = Good (↑)
+            # 6.0-6.9 = Average (no indicator), <6.0 = Below Average (↓)
+            if form_score >= 9.0:
+                indicator = " ⭐"  # World class
+            elif form_score >= 8.0:
+                indicator = " 🔥"  # Excellent/Hot
+            elif form_score >= 7.0:
+                indicator = " ↑"  # Good/Rising
+            elif form_score < 6.0:
+                indicator = " ↓"  # Below average
+            else:
+                indicator = ""  # Average (6.0-6.9), no indicator needed
+            form_display = f"\nForm:       {form_score:.1f}{indicator}"
 
         # Build performance text with avg10, Form, and HtSk
         if avg10_score is not None and htsk_score is not None and form_score is not None:
             htsk_sign = "+" if htsk_score >= 0 else ""
-            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nForm:       {form_score:.1f}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}{form_display}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
         elif avg10_score is not None and htsk_score is not None:
             htsk_sign = "+" if htsk_score >= 0 else ""
             performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"

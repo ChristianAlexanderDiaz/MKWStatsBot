@@ -1448,11 +1448,29 @@ class DatabaseManager:
                     weighted_sum += normalized_score * weight
                     weight_sum += weight
 
-                # Calculate form score
-                form_score = weighted_sum / weight_sum if weight_sum > 0 else 0.0
+                # Calculate raw form score (MKW score range)
+                raw_form_score = weighted_sum / weight_sum if weight_sum > 0 else 0.0
+
+                # Convert to soccer-style rating (0.0-10.0+ scale)
+                # Scale: 84=6.0 (avg), 100=9.0 (golden), 110=10.0 (perfect), 110+=off the charts
+                if raw_form_score <= 84:
+                    # Below average: scale 0.0 to 6.0
+                    soccer_rating = (raw_form_score / 84.0) * 6.0
+                elif raw_form_score <= 100:
+                    # Average to golden: 6.0 to 9.0 (linear)
+                    soccer_rating = 6.0 + ((raw_form_score - 84) / 16.0) * 3.0
+                elif raw_form_score <= 110:
+                    # Golden to perfect: 9.0 to 10.0 (linear)
+                    soccer_rating = 9.0 + ((raw_form_score - 100) / 10.0)
+                else:
+                    # Beyond perfect: 10.0+ (continue scaling)
+                    soccer_rating = 10.0 + ((raw_form_score - 110) / 10.0)
+
+                # Clamp minimum to 0.0, no max (allow >10.0)
+                soccer_rating = max(0.0, soccer_rating)
 
                 # Round to 1 decimal place for display
-                return round(form_score, 1)
+                return round(soccer_rating, 1)
 
         except Exception as e:
             logging.error(f"❌ Error calculating form score for {player_name}: {e}")
