@@ -821,10 +821,15 @@ class MarioKartCommands(commands.Cog):
     async def _display_player_stats(self, interaction: discord.Interaction, player_name: str, stats: Dict[str, Any], lastxwars: Optional[int] = None, guild_id: Optional[int] = None) -> None:
         """Display individual player statistics with embed.
 
-        Includes HtSk (Hotstreak) metric when player has at least 10 wars:
-        - HtSk = avg10 - avg
-        - Positive value = player improving (recent performance better than lifetime average)
-        - Negative value = player declining (recent performance worse than lifetime average)
+        Performance metrics shown when player has at least 10 wars:
+        - avg10: Simple average of last 10 wars (treats all wars equally)
+        - Form: Exponentially weighted moving average (recent wars weighted more heavily)
+        - HtSk (Hotstreak): avg10 - avg (shows if player improving/declining vs career average)
+
+        Form Score significance:
+        - Form > avg10: Player "heating up" (recent games improving)
+        - Form < avg10: Player "cooling off" (recent games declining)
+        - Form ≈ avg10: Player stable (consistent performance)
 
         Args:
             interaction: Discord interaction to respond to
@@ -905,8 +910,16 @@ class MarioKartCommands(commands.Cog):
         if avg10_score is not None and avg10_score > 0 and overall_avg > 0:
             htsk_score = avg10_score - overall_avg
 
-        # Build performance text with avg10 and HtSk
-        if avg10_score is not None and htsk_score is not None:
+        # Fetch Form Score (only if player has 10+ wars)
+        form_score = None
+        if self.bot.db.get_player_distinct_war_count(player_name, guild_id) >= 10:
+            form_score = self.bot.db.get_player_form_score(player_name, guild_id)
+
+        # Build performance text with avg10, Form, and HtSk
+        if avg10_score is not None and htsk_score is not None and form_score is not None:
+            htsk_sign = "+" if htsk_score >= 0 else ""
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nForm:       {form_score:.1f}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
+        elif avg10_score is not None and htsk_score is not None:
             htsk_sign = "+" if htsk_score >= 0 else ""
             performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
         elif avg10_score is not None:
