@@ -1,14 +1,25 @@
 name: Claude Code Review
 
+# DISABLED: Use CodeRabbit for auto-reviews (free tier)
+# Use @claude mentions in PRs for deep dives when needed
+# Uncomment below to re-enable auto-review on every PR
+# on:
+#   pull_request:
+#     types: [opened, synchronize]
+#     # Only run on specific file changes to reduce token usage
+#     paths:
+#       - "mkw_stats_bot/**/*.py"
+#       - "mkw-dashboard-api/**/*.py"
+#       - "mkw-review-web/src/**/*.tsx"
+#       - "mkw-review-web/src/**/*.ts"
+
 on:
-  pull_request:
-    types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+  workflow_dispatch:  # Only run manually
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
 
 jobs:
   claude-review:
@@ -38,7 +49,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            PR NUMBER: ${{ inputs.pr_number }}
 
             Please review this pull request and provide feedback on:
             - Code quality and best practices
@@ -53,5 +64,8 @@ jobs:
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
+          claude_args: |
+            --max-turns 5
+            --model claude-haiku
+            --allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
 
