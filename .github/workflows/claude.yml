@@ -48,5 +48,5 @@ jobs:
           # or https://code.claude.com/docs/en/cli-reference for available options
           claude_args: |
             --max-turns 10
-            --model claude-sonnet
+            --model claude-sonnet-4-20250514
 

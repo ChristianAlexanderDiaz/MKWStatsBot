@@ -49,23 +49,20 @@ reviews:
   # Abort review if too many files changed (likely merge conflicts or bulk refactor)
   abort_on_close: true
 
+  # Tool integrations (free tier)
+  tools:
+    # Python linting
+    ruff:
+      enabled: true
+
+    # Shell script checking
+    shellcheck:
+      enabled: true
+
+    # Markdown linting
+    markdownlint:
+      enabled: true
+
 # Chat settings
 chat:
   auto_reply: true
-
-# Tool integrations (free tier)
-tools:
-  # Python linting
-  ruff:
-    enabled: true
-
-  # Shell script checking
-  shellcheck:
-    enabled: true
-
-  # Markdown linting
-  markdownlint:
-    enabled: true
-    config:
-      MD013: false  # Allow long lines
-      MD033: false  # Allow inline HTML
