@@ -3533,13 +3533,24 @@ class MarioKartCommands(commands.Cog):
                     inline=False
                 )
             
-            # Time estimation
-            estimated_minutes = max(1, (len(images_found) * 5) // 60)  # ~5 seconds per image
-            if estimated_minutes == 1:
-                time_str = f"~{len(images_found) * 5} seconds"
-            else:
-                time_str = f"~{estimated_minutes} minute{'s' if estimated_minutes > 1 else ''}"
-            
+            # Time estimation - show in "X hours, Y minutes, Z seconds" format
+            estimated_seconds = len(images_found) * 5  # ~5 seconds per image
+
+            hours = estimated_seconds // 3600
+            minutes = (estimated_seconds % 3600) // 60
+            seconds = estimated_seconds % 60
+
+            # Build time string with only non-zero components
+            time_parts = []
+            if hours > 0:
+                time_parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+            if minutes > 0:
+                time_parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+            if seconds > 0 or not time_parts:  # Always show seconds if nothing else
+                time_parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
+
+            time_str = "~" + ", ".join(time_parts)
+
             embed.add_field(
                 name="⏱️ Estimated Time",
                 value=time_str,
