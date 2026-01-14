@@ -9,6 +9,7 @@ import aiohttp
 import tempfile
 import os
 import traceback
+from typing import List, Dict, Any, Optional
 from . import config
 # OCR processor initialized in bot.py at startup for instant response
 
@@ -79,13 +80,29 @@ class LeaderboardView(discord.ui.View):
         end_idx = min(start_idx + self.players_per_page, len(self.all_players))
         page_players = self.all_players[start_idx:end_idx]
 
+        # Dynamic title based on sort
+        if self.sortby:
+            sort_names = {
+                "average": "Average Score",
+                "winrate": "Win Rate",
+                "avgdiff": "Team Differential",
+                "warcount": "Number of Wars",
+                "cv": "Consistency"
+            }
+            title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average Score')}"
+        else:
+            title = "📊 Player Statistics Leaderboard"
+
         # Create embed
         embed = discord.Embed(
-            title="📊 Player Statistics Leaderboard",
+            title=title,
             color=0x00ff00
         )
 
         # Build numbered leaderboard with flags
+        # Determine what to show in third column based on sort
+        show_third_column = self.sortby in ['winrate', 'avgdiff', 'cv']
+
         leaderboard_text = []
         for idx, player in enumerate(page_players):
             # Calculate actual rank number across all pages
@@ -98,14 +115,37 @@ class LeaderboardView(discord.ui.View):
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
                 war_count = float(player.get('war_count', 0))
-                total_diff = player.get('total_team_differential', 0)
-                avg_diff = total_diff / war_count if war_count > 0 else 0
-                diff_symbol = "+" if avg_diff >= 0 else ""
 
-                # Numbered format: #. [flag] [name] | [avg] avg | [wars] wars | [diff] diff
-                leaderboard_text.append(
-                    f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | {war_count:.1f} wars | {diff_symbol}{avg_diff:.1f} diff"
-                )
+                # Bold the column being sorted by
+                # Default (None) or "average" sorts by avg, "warcount" sorts by wars
+                if self.sortby in [None, 'average']:
+                    # Bold average score
+                    player_str = f"{rank}. {flag} **{player['player_name']}** | **{avg_score:.1f}** avg | {war_count:.1f} wars"
+                elif self.sortby == 'warcount':
+                    # Bold war count
+                    player_str = f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | **{war_count:.1f}** wars"
+                else:
+                    # For other sorts (winrate, avgdiff, cv), don't bold base columns
+                    player_str = f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | {war_count:.1f} wars"
+
+                # Add third column based on sort type (and bold it)
+                if show_third_column:
+                    if self.sortby == 'winrate':
+                        win_pct = player.get('win_percentage', 0.0)
+                        player_str += f" | **{win_pct:.1f}%**"
+                    elif self.sortby == 'avgdiff':
+                        total_diff = player.get('total_team_differential', 0)
+                        avg_diff = total_diff / war_count if war_count > 0 else 0
+                        diff_symbol = "+" if avg_diff >= 0 else ""
+                        player_str += f" | **{diff_symbol}{avg_diff:.1f}** diff"
+                    elif self.sortby == 'cv':
+                        cv_pct = player.get('cv_percent')
+                        if cv_pct is not None:
+                            player_str += f" | **{cv_pct:.1f}%**"
+                        else:
+                            player_str += " | **N/A**"
+
+                leaderboard_text.append(player_str)
             else:
                 leaderboard_text.append(f"{rank}. {flag} **{player['player_name']}** | No wars yet")
 
@@ -115,19 +155,8 @@ class LeaderboardView(discord.ui.View):
             inline=False
         )
 
-        # Footer with page info and sort method
-        if self.sortby and self.sortby.lower() == 'winrate':
-            sort_method = "Win Rate"
-        elif self.sortby and self.sortby.lower() == 'avgdiff':
-            sort_method = "Team Differential"
-        elif self.sortby and self.sortby.lower() == 'warcount':
-            sort_method = "Number of Wars"
-        else:
-            sort_method = "Average Score"
-
-        embed.set_footer(
-            text=f"Page {self.current_page}/{self.total_pages} • {self.total_players_count} Members • Sorted by: {sort_method} • Use /setcountry to add your flag"
-        )
+        # Footer with page info
+        embed.set_footer(text=f"Page {self.current_page}/{self.total_pages} • {self.total_players_count} Members")
 
         return embed
 
@@ -714,168 +743,404 @@ class MarioKartCommands(commands.Cog):
         
         return nicknames
 
+    def _filter_active_members(self, roster_stats: List[Dict[str, Any]], interaction: discord.Interaction, role_config: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Filter roster for active members based on Discord roles.
+
+        Args:
+            roster_stats: List of all players from database
+            interaction: Discord interaction for guild context
+            role_config: Guild role configuration
+
+        Returns:
+            List of players who are active members
+        """
+        member_stats = []
+        for player in roster_stats:
+            discord_user_id = player.get('discord_user_id')
+
+            if discord_user_id:
+                # Player is linked - check actual Discord role
+                member = interaction.guild.get_member(discord_user_id)
+                if not member:
+                    # Player left or was kicked - exclude them
+                    continue
+
+                # Check if they have the Member role (if role config exists)
+                if role_config and role_config.get('role_member_id'):
+                    member_role_id = role_config['role_member_id']
+                    user_role_ids = [role.id for role in member.roles]
+                    if member_role_id in user_role_ids:
+                        member_stats.append(player)
+                    # else: linked but doesn't have Member role - exclude
+                else:
+                    # No role config, use database status
+                    if player.get('member_status') == 'member':
+                        member_stats.append(player)
+            else:
+                # Player not linked - only show if role config is NOT set
+                # When role config exists, unlinked players are excluded entirely
+                if not (role_config and role_config.get('role_member_id')):
+                    if player.get('member_status') == 'member':
+                        member_stats.append(player)
+
+        return member_stats
+
+    def _sort_player_stats(self, players_with_stats: List[Dict[str, Any]], sortby: Optional[str]) -> List[Dict[str, Any]]:
+        """Sort player statistics by specified criteria.
+
+        Args:
+            players_with_stats: List of players with war statistics
+            sortby: Sort criteria (winrate, avgdiff, warcount, cv, or average)
+
+        Returns:
+            Sorted list of player statistics
+        """
+        if sortby and sortby.lower() == 'winrate':
+            players_with_stats.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
+        elif sortby and sortby.lower() == 'avgdiff':
+            # Sort by team differential (total_team_differential / war_count)
+            players_with_stats.sort(
+                key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 1) > 0 else 0,
+                reverse=True
+            )
+        elif sortby and sortby.lower() == 'warcount':
+            # Sort by number of wars (war_count)
+            players_with_stats.sort(key=lambda x: x.get('war_count', 0), reverse=True)
+        elif sortby and sortby.lower() == 'cv':
+            # Sort by CV% ascending (lower is better)
+            # Filter out players with insufficient data (< 2 wars minimum)
+            players_with_cv = [p for p in players_with_stats if p.get('war_count', 0) >= 2]
+            players_with_cv.sort(key=lambda x: x.get('cv_percent', float('inf')))
+            players_with_stats = players_with_cv
+        else:
+            # Default: sort by average score
+            players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
+
+        return players_with_stats
+
+    async def _display_player_stats(self, interaction: discord.Interaction, player_name: str, stats: Dict[str, Any], lastxwars: Optional[int] = None, guild_id: Optional[int] = None) -> None:
+        """Display individual player statistics with embed.
+
+        Performance metrics shown when player has at least 10 wars:
+        - avg10: Simple average of last 10 wars (treats all wars equally)
+        - Form: Exponentially weighted moving average (recent wars weighted more heavily)
+        - HtSk (Hotstreak): avg10 - avg (shows if player improving/declining vs career average)
+
+        Form Score significance:
+        - Form > avg10: Player "heating up" (recent games improving)
+        - Form < avg10: Player "cooling off" (recent games declining)
+        - Form ≈ avg10: Player stable (consistent performance)
+
+        Args:
+            interaction: Discord interaction to respond to
+            player_name: Resolved player name
+            stats: Player statistics dictionary
+            lastxwars: Optional number of wars to show stats for
+            guild_id: Guild ID for database queries
+        """
+        from datetime import datetime
+
+        # Get flag emoji
+        country_code = stats.get('country_code', '')
+        flag = country_code_to_flag(country_code) if country_code else ""
+        flag_prefix = f"{flag} " if flag else ""
+
+        # Determine title and color based on context
+        if lastxwars is not None:
+            title_text = f"{flag_prefix}{stats['player_name']} (Last {lastxwars} Wars)"
+            scope_text = f"Last {lastxwars} Wars"
+        else:
+            title_text = f"{flag_prefix}{stats['player_name']}"
+            scope_text = "Career Statistics"
+
+        # Dynamic color based on team differential
+        total_diff = stats.get('total_team_differential', 0)
+        if total_diff is not None and total_diff > 0:
+            color = 0x00ff88  # Green for positive
+        elif total_diff is not None and total_diff < 0:
+            color = 0xff6b6b  # Red for negative
+        else:
+            color = 0x95a5a6  # Gray for neutral
+
+        # Build description with player info
+        team_name = stats.get('team', 'Unassigned')
+        description_parts = [f"**{team_name}**"]
+
+        if stats.get('nicknames'):
+            nicknames_str = ", ".join(stats['nicknames'])
+            description_parts.append(f"*{nicknames_str}*")
+
+        embed = discord.Embed(
+            title=title_text,
+            description="\n".join(description_parts),
+            color=color
+        )
+
+        # Performance Overview (highest, average, avg10, lowest scores)
+        highest_score = stats.get('highest_score', 0)
+        avg_score = stats.get('average_score', 0.0)
+        lowest_score = stats.get('lowest_score', 0)
+
+        # Fetch avg10 for consistent reference metric
+        # Optimize: reuse stats if lastxwars already equals 10
+        avg10_score = None
+        htsk_score = None
+        overall_avg = avg_score  # Default to current avg (which is overall avg in normal case)
+
+        if lastxwars == 10:
+            # Reuse existing calculation to avoid duplicate query
+            avg10_score = avg_score
+            # HtSk = avg10 - avg (use overall avg from career stats)
+            # When viewing last 10 wars, we need to fetch overall avg for comparison
+            overall_stats = self.bot.db.get_player_stats(player_name, guild_id)
+            if overall_stats:
+                fetched_avg = overall_stats.get('average_score')
+                if fetched_avg is not None and fetched_avg > 0:
+                    overall_avg = fetched_avg
+        else:
+            # Fetch avg10, but only show if player has at least 10 wars
+            avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
+            if avg10_stats:
+                # Only display avg10 if player has participated in at least 10 wars
+                war_count = avg10_stats.get('war_count', 0)
+                if war_count >= 10:
+                    avg10_score = avg10_stats.get('average_score')
+
+        # Calculate HtSk if we have valid avg10 data
+        if avg10_score is not None and avg10_score > 0 and overall_avg > 0:
+            htsk_score = avg10_score - overall_avg
+
+        # Fetch Form Score - method already returns None if < 10 wars
+        form_score = self.bot.db.get_player_form_score(player_name, guild_id)
+
+        # Add soccer-style rating indicator for clarity
+        form_display = ""
+        if form_score is not None:
+            # Soccer rating scale indicators (0.0-10.0+)
+            # 9.0+ = Elite/World Class (⭐), 8.0-8.9 = Excellent (🔥), 7.0-7.9 = Good (↑)
+            # 6.0-6.9 = Average (no indicator), <6.0 = Below Average (↓)
+            if form_score >= 9.0:
+                indicator = " ⭐"  # World class
+            elif form_score >= 8.0:
+                indicator = " 🔥"  # Excellent/Hot
+            elif form_score >= 7.0:
+                indicator = " ↑"  # Good/Rising
+            elif form_score < 6.0:
+                indicator = " ↓"  # Below average
+            else:
+                indicator = ""  # Average (6.0-6.9), no indicator needed
+            form_display = f"\nForm:       {form_score:.1f}{indicator}"
+
+        # Build performance text with avg10, Form, and HtSk
+        if avg10_score is not None and htsk_score is not None and form_score is not None:
+            htsk_sign = "+" if htsk_score >= 0 else ""
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}{form_display}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
+        elif avg10_score is not None and htsk_score is not None:
+            htsk_sign = "+" if htsk_score >= 0 else ""
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nHtSk:       {htsk_sign}{htsk_score:.2f}\nLowest:     {lowest_score}\n```"
+        elif avg10_score is not None:
+            # Show avg10 without HtSk (edge case: missing data for HtSk calculation)
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\navg10:      {avg10_score:.1f}\nLowest:     {lowest_score}\n```"
+        else:
+            performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
+
+        embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
+
+        # Consistency metric (CV% only)
+        cv_percent = stats.get('cv_percent')
+        if cv_percent is not None:
+            consistency_text = f"```\n{cv_percent:.1f}%\n```"
+        else:
+            consistency_text = "```\nN/A\n(Need 2+ wars)\n```"
+        embed.add_field(name="📊 Consistency", value=consistency_text, inline=True)
+
+        # Team Differential (highlight wins/losses)
+        if total_diff is not None:
+            war_count = float(stats.get('war_count', 0))
+            avg_diff = total_diff / war_count if war_count > 0 else 0
+
+            # Determine symbols and formatting
+            total_diff_symbol = "+" if total_diff >= 0 else ""
+            avg_diff_symbol = "+" if avg_diff >= 0 else ""
+
+            if total_diff > 0:
+                diff_emoji = "📈"
+                diff_text = "Winning"
+            elif total_diff < 0:
+                diff_emoji = "📉"
+                diff_text = "Fighting"
+            else:
+                diff_emoji = "⚖️"
+                diff_text = "Balanced"
+
+            # Get win/loss/tie record and percentage
+            wins = stats.get('wins', 0)
+            losses = stats.get('losses', 0)
+            ties = stats.get('ties', 0)
+            win_pct = stats.get('win_percentage', 0.0)
+
+            differential_text = f"```\nAvg:   {avg_diff_symbol}{avg_diff:.1f}\n{wins}-{losses}-{ties} ({win_pct:.1f}%)\nTotal: {total_diff_symbol}{total_diff}\n```\n*{diff_text}*"
+            embed.add_field(name=f"{diff_emoji} Differential", value=differential_text, inline=True)
+
+        # Activity Stats (war count, races, last war)
+        war_count = float(stats.get('war_count', 0))
+        total_races = stats.get('total_races', 0)
+        if stats.get('last_war_date'):
+            try:
+                # Parse the date - it's stored as just a date (no time)
+                # Display in EST timezone
+                date_obj = datetime.strptime(stats['last_war_date'], '%Y-%m-%d')
+                last_war = date_obj.strftime('%b %d, %Y')
+            except (ValueError, TypeError) as e:
+                logging.debug(f"Date parsing failed for {stats.get('last_war_date')}: {e}")
+                last_war = stats['last_war_date']
+        else:
+            last_war = "Never"
+
+        activity_text = f"```\nWars:       {war_count:.1f}\nRaces:      {total_races}\nLast War:   {last_war}\n```"
+        embed.add_field(name="📅 Activity", value=activity_text, inline=True)
+
+        # Last 10 War Scores
+        last_scores = self.bot.db.get_player_last_war_scores(player_name, limit=10, guild_id=guild_id)
+        if last_scores:
+            # Format scores with race count notation for non-standard wars
+            scores_list = []
+            for score in last_scores:
+                score_value = score['score']
+                race_count = score.get('race_count', 12)
+                # Only show race count if it's not the standard 12 races
+                if race_count != 12:
+                    # Add race count notation for non-standard wars
+                    scores_list.append(f"{score_value} ({race_count})")
+                else:
+                    scores_list.append(str(score_value))
+            scores_text = f"```\n{', '.join(scores_list)}\n```"
+            embed.add_field(name="📜 Last 10 Wars", value=scores_text, inline=False)
+
+        # Footer
+        embed.set_footer(text=f"Guild-Specific {scope_text}")
+
+        await interaction.response.send_message(embed=embed)
+
+    async def _display_leaderboard(self, interaction: discord.Interaction, guild_id: int, member_stats: list, sortby: str):
+        """Display leaderboard with pagination for all members.
+
+        Args:
+            interaction: Discord interaction to respond to
+            guild_id: Guild ID for database queries
+            member_stats: List of active member statistics
+            sortby: Sort criteria for leaderboard
+        """
+        # Get war statistics for members who have them
+        players_with_stats = []
+        players_without_stats = []
+
+        for roster_player in member_stats:
+            war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
+            if war_stats:
+                players_with_stats.append(war_stats)
+            else:
+                players_without_stats.append(roster_player)
+
+        # Sort players with stats by sortby parameter
+        players_with_stats = self._sort_player_stats(players_with_stats, sortby)
+
+        # Combine and sort all players - those with stats first, then without stats
+        all_players = players_with_stats + players_without_stats
+
+        # Use pagination view for leaderboard
+        view = LeaderboardView(all_players, sortby, len(all_players))
+        embed = view.create_embed()
+
+        await interaction.response.send_message(embed=embed, view=view)
+
     @app_commands.command(name="stats", description="View player statistics or leaderboard")
     @app_commands.describe(
         player="Player name to view stats for (optional - shows leaderboard if empty)",
-        lastxwars="Show stats for last X wars only (optional - shows all-time if empty)",
-        sortby="Leaderboard sort method"
+        sortby="Leaderboard sort method",
+        lastxwars="Show stats for last X wars only (optional - shows all-time if empty)"
     )
-    @app_commands.choices(sortby=[
-        app_commands.Choice(name="Average Score", value="average"),
-        app_commands.Choice(name="Win Rate", value="winrate"),
-        app_commands.Choice(name="Team Differential", value="avgdiff"),
-        app_commands.Choice(name="Number of Wars", value="warcount")
-    ])
+    @app_commands.choices(
+        sortby=[
+            app_commands.Choice(name="Average Score", value="average"),
+            app_commands.Choice(name="Win Rate", value="winrate"),
+            app_commands.Choice(name="Team Differential", value="avgdiff"),
+            app_commands.Choice(name="Number of Wars", value="warcount"),
+            app_commands.Choice(name="Consistency (CV%)", value="cv")
+        ],
+        lastxwars=[
+            app_commands.Choice(name="Last 5 Wars", value=5),
+            app_commands.Choice(name="Last 10 Wars", value=10),
+            app_commands.Choice(name="Last 20 Wars", value=20),
+            app_commands.Choice(name="Last 50 Wars", value=50),
+            app_commands.Choice(name="Last 100 Wars", value=100)
+        ]
+    )
     @require_guild_setup
-    async def stats_slash(self, interaction: discord.Interaction, player: str = None, lastxwars: int = None, sortby: str = None):
+    async def stats_slash(
+        self,
+        interaction: discord.Interaction,
+        player: Optional[str] = None,
+        sortby: Optional[str] = None,
+        lastxwars: Optional[int] = None
+    ):
         """View statistics for a specific player or all players."""
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
+
+            # Auto-default to Discord user if lastxwars is specified but player is not
+            if not player and lastxwars is not None:
+                # Look up player by Discord user ID
+                with self.bot.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT player_name
+                        FROM players
+                        WHERE discord_user_id = %s AND guild_id = %s AND is_active = TRUE
+                    """, (interaction.user.id, guild_id))
+                    result = cursor.fetchone()
+
+                    if result:
+                        player = result[0]
+                    else:
+                        await interaction.response.send_message(
+                            f"❌ You're not linked to a player in this guild. Ask an admin to add you with `/addplayer`.",
+                            ephemeral=True
+                        )
+                        return
+
             if player:
                 # Resolve nickname to actual player name first
                 resolved_player = self.bot.db.resolve_player_name(player, guild_id)
                 if not resolved_player:
                     await interaction.response.send_message(f"❌ No player found with name or nickname: {player}", ephemeral=True)
                     return
-                
+
                 # Handle lastxwars parameter validation and stats retrieval
                 if lastxwars is not None:
                     # Validate lastxwars parameter
                     if lastxwars < 1:
                         await interaction.response.send_message("❌ Must be at least 1 war.", ephemeral=True)
                         return
-                    
+
                     # Get player's distinct war count for validation
                     distinct_wars = self.bot.db.get_player_distinct_war_count(resolved_player, guild_id)
                     if distinct_wars == 0:
                         await interaction.response.send_message(f"❌ {resolved_player} hasn't participated in any wars yet.", ephemeral=True)
                         return
-                    
+
                     if lastxwars > distinct_wars:
                         await interaction.response.send_message(f"❌ {resolved_player} has only participated in {distinct_wars} wars, can't show last {lastxwars}.", ephemeral=True)
                         return
-                    
+
                     # Get stats for last X wars
                     stats = self.bot.db.get_player_stats_last_x_wars(resolved_player, lastxwars, guild_id)
                 else:
                     # Get all-time stats (default behavior)
                     stats = self.bot.db.get_player_stats(resolved_player, guild_id)
-                
+
                 if stats:
-                    # Modern minimalistic embed design
-                    from datetime import datetime
-
-                    # Get flag emoji
-                    country_code = stats.get('country_code', '')
-                    flag = country_code_to_flag(country_code) if country_code else ""
-                    flag_prefix = f"{flag} " if flag else ""
-
-                    # Determine title and color based on context
-                    if lastxwars is not None:
-                        title_text = f"{flag_prefix}{stats['player_name']} (Last {lastxwars} Wars)"
-                        scope_text = f"Last {lastxwars} Wars"
-                    else:
-                        title_text = f"{flag_prefix}{stats['player_name']}"
-                        scope_text = "Career Statistics"
-
-                    # Dynamic color based on team differential
-                    total_diff = stats.get('total_team_differential', 0)
-                    if total_diff is not None and total_diff > 0:
-                        color = 0x00ff88  # Green for positive
-                    elif total_diff is not None and total_diff < 0:
-                        color = 0xff6b6b  # Red for negative
-                    else:
-                        color = 0x95a5a6  # Gray for neutral
-
-                    # Build description with player info
-                    team_name = stats.get('team', 'Unassigned')
-                    description_parts = [f"**{team_name}**"]
-
-                    if stats.get('nicknames'):
-                        nicknames_str = ", ".join(stats['nicknames'])
-                        description_parts.append(f"*{nicknames_str}*")
-
-                    embed = discord.Embed(
-                        title=title_text,
-                        description="\n".join(description_parts),
-                        color=color
-                    )
-
-                    # Performance Overview (highest, average, lowest scores)
-                    highest_score = stats.get('highest_score', 0)
-                    avg_score = stats.get('average_score', 0.0)
-                    lowest_score = stats.get('lowest_score', 0)
-
-                    performance_text = f"```\nHighest:    {highest_score}\nAverage:    {avg_score:.1f}\nLowest:     {lowest_score}\n```"
-                    embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
-
-                    # Team Differential (highlight wins/losses)
-                    if total_diff is not None:
-                        war_count = float(stats.get('war_count', 0))
-                        avg_diff = total_diff / war_count if war_count > 0 else 0
-
-                        # Determine symbols and formatting
-                        total_diff_symbol = "+" if total_diff >= 0 else ""
-                        avg_diff_symbol = "+" if avg_diff >= 0 else ""
-
-                        if total_diff > 0:
-                            diff_emoji = "📈"
-                            diff_text = "Winning"
-                        elif total_diff < 0:
-                            diff_emoji = "📉"
-                            diff_text = "Fighting"
-                        else:
-                            diff_emoji = "⚖️"
-                            diff_text = "Balanced"
-
-                        # Get win/loss/tie record and percentage
-                        wins = stats.get('wins', 0)
-                        losses = stats.get('losses', 0)
-                        ties = stats.get('ties', 0)
-                        win_pct = stats.get('win_percentage', 0.0)
-
-                        differential_text = f"```\nAvg:   {avg_diff_symbol}{avg_diff:.1f}\n{wins}-{losses}-{ties} ({win_pct:.1f}%)\nTotal: {total_diff_symbol}{total_diff}\n```\n*{diff_text}*"
-                        embed.add_field(name=f"{diff_emoji} Differential", value=differential_text, inline=True)
-
-                    # Activity Stats (war count, races, last war)
-                    war_count = float(stats.get('war_count', 0))
-                    total_races = stats.get('total_races', 0)
-                    if stats.get('last_war_date'):
-                        try:
-                            # Parse the date - it's stored as just a date (no time)
-                            # Display in EST timezone
-                            date_obj = datetime.strptime(stats['last_war_date'], '%Y-%m-%d')
-                            last_war = date_obj.strftime('%b %d, %Y')
-                        except (ValueError, TypeError) as e:
-                            logging.debug(f"Date parsing failed for {stats.get('last_war_date')}: {e}")
-                            last_war = stats['last_war_date']
-                    else:
-                        last_war = "Never"
-
-                    activity_text = f"```\nWars:       {war_count:.1f}\nRaces:      {total_races}\nLast War:   {last_war}\n```"
-                    embed.add_field(name="📅 Activity", value=activity_text, inline=True)
-
-                    # Last 10 War Scores
-                    last_scores = self.bot.db.get_player_last_war_scores(resolved_player, limit=10, guild_id=guild_id)
-                    if last_scores:
-                        # Format scores with race count notation for non-standard wars
-                        scores_list = []
-                        for score in last_scores:
-                            score_value = score['score']
-                            race_count = score.get('race_count', 12)
-                            # Only show race count if it's not the standard 12 races
-                            if race_count != 12:
-                                # Add race count notation for non-standard wars
-                                scores_list.append(f"{score_value} ({race_count})")
-                            else:
-                                scores_list.append(str(score_value))
-                        scores_text = f"```\n{', '.join(scores_list)}\n```"
-                        embed.add_field(name="📜 Last 10 Wars", value=scores_text, inline=False)
-
-                    # Footer
-                    embed.set_footer(text=f"Guild-Specific {scope_text}")
-
-                    await interaction.response.send_message(embed=embed)
+                    await self._display_player_stats(interaction, resolved_player, stats, lastxwars, guild_id)
                 else:
                     # Check if player exists in players table but has no stats yet
                     roster_stats = self.bot.db.get_player_info(resolved_player, guild_id)
@@ -885,16 +1150,16 @@ class MarioKartCommands(commands.Cog):
                             description="This player is in the roster but hasn't participated in any wars yet.",
                             color=0xff9900
                         )
-                        
+
                         team_name = roster_stats.get('team', 'Unassigned')
                         embed.add_field(name="Team", value=team_name, inline=True)
-                        
+
                         if roster_stats.get('nicknames'):
                             embed.add_field(name="Nicknames", value=", ".join(roster_stats['nicknames']), inline=True)
-                        
+
                         embed.add_field(name="Wars Played", value="0", inline=True)
                         embed.set_footer(text="Use /addwar to add this player to a war")
-                        
+
                         await interaction.response.send_message(embed=embed)
                     else:
                         await interaction.response.send_message(f"❌ No stats found for player: {player}", ephemeral=True)
@@ -905,75 +1170,16 @@ class MarioKartCommands(commands.Cog):
                 # Get guild role configuration to check actual Discord roles
                 role_config = self.bot.db.get_guild_role_config(guild_id)
 
-                # Filter for Members: check Discord role if linked, otherwise use database status
-                member_stats = []
-                for player in roster_stats:
-                    discord_user_id = player.get('discord_user_id')
-
-                    if discord_user_id:
-                        # Player is linked - check actual Discord role
-                        member = interaction.guild.get_member(discord_user_id)
-                        if not member:
-                            # Player left or was kicked - exclude them
-                            continue
-
-                        # Check if they have the Member role (if role config exists)
-                        if role_config and role_config.get('role_member_id'):
-                            member_role_id = role_config['role_member_id']
-                            user_role_ids = [role.id for role in member.roles]
-                            if member_role_id in user_role_ids:
-                                member_stats.append(player)
-                            # else: linked but doesn't have Member role - exclude
-                        else:
-                            # No role config, use database status
-                            if player.get('member_status') == 'member':
-                                member_stats.append(player)
-                    else:
-                        # Player not linked - only show if role config is NOT set
-                        # When role config exists, unlinked players are excluded entirely
-                        if not (role_config and role_config.get('role_member_id')):
-                            if player.get('member_status') == 'member':
-                                member_stats.append(player)
+                # Filter for active members
+                member_stats = self._filter_active_members(roster_stats, interaction, role_config)
 
                 if not member_stats:
                     await interaction.response.send_message("❌ No members found with the Member role in Discord.", ephemeral=True)
                     return
 
-                # Get war statistics for members who have them
-                players_with_stats = []
-                players_without_stats = []
+                # Display leaderboard
+                await self._display_leaderboard(interaction, guild_id, member_stats, sortby)
 
-                for roster_player in member_stats:
-                    war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
-                    if war_stats:
-                        players_with_stats.append(war_stats)
-                    else:
-                        players_without_stats.append(roster_player)
-                
-                # Sort players with stats by sortby parameter (default: average score)
-                if sortby and sortby.lower() == 'winrate':
-                    players_with_stats.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
-                elif sortby and sortby.lower() == 'avgdiff':
-                    # Sort by team differential (total_team_differential / war_count)
-                    players_with_stats.sort(
-                        key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 1) > 0 else 0,
-                        reverse=True
-                    )
-                elif sortby and sortby.lower() == 'warcount':
-                    # Sort by number of wars (war_count)
-                    players_with_stats.sort(key=lambda x: x.get('war_count', 0), reverse=True)
-                else:
-                    players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
-                
-                # Combine and sort all players - those with stats first, then without stats
-                all_players = players_with_stats + players_without_stats
-
-                # Use pagination view for leaderboard
-                view = LeaderboardView(all_players, sortby, len(all_players))
-                embed = view.create_embed()
-
-                await interaction.response.send_message(embed=embed, view=view)
-                
         except Exception as e:
             logging.error(f"Error in stats command: {e}")
             if not interaction.response.is_done():
@@ -3320,13 +3526,24 @@ class MarioKartCommands(commands.Cog):
                     inline=False
                 )
             
-            # Time estimation
-            estimated_minutes = max(1, (len(images_found) * 5) // 60)  # ~5 seconds per image
-            if estimated_minutes == 1:
-                time_str = f"~{len(images_found) * 5} seconds"
-            else:
-                time_str = f"~{estimated_minutes} minute{'s' if estimated_minutes > 1 else ''}"
-            
+            # Time estimation - show in "X hours, Y minutes, Z seconds" format
+            estimated_seconds = len(images_found) * 5  # ~5 seconds per image
+
+            hours = estimated_seconds // 3600
+            minutes = (estimated_seconds % 3600) // 60
+            seconds = estimated_seconds % 60
+
+            # Build time string with only non-zero components
+            time_parts = []
+            if hours > 0:
+                time_parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+            if minutes > 0:
+                time_parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+            if seconds > 0 or not time_parts:  # Always show seconds if nothing else
+                time_parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
+
+            time_str = "~" + ", ".join(time_parts)
+
             embed.add_field(
                 name="⏱️ Estimated Time",
                 value=time_str,
@@ -3364,6 +3581,121 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error in bulkscanimage command: {e}")
             logging.error(traceback.format_exc())
             await interaction.followup.send(f"❌ An error occurred: {str(e)}")
+
+    @app_commands.command(name="sendcommand", description="[ADMIN ONLY - TEMPORARY] Execute a bot command in a different channel")
+    @app_commands.describe(
+        command_name="Name of the command to execute (e.g., 'bulkscanimage', 'scanimage', 'addwar', etc.)",
+        channel="Target channel where the command will be executed",
+        args="[Optional] Command arguments as a string (e.g., 'limit:10' for bulkscanimage)"
+    )
+    @require_guild_setup
+    async def send_command(self, interaction: discord.Interaction, command_name: str, channel: discord.TextChannel, args: str = None):
+        """
+        [TEMPORARY ADMIN COMMAND] Execute any bot command in a different channel.
+
+        This allows the bot owner to run commands in channels they don't have permission to access,
+        but the bot does. Useful when server owners want bot functionality without giving themselves
+        direct channel permissions.
+
+        Examples:
+        - /sendcommand command_name:bulkscanimage channel:#results args:limit:10
+        - /sendcommand command_name:scanimage channel:#results
+        """
+        # Check if user is bot owner (Cynical - 291621912914821120)
+        if not is_bot_owner(interaction.user.id):
+            await interaction.response.send_message(
+                "❌ This command is restricted to the bot owner only.",
+                ephemeral=True
+            )
+            return
+
+        logging.info(f"🔧 [ADMIN] User {interaction.user.name} executing /{command_name} in {channel.name} with args: {args}")
+
+        # Check if bot has permissions in the target channel
+        bot_member = interaction.guild.get_member(self.bot.user.id)
+        if not bot_member:
+            await interaction.response.send_message("❌ Unable to get bot member information.", ephemeral=True)
+            return
+
+        channel_perms = channel.permissions_for(bot_member)
+        required_perms = ['view_channel', 'send_messages', 'read_message_history']
+        missing_perms = [perm for perm in required_perms if not getattr(channel_perms, perm, False)]
+
+        if missing_perms:
+            missing_list = "\n".join([f"• {perm.replace('_', ' ').title()}" for perm in missing_perms])
+            await interaction.response.send_message(
+                f"❌ **Bot is missing permissions in {channel.mention}:**\n{missing_list}\n\n"
+                f"Please grant these permissions to the bot and try again.",
+                ephemeral=True
+            )
+            return
+
+        # Find the command method
+        command_method = None
+        for cmd in self.walk_app_commands():
+            if cmd.name == command_name:
+                command_method = cmd.callback
+                break
+
+        if not command_method:
+            await interaction.response.send_message(
+                f"❌ Command '{command_name}' not found.\n\n"
+                f"Use `/help` to see available commands, or check the command name spelling.",
+                ephemeral=True
+            )
+            return
+
+        # Parse args if provided
+        kwargs = {}
+        if args:
+            try:
+                # Parse args like "limit:10" or "player_scores:Alice:150,Bob:140"
+                for arg_pair in args.split():
+                    if ':' in arg_pair:
+                        key, value = arg_pair.split(':', 1)
+                        # Try to convert to int if possible
+                        try:
+                            kwargs[key] = int(value)
+                        except ValueError:
+                            kwargs[key] = value
+            except Exception as e:
+                await interaction.response.send_message(
+                    f"❌ Failed to parse arguments: {str(e)}\n\n"
+                    f"Expected format: `key:value` separated by spaces\n"
+                    f"Example: `limit:10` or `player_scores:Alice:150,Bob:140`",
+                    ephemeral=True
+                )
+                return
+
+        # Create a proxy interaction that uses the target channel
+        class InteractionProxy:
+            """Proxy object that wraps the interaction but overrides the channel."""
+            def __init__(self, original_interaction, target_channel):
+                self._original = original_interaction
+                self.channel = target_channel
+
+            def __getattr__(self, name):
+                # Delegate all other attributes to the original interaction
+                return getattr(self._original, name)
+
+        proxy_interaction = InteractionProxy(interaction, channel)
+
+        try:
+            # Call the actual command method with the proxy interaction
+            await command_method(self, proxy_interaction, **kwargs)
+            logging.info(f"✅ [ADMIN] Successfully executed /{command_name} in {channel.name}")
+        except TypeError as e:
+            # Wrong arguments provided
+            await interaction.response.send_message(
+                f"❌ Invalid arguments for command '{command_name}': {str(e)}\n\n"
+                f"Check the command signature and try again.",
+                ephemeral=True
+            )
+        except Exception as e:
+            logging.error(f"Error executing sendcommand: {e}")
+            logging.error(traceback.format_exc())
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"❌ Error executing command: {str(e)}", ephemeral=True)
 
     async def _countdown_and_delete_confirmation(self, message: discord.Message, embed: discord.Embed, countdown_seconds: int = 60):
         """Countdown and delete confirmation message for bulk scan."""

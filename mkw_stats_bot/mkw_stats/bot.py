@@ -1378,8 +1378,9 @@ class MarioKartBot(commands.Bot):
                     logger.error(f"Error saving war {war_info['filename']}: {e}")
             
             # Create final success/failure embed
-            await self.create_bulk_save_results_embed(message, saved_wars, save_failures, failed_images, total_images)
-            
+            user_id = confirmation_data.get('user_id')
+            await self.create_bulk_save_results_embed(message, saved_wars, save_failures, failed_images, total_images, guild_id, user_id)
+
             # Clean up confirmation data
             self.cleanup_confirmation(str(message.id))
             
@@ -1393,7 +1394,7 @@ class MarioKartBot(commands.Bot):
             await message.edit(embed=embed)
             self.cleanup_confirmation(str(message.id))
     
-    async def create_bulk_save_results_embed(self, message: discord.Message, saved_wars: List[Dict], save_failures: List[Dict], failed_images: List[Dict], total_images: int):
+    async def create_bulk_save_results_embed(self, message: discord.Message, saved_wars: List[Dict], save_failures: List[Dict], failed_images: List[Dict], total_images: int, guild_id: int = None, user_id: int = None):
         """Create final results embed after saving to database."""
         success_count = len(saved_wars)
         save_failure_count = len(save_failures)
@@ -1483,9 +1484,54 @@ class MarioKartBot(commands.Bot):
             )
         
         embed.set_footer(text=f"Bulk scan completed • {success_count} saved, {total_failures} failed")
-        
+
         await message.edit(embed=embed)
-        
+
+        # Send DM notification to user
+        if user_id and guild_id:
+            try:
+                user = self.get_user(user_id)
+                if user:
+                    # Get guild name for the notification
+                    guild = self.get_guild(guild_id)
+                    guild_name = guild.name if guild else f"Server (ID: {guild_id})"
+
+                    # Create DM embed
+                    dm_embed = discord.Embed(
+                        title="✅ Bulk Scan Complete",
+                        description=f"Your bulk scan in **{guild_name}** has finished processing!",
+                        color=0x00ff00 if total_failures == 0 else (0xffa500 if success_count > 0 else 0xff0000)
+                    )
+
+                    dm_embed.add_field(
+                        name="📊 Results",
+                        value=f"• **Wars Saved**: {success_count}\n• **Failed**: {total_failures}\n• **Total Images**: {total_images}",
+                        inline=False
+                    )
+
+                    # Add status message
+                    if success_count == total_images:
+                        status_msg = "All images processed successfully!"
+                    elif success_count > 0:
+                        status_msg = "Scan completed with some failures. Check the channel for details."
+                    else:
+                        status_msg = "No wars could be saved. Check the channel for error details."
+
+                    dm_embed.add_field(
+                        name="Status",
+                        value=status_msg,
+                        inline=False
+                    )
+
+                    dm_embed.set_footer(text=f"Server: {guild_name}")
+
+                    await user.send(embed=dm_embed)
+                    logger.info(f"Sent bulk scan completion DM to user {user_id} for guild {guild_id}")
+            except discord.errors.Forbidden:
+                logger.warning(f"Cannot send DM to user {user_id} - DMs are disabled")
+            except Exception as e:
+                logger.error(f"Failed to send bulk scan completion DM: {e}")
+
         # Auto-delete after 60 seconds
         asyncio.create_task(self._countdown_and_delete_message(message, embed, 60))
 

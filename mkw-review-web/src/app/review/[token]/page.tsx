@@ -215,7 +215,7 @@ export default function BulkReviewPage() {
   // Failure editing handlers
   const handleEditFailure = (failureId: number) => {
     setEditingFailure(failureId)
-    setFailureEditedPlayers([{ name: "", score: 0, is_roster_member: false }])
+    setFailureEditedPlayers([{ name: "", score: 0, is_roster_member: false, races_played: 12 }])
   }
 
   const handleCancelEditFailure = () => {
@@ -230,7 +230,7 @@ export default function BulkReviewPage() {
   }
 
   const handleAddFailurePlayer = () => {
-    setFailureEditedPlayers([...failureEditedPlayers, { name: "", score: 0, is_roster_member: false }])
+    setFailureEditedPlayers([...failureEditedPlayers, { name: "", score: 0, is_roster_member: false, races_played: 12 }])
   }
 
   const handleRemoveFailurePlayer = (index: number) => {
@@ -278,12 +278,19 @@ export default function BulkReviewPage() {
     if (!data?.session?.guild_id || !rosterPlayerName) return
 
     try {
-      // Add the detected name as a nickname to the roster player
-      const success = await api.addNickname(
-        data.session.guild_id.toString(),
-        rosterPlayerName,
-        detectedName
-      )
+      // Check if this is a staged player (not yet in roster)
+      const isStagedPlayer = stagedPlayers.some(p => p.name.toLowerCase() === rosterPlayerName.toLowerCase())
+
+      let success = true
+
+      // Only call addNickname API if it's an existing roster player (not staged)
+      if (!isStagedPlayer) {
+        success = await api.addNickname(
+          data.session.guild_id.toString(),
+          rosterPlayerName,
+          detectedName
+        )
+      }
 
       if (success) {
         // Update the result to use the canonical roster name
@@ -304,7 +311,11 @@ export default function BulkReviewPage() {
           })
         }
 
-        alert(`Linked "${detectedName}" as nickname to ${rosterPlayerName}`)
+        if (isStagedPlayer) {
+          alert(`Linked "${detectedName}" to staged player ${rosterPlayerName}`)
+        } else {
+          alert(`Linked "${detectedName}" as nickname to ${rosterPlayerName}`)
+        }
         setLinkingPlayer(null)
         setSelectedRosterPlayer("")
       } else {
@@ -561,7 +572,7 @@ export default function BulkReviewPage() {
                             variant="outline"
                             className="w-full"
                             onClick={() => {
-                              setEditedPlayers([...editedPlayers, { name: "", score: 0, is_roster_member: false }])
+                              setEditedPlayers([...editedPlayers, { name: "", score: 0, is_roster_member: false, races_played: 12 }])
                             }}
                           >
                             <Plus className="h-4 w-4 mr-2" />

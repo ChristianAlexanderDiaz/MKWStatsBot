@@ -16,6 +16,7 @@ import psycopg2.pool
 import psycopg2.errors
 import json
 import logging
+import statistics
 from typing import List, Dict, Optional
 from datetime import datetime, timezone, timedelta
 import os
@@ -23,6 +24,10 @@ from contextlib import contextmanager
 from urllib.parse import urlparse
 
 class DatabaseManager:
+    # Form Score calculation constants
+    FORM_SCORE_DECAY_FACTOR = 0.85  # Exponential weight decay (recent wars weighted ~15% more)
+    FORM_SCORE_MIN_WARS = 10  # Minimum wars required for Form Score calculation
+
     def __init__(self, database_url: str = None):
         """
         Initialize PostgreSQL database connection.
@@ -171,7 +176,7 @@ class DatabaseManager:
                         -- Statistics fields
                         total_score INTEGER DEFAULT 0,
                         total_races INTEGER DEFAULT 0,
-                        war_count INTEGER DEFAULT 0,
+                        war_count DECIMAL(8,3) DEFAULT 0,  -- Supports fractional wars (0.583 = 7/12 races), max 99999.999
                         average_score DECIMAL(5,2) DEFAULT 0.0,
                         last_war_date DATE,
                         -- Metadata
@@ -1167,6 +1172,17 @@ class DatabaseManager:
                 highest_score = score_stats[0] if score_stats and score_stats[0] is not None else 0
                 lowest_score = score_stats[1] if score_stats and score_stats[1] is not None else 0
 
+                # Calculate standard deviation of scores from all wars (consistency metric)
+                cursor.execute("""
+                    SELECT STDDEV_POP(pwp.score)
+                    FROM player_war_performances pwp
+                    JOIN wars w ON pwp.war_id = w.id
+                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                """, (player_id, guild_id))
+
+                stddev_result = cursor.fetchone()
+                score_stddev = float(stddev_result[0]) if stddev_result and stddev_result[0] is not None else 0.0
+
                 # Calculate win/loss/tie record from team differentials
                 cursor.execute("""
                     SELECT COUNT(CASE WHEN w.team_differential > 0 THEN 1 END),
@@ -1184,6 +1200,11 @@ class DatabaseManager:
                 total_wars = wins + losses + ties
                 win_percentage = (wins / total_wars * 100) if total_wars > 0 else 0.0
 
+                # Calculate CV% (Coefficient of Variation) - must come after total_wars is defined
+                average_score = float(result[4]) if result[4] else 0.0
+                # Only calculate CV% for players with at least 2 wars (need variance)
+                cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
+
                 return {
                     'player_name': player_name,
                     'total_score': result[1],
@@ -1200,6 +1221,8 @@ class DatabaseManager:
                     'country_code': result[12] if result[12] else None,
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
+                    'score_stddev': score_stddev,
+                    'cv_percent': cv_percent,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,
@@ -1272,14 +1295,19 @@ class DatabaseManager:
                 wins = 0
                 losses = 0
                 ties = 0
+                scores_list = []  # For standard deviation calculation
 
                 for perf in performances:
                     war_date, race_count, team_diff, score, races_played, war_participation = perf
                     total_score += score
                     total_races += races_played
-                    total_war_participation += float(war_participation)
+                    war_participation_float = float(war_participation)
+                    total_war_participation += war_participation_float
+                    # Normalize score by participation for stddev calculation
+                    normalized_score = score / war_participation_float if war_participation_float > 0 else score
+                    scores_list.append(normalized_score)  # Collect normalized scores for stddev calculation
                     # Scale team_differential by war_participation for fractional wars
-                    scaled_differential = int((team_diff or 0) * war_participation)
+                    scaled_differential = int((team_diff or 0) * war_participation_float)
                     total_team_differential += scaled_differential
 
                     # Calculate win/loss/tie
@@ -1312,6 +1340,16 @@ class DatabaseManager:
                 if lowest_score is None:
                     lowest_score = 0
 
+                # Calculate standard deviation from collected scores
+                if len(scores_list) > 0:
+                    score_stddev = statistics.pstdev(scores_list)  # Population standard deviation
+                else:
+                    score_stddev = 0.0
+
+                # Calculate CV% (Coefficient of Variation)
+                # Only calculate CV% for players with at least 2 wars (need variance)
+                cv_percent = (score_stddev / average_score * 100) if average_score > 0 and len(scores_list) >= 2 else None
+
                 return {
                     'player_name': player_name,
                     'total_score': total_score,
@@ -1327,6 +1365,8 @@ class DatabaseManager:
                     'total_team_differential': total_team_differential,
                     'highest_score': highest_score,
                     'lowest_score': lowest_score,
+                    'score_stddev': score_stddev,
+                    'cv_percent': cv_percent,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,
@@ -1336,7 +1376,128 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"❌ Error getting player stats for last {x_wars} wars: {e}")
             return None
-    
+
+    def get_player_form_score(self, player_name: str, guild_id: int = 0) -> Optional[float]:
+        """
+        Calculate Form Score (Momentum) using exponentially weighted moving average.
+
+        Form Score shows player trajectory by weighting recent performances more heavily
+        than older ones. Converts to soccer-style rating (0.0-10.0+).
+
+        Formula: form_score = sum(score_i * weight_i) / sum(weight_i)
+        where weight_i = (FORM_SCORE_DECAY_FACTOR)^i for i wars ago
+
+        Args:
+            player_name: Name of the player
+            guild_id: Guild ID (must be valid, non-zero for multi-guild isolation)
+
+        Returns:
+            Soccer-style rating (0.0-10.0+), or None if player has < 10 valid wars
+
+        Rating Scale:
+            - 84 (avg MKW) = 6.0 (average)
+            - 100 (golden) = 9.0 (excellent)
+            - 110 (elite) = 10.0 (perfect)
+            - 110+ = >10.0 (legendary)
+        """
+        try:
+            # Validate guild_id for multi-guild isolation
+            self._validate_guild_id(guild_id, "get_player_form_score")
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get player ID
+                cursor.execute("""
+                    SELECT id FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+
+                player_info = cursor.fetchone()
+                if not player_info:
+                    return None
+
+                player_id = player_info[0]
+
+                # Get recent war performances (fetch extra to handle invalid entries)
+                cursor.execute("""
+                    SELECT
+                        pwp.score,
+                        pwp.war_participation
+                    FROM player_war_performances pwp
+                    JOIN wars w ON pwp.war_id = w.id
+                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                    ORDER BY w.created_at DESC
+                    LIMIT 20
+                """, (player_id, guild_id))
+
+                all_performances = cursor.fetchall()
+
+                # Filter out invalid performances and normalize scores
+                performances_used = []
+                for score, war_participation in all_performances:
+                    war_participation_float = float(war_participation)
+
+                    # Skip invalid entries (no participation)
+                    if war_participation_float <= 0:
+                        continue
+
+                    # Normalize score by participation (so fractional wars are comparable)
+                    normalized_score = score / war_participation_float
+                    performances_used.append(normalized_score)
+
+                    # Stop once we have enough valid performances
+                    if len(performances_used) >= self.FORM_SCORE_MIN_WARS:
+                        break
+
+                # Only calculate if player has at least 10 valid wars
+                if len(performances_used) < self.FORM_SCORE_MIN_WARS:
+                    return None
+
+                # Calculate exponentially weighted moving average
+                weighted_sum = 0.0
+                weight_sum = 0.0
+
+                for i, normalized_score in enumerate(performances_used):
+                    # Calculate weight: decay_factor^i (most recent = i=0, weight=1.0)
+                    weight = self.FORM_SCORE_DECAY_FACTOR ** i
+
+                    weighted_sum += normalized_score * weight
+                    weight_sum += weight
+
+                # Calculate raw form score (MKW score range)
+                # Defensive: weight_sum should always be > 0 with valid performances
+                if weight_sum <= 0:
+                    logging.warning(f"Unexpected zero weight_sum for {player_name} in guild {guild_id}")
+                    return None
+
+                raw_form_score = weighted_sum / weight_sum
+
+                # Convert to soccer-style rating (0.0-10.0+ scale)
+                # Scale: 84=6.0 (avg), 100=9.0 (golden), 110=10.0 (perfect), 110+=off the charts
+                if raw_form_score <= 84:
+                    # Below average: scale 0.0 to 6.0
+                    soccer_rating = (raw_form_score / 84.0) * 6.0
+                elif raw_form_score <= 100:
+                    # Average to golden: 6.0 to 9.0 (linear)
+                    soccer_rating = 6.0 + ((raw_form_score - 84) / 16.0) * 3.0
+                elif raw_form_score <= 110:
+                    # Golden to perfect: 9.0 to 10.0 (linear)
+                    soccer_rating = 9.0 + ((raw_form_score - 100) / 10.0)
+                else:
+                    # Beyond perfect: 10.0+ (continue scaling)
+                    soccer_rating = 10.0 + ((raw_form_score - 110) / 10.0)
+
+                # Clamp minimum to 0.0, no max (allow >10.0)
+                soccer_rating = max(0.0, soccer_rating)
+
+                # Round to 1 decimal place for display
+                return round(soccer_rating, 1)
+
+        except Exception as e:
+            logging.error(f"❌ Error calculating form score for {player_name}: {e}")
+            return None
+
     def get_player_distinct_war_count(self, player_name: str, guild_id: int = 0) -> int:
         """
         Get the number of distinct wars a player has participated in.

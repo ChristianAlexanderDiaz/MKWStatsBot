@@ -1,0 +1,68 @@
+# CodeRabbit Configuration for MKW Stats Bot
+# SS-Tier Setup: Accurate + Free Auto-Reviews
+
+language: "en-US"
+early_access: false
+enable_free_tier: true
+
+# Concise but thorough reviews
+tone_instructions: "Be concise, actionable, and focus on critical issues. Prioritize bugs, security vulnerabilities, and performance problems over style nitpicks."
+
+reviews:
+  # High-level summary at the top
+  high_level_summary: true
+  high_level_summary_placeholder: "📝 Walkthrough"
+
+  # Disable poem (waste of space)
+  poem: false
+
+  # Review status indicators
+  review_status: true
+
+  # Collapse verbose sections by default
+  collapse_walkthrough: false
+
+  # Auto-review settings
+  auto_review:
+    enabled: true
+    drafts: false  # Don't review draft PRs
+    base_branches:
+      - main
+      - master
+
+  # Focus areas
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/venv/**"
+    - "!**/*.lock"
+    - "!**/*.min.js"
+
+  # File-specific instructions
+  path_instructions:
+    - path: "mkw_stats_bot/**/*.py"
+      instructions: "Focus on async/await correctness, SQL injection risks, and guild_id isolation for multi-tenancy."
+    - path: "mkw-dashboard-api/**/*.py"
+      instructions: "Check authentication/authorization, input validation, and CORS configuration."
+    - path: "mkw-review-web/**/*.{ts,tsx}"
+      instructions: "Verify React best practices, data fetching with proper error handling, and TypeScript type safety."
+
+  # Abort in-progress review when PR is closed or merged
+  abort_on_close: true
+
+  # Tool integrations (free tier)
+  tools:
+    # Python linting
+    ruff:
+      enabled: true
+
+    # Shell script checking
+    shellcheck:
+      enabled: true
+
+    # Markdown linting
+    markdownlint:
+      enabled: true
+
+# Chat settings
+chat:
+  auto_reply: true
