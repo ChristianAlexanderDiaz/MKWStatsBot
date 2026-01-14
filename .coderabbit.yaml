@@ -46,7 +46,7 @@ reviews:
     - path: "mkw-review-web/**/*.{ts,tsx}"
       instructions: "Verify React best practices, data fetching with proper error handling, and TypeScript type safety."
 
-  # Abort review if too many files changed (likely merge conflicts or bulk refactor)
+  # Abort in-progress review when PR is closed or merged
   abort_on_close: true
 
   # Tool integrations (free tier)

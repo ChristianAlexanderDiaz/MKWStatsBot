@@ -44,29 +44,38 @@ export default function WarsPage() {
       ) : (
         <>
           <div className="grid gap-4">
-            {data?.wars.map((war) => (
-              <Card key={war.id}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-medium">War #{war.id}</h3>
-                        <Badge variant="outline">
-                          {war.race_count} races
-                        </Badge>
-                        <Badge
-                          variant={war.team_differential >= 0 ? "success" : "destructive"}
-                          className="gap-1"
-                        >
-                          {war.team_differential >= 0 ? (
-                            <TrendingUp className="h-3 w-3" />
-                          ) : (
-                            <TrendingDown className="h-3 w-3" />
-                          )}
-                          {war.team_differential >= 0 ? "+" : ""}
-                          {war.team_differential}
-                        </Badge>
-                      </div>
+            {data?.wars.map((war) => {
+              const scannedCount = war.players.length
+              const totalPlayers = 6 // Standard MKW war team size
+              return (
+                <Card key={war.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="font-medium">War #{war.id}</h3>
+                          <Badge variant="outline">
+                            {war.race_count} races
+                          </Badge>
+                          <Badge
+                            variant={scannedCount === totalPlayers ? "success" : "secondary"}
+                            className="gap-1"
+                          >
+                            Players: {scannedCount}/{totalPlayers}
+                          </Badge>
+                          <Badge
+                            variant={war.team_differential >= 0 ? "success" : "destructive"}
+                            className="gap-1"
+                          >
+                            {war.team_differential >= 0 ? (
+                              <TrendingUp className="h-3 w-3" />
+                            ) : (
+                              <TrendingDown className="h-3 w-3" />
+                            )}
+                            {war.team_differential >= 0 ? "+" : ""}
+                            {war.team_differential}
+                          </Badge>
+                        </div>
                       <p className="text-sm text-muted-foreground mb-3">
                         {new Date(war.created_at).toLocaleDateString()} |{" "}
                         Team Score: {war.team_score}
@@ -88,7 +97,8 @@ export default function WarsPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              )
+            })}
           </div>
 
           {/* Pagination */}
