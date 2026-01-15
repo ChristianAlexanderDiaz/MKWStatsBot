@@ -1498,6 +1498,148 @@ class DatabaseManager:
             logging.error(f"❌ Error calculating form score for {player_name}: {e}")
             return None
 
+    def get_player_clutch_factor(self, player_name: str, guild_id: int = 0) -> Optional[float]:
+        """
+        Calculate Clutch Factor: performance in close wars vs overall average.
+
+        Clutch Factor measures whether a player performs better/worse in high-pressure
+        situations (close wars). Positive = clutch player, negative = chokes under pressure.
+
+        Formula: (avg_score_close_wars - avg_score_all_wars) / stddev
+        where close wars = abs(team_differential) <= 38
+        (38 = very close war threshold, as minimum non-tie differential is ±2)
+
+        Args:
+            player_name: Name of the player
+            guild_id: Guild ID for multi-tenant isolation
+
+        Returns:
+            Clutch Factor (z-score), or None if insufficient data
+            Requires at least 2 wars with at least 1 close war
+        """
+        try:
+            # Validate guild_id for multi-guild isolation
+            self._validate_guild_id(guild_id, "get_player_clutch_factor")
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get player ID
+                cursor.execute("""
+                    SELECT id FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+
+                player_info = cursor.fetchone()
+                if not player_info:
+                    return None
+
+                player_id = player_info[0]
+
+                # Get all war scores and team differentials
+                cursor.execute("""
+                    SELECT pwp.score, w.team_differential, pwp.war_participation
+                    FROM player_war_performances pwp
+                    JOIN wars w ON pwp.war_id = w.id
+                    WHERE pwp.player_id = %s AND w.guild_id = %s
+                    ORDER BY w.created_at DESC
+                """, (player_id, guild_id))
+
+                performances = cursor.fetchall()
+
+                # Need at least 2 wars for meaningful calculation
+                if len(performances) < 2:
+                    return None
+
+                # Calculate overall average and standard deviation
+                all_scores = []
+                close_war_scores = []
+
+                for score, team_diff, war_participation in performances:
+                    war_participation_float = float(war_participation)
+
+                    # Skip invalid entries
+                    if war_participation_float <= 0:
+                        continue
+
+                    # Normalize score by participation
+                    normalized_score = score / war_participation_float
+                    all_scores.append(normalized_score)
+
+                    # Check if close war (abs differential <= 38)
+                    if team_diff is not None and abs(team_diff) <= 38:
+                        close_war_scores.append(normalized_score)
+
+                # Validate sufficient data
+                if len(all_scores) < 2 or len(close_war_scores) < 1:
+                    return None
+
+                # Calculate statistics
+                import statistics
+                avg_all = statistics.mean(all_scores)
+                stddev = statistics.pstdev(all_scores)
+                avg_close = statistics.mean(close_war_scores)
+
+                # Avoid division by zero
+                if stddev <= 0:
+                    return None
+
+                # Calculate clutch factor (z-score)
+                clutch_factor = (avg_close - avg_all) / stddev
+
+                return round(clutch_factor, 2)
+
+        except Exception as e:
+            logging.error(f"❌ Error calculating clutch factor for {player_name}: {e}")
+            return None
+
+    def get_player_potential(self, player_name: str, guild_id: int = 0) -> Optional[float]:
+        """
+        Calculate Potential: estimated performance ceiling based on recent form + variance.
+
+        Potential represents the upper range of what a player can achieve, combining
+        their recent average with their variability (stddev as ceiling estimate).
+
+        Formula: avg10 + stddev
+        where avg10 = average of last 10 wars, stddev = population standard deviation
+
+        Args:
+            player_name: Name of the player
+            guild_id: Guild ID for multi-tenant isolation
+
+        Returns:
+            Potential score (avg10 + stddev), or None if insufficient data
+            Requires at least 10 wars to calculate
+        """
+        try:
+            # Validate guild_id for multi-guild isolation
+            self._validate_guild_id(guild_id, "get_player_potential")
+
+            # Get avg10 stats
+            avg10_stats = self.get_player_stats_last_x_wars(player_name, 10, guild_id)
+            if not avg10_stats:
+                return None
+
+            avg10_score = avg10_stats.get('average_score')
+            if avg10_score is None or avg10_score <= 0:
+                return None
+
+            # Get standard deviation from overall stats
+            overall_stats = self.get_player_stats(player_name, guild_id)
+            if not overall_stats:
+                return None
+
+            stddev = overall_stats.get('score_stddev', 0.0)
+
+            # Calculate potential
+            potential = avg10_score + stddev
+
+            return round(potential, 1)
+
+        except Exception as e:
+            logging.error(f"❌ Error calculating potential for {player_name}: {e}")
+            return None
+
     def get_player_distinct_war_count(self, player_name: str, guild_id: int = 0) -> int:
         """
         Get the number of distinct wars a player has participated in.
