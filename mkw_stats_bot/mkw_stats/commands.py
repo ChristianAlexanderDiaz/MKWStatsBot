@@ -99,9 +99,28 @@ class LeaderboardView(discord.ui.View):
         else:
             title = "📊 Player Statistics Leaderboard"
 
+        # Sort description mapping
+        sort_descriptions = {
+            'avg10': 'Average score of last 10 wars',
+            'avgdiff': 'Average team differential across all wars',
+            'cv': 'Consistency metric (coefficient of variation)',
+            'form': 'Recent momentum based on performance trends',
+            'highest': 'Highest score achieved in a single war',
+            'hotstreak': 'Current hot streak vs career average',
+            'lastwar': 'Most recent war performance',
+            'lowest': 'Lowest score achieved in a single war',
+            'totaldiff': 'Total team differential across all wars',
+            'warcount': 'Total number of wars played',
+            'winrate': 'Win rate percentage across all wars'
+        }
+
+        # Get description for current sort
+        description = sort_descriptions.get(self.sortby) if self.sortby else 'Default ranking by average score'
+
         # Create embed
         embed = discord.Embed(
             title=title,
+            description=f"*{description}*",
             color=0x00ff00
         )
 
@@ -1154,17 +1173,17 @@ class MarioKartCommands(commands.Cog):
     )
     @app_commands.choices(
         sortby=[
-            app_commands.Choice(name="Average 10", value="avg10", description="Average score of last 10 wars"),
-            app_commands.Choice(name="Average Team Differential", value="avgdiff", description="Average team differential across all wars"),
-            app_commands.Choice(name="Consistency", value="cv", description="Consistency metric (coefficient of variation)"),
-            app_commands.Choice(name="Form", value="form", description="Recent momentum based on performance trends"),
-            app_commands.Choice(name="Highest Score", value="highest", description="Highest score achieved in a single war"),
-            app_commands.Choice(name="Hotstreak", value="hotstreak", description="Current hot streak vs career average"),
-            app_commands.Choice(name="Last War", value="lastwar", description="Most recent war performance"),
-            app_commands.Choice(name="Lowest", value="lowest", description="Lowest score achieved in a single war"),
-            app_commands.Choice(name="Total Differential", value="totaldiff", description="Total team differential across all wars"),
-            app_commands.Choice(name="Number of Wars", value="warcount", description="Total number of wars played"),
-            app_commands.Choice(name="Win Rate", value="winrate", description="Win rate percentage across all wars")
+            app_commands.Choice(name="Average 10", value="avg10"),
+            app_commands.Choice(name="Average Team Differential", value="avgdiff"),
+            app_commands.Choice(name="Consistency", value="cv"),
+            app_commands.Choice(name="Form", value="form"),
+            app_commands.Choice(name="Highest Score", value="highest"),
+            app_commands.Choice(name="Hotstreak", value="hotstreak"),
+            app_commands.Choice(name="Last War", value="lastwar"),
+            app_commands.Choice(name="Lowest", value="lowest"),
+            app_commands.Choice(name="Total Differential", value="totaldiff"),
+            app_commands.Choice(name="Number of Wars", value="warcount"),
+            app_commands.Choice(name="Win Rate", value="winrate")
         ],
         lastxwars=[
             app_commands.Choice(name="Last 5 Wars", value=5),
