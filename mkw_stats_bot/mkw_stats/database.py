@@ -1204,6 +1204,8 @@ class DatabaseManager:
                 average_score = float(result[4]) if result[4] else 0.0
                 # Only calculate CV% for players with at least 2 wars (need variance)
                 cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
+                # Convert to user-friendly Consistency Score (100 - CV%, capped at 0)
+                consistency_score = max(0, 100 - cv_percent) if cv_percent is not None else None
 
                 return {
                     'player_name': player_name,
@@ -1223,6 +1225,7 @@ class DatabaseManager:
                     'lowest_score': lowest_score,
                     'score_stddev': score_stddev,
                     'cv_percent': cv_percent,
+                    'consistency_score': consistency_score,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,
@@ -1350,6 +1353,8 @@ class DatabaseManager:
                 # Calculate CV% (Coefficient of Variation)
                 # Only calculate CV% for players with at least 2 wars (need variance)
                 cv_percent = (score_stddev / average_score * 100) if average_score > 0 and len(scores_list) >= 2 else None
+                # Convert to user-friendly Consistency Score (100 - CV%, capped at 0)
+                consistency_score = max(0, 100 - cv_percent) if cv_percent is not None else None
 
                 return {
                     'player_name': player_name,
@@ -1369,6 +1374,7 @@ class DatabaseManager:
                     'lowest_score': lowest_score,
                     'score_stddev': score_stddev,
                     'cv_percent': cv_percent,
+                    'consistency_score': consistency_score,
                     'wins': wins,
                     'losses': losses,
                     'ties': ties,
