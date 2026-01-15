@@ -84,7 +84,6 @@ class LeaderboardView(discord.ui.View):
         if self.sortby:
             sort_names = {
                 "avg10": "Average 10",
-                "average": "Average Score",
                 "avgdiff": "Average Team Differential",
                 "cv": "Consistency",
                 "form": "Form",
@@ -96,13 +95,32 @@ class LeaderboardView(discord.ui.View):
                 "warcount": "Number of Wars",
                 "winrate": "Win Rate"
             }
-            title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average Score')}"
+            title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average 10')}"
         else:
             title = "📊 Player Statistics Leaderboard"
+
+        # Sort description mapping
+        sort_descriptions = {
+            'avg10': 'Average score of last 10 wars',
+            'avgdiff': 'Average team differential across all wars',
+            'cv': 'Consistency metric (coefficient of variation)',
+            'form': 'Recent momentum based on performance trends',
+            'highest': 'Highest score achieved in a single war',
+            'hotstreak': 'Current hot streak vs career average',
+            'lastwar': 'Most recent war performance',
+            'lowest': 'Lowest score achieved in a single war',
+            'totaldiff': 'Total team differential across all wars',
+            'warcount': 'Total number of wars played',
+            'winrate': 'Win rate percentage across all wars'
+        }
+
+        # Get description for current sort
+        description = sort_descriptions.get(self.sortby) if self.sortby else 'Default ranking by average score'
 
         # Create embed
         embed = discord.Embed(
             title=title,
+            description=f"*{description}*",
             color=0x00ff00
         )
 
@@ -124,8 +142,8 @@ class LeaderboardView(discord.ui.View):
                 war_count = float(player.get('war_count', 0))
 
                 # Bold the column being sorted by
-                # Default (None) or "average" sorts by avg, "warcount" sorts by wars
-                if self.sortby in [None, 'average']:
+                # Default (None) sorts by avg, "warcount" sorts by wars
+                if self.sortby is None:
                     # Bold average score
                     player_str = f"{rank}. {flag} **{player['player_name']}** | **{avg_score:.1f}** avg | {war_count:.1f} wars"
                 elif self.sortby == 'warcount':
@@ -832,7 +850,7 @@ class MarioKartCommands(commands.Cog):
 
         Args:
             players_with_stats: List of players with war statistics
-            sortby: Sort criteria (avg10, average, avgdiff, cv, form, highest, hotstreak, lastwar, lowest, totaldiff, warcount, winrate)
+            sortby: Sort criteria (avg10, avgdiff, cv, form, highest, hotstreak, lastwar, lowest, totaldiff, warcount, winrate)
             guild_id: Guild ID for database queries (required for some sorting options)
 
         Returns:
@@ -1156,7 +1174,6 @@ class MarioKartCommands(commands.Cog):
     @app_commands.choices(
         sortby=[
             app_commands.Choice(name="Average 10", value="avg10"),
-            app_commands.Choice(name="Average Score", value="average"),
             app_commands.Choice(name="Average Team Differential", value="avgdiff"),
             app_commands.Choice(name="Consistency", value="cv"),
             app_commands.Choice(name="Form", value="form"),
