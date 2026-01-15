@@ -106,7 +106,7 @@ class LeaderboardView(discord.ui.View):
             'avg10': 'Recent form - average of your last 10 wars. Shows current performance vs all-time average.',
             'avgdiff': 'Team differential per war - how much your team wins/loses by on average. Positive = helping your team, negative = holding team back.',
             'clutch': 'Clutch factor - measures performance in close wars (differential <= 38) vs overall average, normalized by consistency. Positive = clutch player, negative = chokes under pressure.',
-            'cv': 'Consistency score (0-100%) - lower is more consistent. 10% = very steady, 50% = all over the place.',
+            'cv': 'Consistency score (0-100%) - higher is more consistent. 90% = very steady, 50% = moderate variance, 0% = extremely inconsistent.',
             'form': 'Soccer-style rating (0-10+) of recent performance. Exponentially weighted average of last 10-20 wars where recent matches count more heavily. 6.0=average, 9.0=excellent, 10.0+=elite.',
             'highest': 'Personal best - the highest individual score you\'ve ever achieved in a single war.',
             'hotstreak': 'Average of last 10 wars minus your career average. Positive = hot streak (beating your average), negative = slump (below your average).',
@@ -178,9 +178,9 @@ class LeaderboardView(discord.ui.View):
                         else:
                             player_str += " | **N/A**"
                     elif self.sortby == 'cv':
-                        cv_pct = player.get('cv_percent')
-                        if cv_pct is not None:
-                            player_str += f" | **{cv_pct:.1f}%**"
+                        consistency = player.get('consistency_score')
+                        if consistency is not None:
+                            player_str += f" | **{consistency:.1f}%**"
                         else:
                             player_str += " | **N/A**"
                     elif self.sortby == 'form':
@@ -892,10 +892,10 @@ class MarioKartCommands(commands.Cog):
             players_filtered.sort(key=lambda x: x.get('clutch_factor', 0), reverse=True)
             players_with_stats = players_filtered
         elif sortby and sortby.lower() == 'cv':
-            # Sort by CV% ascending (lower is better)
+            # Sort by consistency score descending (higher is better)
             # Filter out players with insufficient data (< 2 wars minimum)
             players_with_cv = [p for p in players_with_stats if p.get('war_count', 0) >= 2]
-            players_with_cv.sort(key=lambda x: x.get('cv_percent', float('inf')))
+            players_with_cv.sort(key=lambda x: x.get('consistency_score', 0), reverse=True)
             players_with_stats = players_with_cv
         elif sortby and sortby.lower() == 'form':
             # Sort by form score (descending)
@@ -1069,10 +1069,10 @@ class MarioKartCommands(commands.Cog):
 
         embed.add_field(name="⚔️ Performance", value=performance_text, inline=True)
 
-        # Consistency metric (CV% only)
-        cv_percent = stats.get('cv_percent')
-        if cv_percent is not None:
-            consistency_text = f"```\n{cv_percent:.1f}%\n```"
+        # Consistency Score (0-100%, where 100 = perfectly consistent)
+        consistency_score = stats.get('consistency_score')
+        if consistency_score is not None:
+            consistency_text = f"```\n{consistency_score:.1f}%\n```"
         else:
             consistency_text = "```\nN/A\n(Need 2+ wars)\n```"
         embed.add_field(name="📊 Consistency", value=consistency_text, inline=True)
