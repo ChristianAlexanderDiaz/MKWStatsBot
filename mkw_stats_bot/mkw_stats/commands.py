@@ -84,7 +84,6 @@ class LeaderboardView(discord.ui.View):
         if self.sortby:
             sort_names = {
                 "avg10": "Average 10",
-                "average": "Average Score",
                 "avgdiff": "Average Team Differential",
                 "cv": "Consistency",
                 "form": "Form",
@@ -96,7 +95,7 @@ class LeaderboardView(discord.ui.View):
                 "warcount": "Number of Wars",
                 "winrate": "Win Rate"
             }
-            title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average Score')}"
+            title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average 10')}"
         else:
             title = "📊 Player Statistics Leaderboard"
 
@@ -124,8 +123,8 @@ class LeaderboardView(discord.ui.View):
                 war_count = float(player.get('war_count', 0))
 
                 # Bold the column being sorted by
-                # Default (None) or "average" sorts by avg, "warcount" sorts by wars
-                if self.sortby in [None, 'average']:
+                # Default (None) sorts by avg, "warcount" sorts by wars
+                if self.sortby is None:
                     # Bold average score
                     player_str = f"{rank}. {flag} **{player['player_name']}** | **{avg_score:.1f}** avg | {war_count:.1f} wars"
                 elif self.sortby == 'warcount':
@@ -832,7 +831,7 @@ class MarioKartCommands(commands.Cog):
 
         Args:
             players_with_stats: List of players with war statistics
-            sortby: Sort criteria (avg10, average, avgdiff, cv, form, highest, hotstreak, lastwar, lowest, totaldiff, warcount, winrate)
+            sortby: Sort criteria (avg10, avgdiff, cv, form, highest, hotstreak, lastwar, lowest, totaldiff, warcount, winrate)
             guild_id: Guild ID for database queries (required for some sorting options)
 
         Returns:
@@ -1155,18 +1154,17 @@ class MarioKartCommands(commands.Cog):
     )
     @app_commands.choices(
         sortby=[
-            app_commands.Choice(name="Average 10", value="avg10"),
-            app_commands.Choice(name="Average Score", value="average"),
-            app_commands.Choice(name="Average Team Differential", value="avgdiff"),
-            app_commands.Choice(name="Consistency", value="cv"),
-            app_commands.Choice(name="Form", value="form"),
-            app_commands.Choice(name="Highest Score", value="highest"),
-            app_commands.Choice(name="Hotstreak", value="hotstreak"),
-            app_commands.Choice(name="Last War", value="lastwar"),
-            app_commands.Choice(name="Lowest", value="lowest"),
-            app_commands.Choice(name="Total Differential", value="totaldiff"),
-            app_commands.Choice(name="Number of Wars", value="warcount"),
-            app_commands.Choice(name="Win Rate", value="winrate")
+            app_commands.Choice(name="Average 10", value="avg10", description="Average score of last 10 wars"),
+            app_commands.Choice(name="Average Team Differential", value="avgdiff", description="Average team differential across all wars"),
+            app_commands.Choice(name="Consistency", value="cv", description="Consistency metric (coefficient of variation)"),
+            app_commands.Choice(name="Form", value="form", description="Recent momentum based on performance trends"),
+            app_commands.Choice(name="Highest Score", value="highest", description="Highest score achieved in a single war"),
+            app_commands.Choice(name="Hotstreak", value="hotstreak", description="Current hot streak vs career average"),
+            app_commands.Choice(name="Last War", value="lastwar", description="Most recent war performance"),
+            app_commands.Choice(name="Lowest", value="lowest", description="Lowest score achieved in a single war"),
+            app_commands.Choice(name="Total Differential", value="totaldiff", description="Total team differential across all wars"),
+            app_commands.Choice(name="Number of Wars", value="warcount", description="Total number of wars played"),
+            app_commands.Choice(name="Win Rate", value="winrate", description="Win rate percentage across all wars")
         ],
         lastxwars=[
             app_commands.Choice(name="Last 5 Wars", value=5),
