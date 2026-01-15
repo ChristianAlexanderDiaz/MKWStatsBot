@@ -83,11 +83,18 @@ class LeaderboardView(discord.ui.View):
         # Dynamic title based on sort
         if self.sortby:
             sort_names = {
+                "avg10": "Average 10",
                 "average": "Average Score",
-                "winrate": "Win Rate",
-                "avgdiff": "Team Differential",
+                "avgdiff": "Average Team Differential",
+                "cv": "Consistency",
+                "form": "Form",
+                "highest": "Highest Score",
+                "hotstreak": "Hotstreak",
+                "lastwar": "Last War",
+                "lowest": "Lowest",
+                "totaldiff": "Total Differential",
                 "warcount": "Number of Wars",
-                "cv": "Consistency"
+                "winrate": "Win Rate"
             }
             title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average Score')}"
         else:
@@ -101,7 +108,7 @@ class LeaderboardView(discord.ui.View):
 
         # Build numbered leaderboard with flags
         # Determine what to show in third column based on sort
-        show_third_column = self.sortby in ['winrate', 'avgdiff', 'cv']
+        show_third_column = self.sortby in ['avg10', 'avgdiff', 'cv', 'form', 'highest', 'hotstreak', 'lastwar', 'lowest', 'totaldiff', 'winrate']
 
         leaderboard_text = []
         for idx, player in enumerate(page_players):
@@ -130,20 +137,55 @@ class LeaderboardView(discord.ui.View):
 
                 # Add third column based on sort type (and bold it)
                 if show_third_column:
-                    if self.sortby == 'winrate':
-                        win_pct = player.get('win_percentage', 0.0)
-                        player_str += f" | **{win_pct:.1f}%**"
+                    if self.sortby == 'avg10':
+                        avg10 = player.get('avg10_score')
+                        if avg10 is not None:
+                            player_str += f" | **{avg10:.1f}** avg10"
+                        else:
+                            player_str += " | **N/A**"
                     elif self.sortby == 'avgdiff':
                         total_diff = player.get('total_team_differential', 0)
                         avg_diff = total_diff / war_count if war_count > 0 else 0
                         diff_symbol = "+" if avg_diff >= 0 else ""
-                        player_str += f" | **{diff_symbol}{avg_diff:.1f}** diff"
+                        player_str += f" | **{diff_symbol}{avg_diff:.1f}** avg diff"
                     elif self.sortby == 'cv':
                         cv_pct = player.get('cv_percent')
                         if cv_pct is not None:
                             player_str += f" | **{cv_pct:.1f}%**"
                         else:
                             player_str += " | **N/A**"
+                    elif self.sortby == 'form':
+                        form = player.get('form_score')
+                        if form is not None and form > 0:
+                            player_str += f" | **{form:.1f}** form"
+                        else:
+                            player_str += " | **N/A**"
+                    elif self.sortby == 'highest':
+                        highest = player.get('highest_score', 0)
+                        player_str += f" | **{highest}** highest"
+                    elif self.sortby == 'hotstreak':
+                        htsk = player.get('hotstreak')
+                        if htsk is not None:
+                            htsk_symbol = "+" if htsk >= 0 else ""
+                            player_str += f" | **{htsk_symbol}{htsk:.2f}** htsk"
+                        else:
+                            player_str += " | **N/A**"
+                    elif self.sortby == 'lastwar':
+                        last_war = player.get('last_war_date')
+                        if last_war:
+                            player_str += f" | **{last_war}**"
+                        else:
+                            player_str += " | **N/A**"
+                    elif self.sortby == 'lowest':
+                        lowest = player.get('lowest_score', 0)
+                        player_str += f" | **{lowest}** lowest"
+                    elif self.sortby == 'totaldiff':
+                        total_diff = player.get('total_team_differential', 0)
+                        diff_symbol = "+" if total_diff >= 0 else ""
+                        player_str += f" | **{diff_symbol}{total_diff}** total diff"
+                    elif self.sortby == 'winrate':
+                        win_pct = player.get('win_percentage', 0.0)
+                        player_str += f" | **{win_pct:.1f}%**"
 
                 leaderboard_text.append(player_str)
             else:
@@ -785,33 +827,67 @@ class MarioKartCommands(commands.Cog):
 
         return member_stats
 
-    def _sort_player_stats(self, players_with_stats: List[Dict[str, Any]], sortby: Optional[str]) -> List[Dict[str, Any]]:
+    def _sort_player_stats(self, players_with_stats: List[Dict[str, Any]], sortby: Optional[str], guild_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Sort player statistics by specified criteria.
 
         Args:
             players_with_stats: List of players with war statistics
-            sortby: Sort criteria (winrate, avgdiff, warcount, cv, or average)
+            sortby: Sort criteria (avg10, average, avgdiff, cv, form, highest, hotstreak, lastwar, lowest, totaldiff, warcount, winrate)
+            guild_id: Guild ID for database queries (required for some sorting options)
 
         Returns:
             Sorted list of player statistics
         """
-        if sortby and sortby.lower() == 'winrate':
-            players_with_stats.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
+        if sortby and sortby.lower() == 'avg10':
+            # Sort by average of last 10 wars (descending)
+            # Filter players with at least 10 wars
+            players_filtered = [p for p in players_with_stats if p.get('avg10_score') is not None]
+            players_filtered.sort(key=lambda x: x.get('avg10_score', 0), reverse=True)
+            players_with_stats = players_filtered
         elif sortby and sortby.lower() == 'avgdiff':
-            # Sort by team differential (total_team_differential / war_count)
+            # Sort by average team differential (total_team_differential / war_count)
             players_with_stats.sort(
                 key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 1) > 0 else 0,
                 reverse=True
             )
-        elif sortby and sortby.lower() == 'warcount':
-            # Sort by number of wars (war_count)
-            players_with_stats.sort(key=lambda x: x.get('war_count', 0), reverse=True)
         elif sortby and sortby.lower() == 'cv':
             # Sort by CV% ascending (lower is better)
             # Filter out players with insufficient data (< 2 wars minimum)
             players_with_cv = [p for p in players_with_stats if p.get('war_count', 0) >= 2]
             players_with_cv.sort(key=lambda x: x.get('cv_percent', float('inf')))
             players_with_stats = players_with_cv
+        elif sortby and sortby.lower() == 'form':
+            # Sort by form score (descending)
+            # Filter players with form score available
+            players_filtered = [p for p in players_with_stats if p.get('form_score') is not None and p.get('form_score', 0) > 0]
+            players_filtered.sort(key=lambda x: x.get('form_score', 0), reverse=True)
+            players_with_stats = players_filtered
+        elif sortby and sortby.lower() == 'highest':
+            # Sort by highest score (descending)
+            players_with_stats.sort(key=lambda x: x.get('highest_score', 0), reverse=True)
+        elif sortby and sortby.lower() == 'hotstreak':
+            # Sort by hotstreak (avg10 - career average) (descending)
+            # Filter players with hotstreak data available
+            players_filtered = [p for p in players_with_stats if p.get('hotstreak') is not None]
+            players_filtered.sort(key=lambda x: x.get('hotstreak', 0), reverse=True)
+            players_with_stats = players_filtered
+        elif sortby and sortby.lower() == 'lastwar':
+            # Sort by last war date (most recent first)
+            players_filtered = [p for p in players_with_stats if p.get('last_war_date') is not None]
+            players_filtered.sort(key=lambda x: x.get('last_war_date', ''), reverse=True)
+            players_with_stats = players_filtered
+        elif sortby and sortby.lower() == 'lowest':
+            # Sort by lowest score (descending - higher lowest scores are better)
+            players_with_stats.sort(key=lambda x: x.get('lowest_score', 0), reverse=True)
+        elif sortby and sortby.lower() == 'totaldiff':
+            # Sort by total team differential (descending)
+            players_with_stats.sort(key=lambda x: x.get('total_team_differential', 0), reverse=True)
+        elif sortby and sortby.lower() == 'warcount':
+            # Sort by number of wars (war_count)
+            players_with_stats.sort(key=lambda x: x.get('war_count', 0), reverse=True)
+        elif sortby and sortby.lower() == 'winrate':
+            # Sort by win percentage (descending)
+            players_with_stats.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
         else:
             # Default: sort by average score
             players_with_stats.sort(key=lambda x: x.get('average_score', 0), reverse=True)
@@ -1038,12 +1114,29 @@ class MarioKartCommands(commands.Cog):
         for roster_player in member_stats:
             war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
             if war_stats:
+                # Fetch additional stats for sorting if needed
+                if sortby in ['avg10', 'hotstreak', 'form']:
+                    player_name = roster_player['player_name']
+
+                    # Fetch avg10 for Average 10 and Hotstreak sorting
+                    if sortby in ['avg10', 'hotstreak'] and war_stats.get('war_count', 0) >= 10:
+                        avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
+                        if avg10_stats:
+                            war_stats['avg10_score'] = avg10_stats.get('average_score', 0)
+                            # Calculate hotstreak
+                            war_stats['hotstreak'] = war_stats['avg10_score'] - war_stats.get('average_score', 0)
+
+                    # Fetch form score for Form sorting
+                    if sortby == 'form':
+                        form_score = self.bot.db.get_player_form_score(player_name, guild_id)
+                        war_stats['form_score'] = form_score if form_score is not None else 0
+
                 players_with_stats.append(war_stats)
             else:
                 players_without_stats.append(roster_player)
 
         # Sort players with stats by sortby parameter
-        players_with_stats = self._sort_player_stats(players_with_stats, sortby)
+        players_with_stats = self._sort_player_stats(players_with_stats, sortby, guild_id)
 
         # Combine and sort all players - those with stats first, then without stats
         all_players = players_with_stats + players_without_stats
@@ -1062,11 +1155,18 @@ class MarioKartCommands(commands.Cog):
     )
     @app_commands.choices(
         sortby=[
+            app_commands.Choice(name="Average 10", value="avg10"),
             app_commands.Choice(name="Average Score", value="average"),
-            app_commands.Choice(name="Win Rate", value="winrate"),
-            app_commands.Choice(name="Team Differential", value="avgdiff"),
+            app_commands.Choice(name="Average Team Differential", value="avgdiff"),
+            app_commands.Choice(name="Consistency", value="cv"),
+            app_commands.Choice(name="Form", value="form"),
+            app_commands.Choice(name="Highest Score", value="highest"),
+            app_commands.Choice(name="Hotstreak", value="hotstreak"),
+            app_commands.Choice(name="Last War", value="lastwar"),
+            app_commands.Choice(name="Lowest", value="lowest"),
+            app_commands.Choice(name="Total Differential", value="totaldiff"),
             app_commands.Choice(name="Number of Wars", value="warcount"),
-            app_commands.Choice(name="Consistency (CV%)", value="cv")
+            app_commands.Choice(name="Win Rate", value="winrate")
         ],
         lastxwars=[
             app_commands.Choice(name="Last 5 Wars", value=5),
