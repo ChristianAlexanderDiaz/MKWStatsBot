@@ -85,12 +85,14 @@ class LeaderboardView(discord.ui.View):
             sort_names = {
                 "avg10": "Average 10",
                 "avgdiff": "Average Team Differential",
+                "clutch": "Clutch Factor",
                 "cv": "Consistency",
                 "form": "Form",
                 "highest": "Highest Score",
                 "hotstreak": "Hotstreak",
                 "lastwar": "Last War",
                 "lowest": "Lowest",
+                "potential": "Potential",
                 "totaldiff": "Total Differential",
                 "warcount": "Number of Wars",
                 "winrate": "Win Rate"
@@ -103,12 +105,14 @@ class LeaderboardView(discord.ui.View):
         sort_descriptions = {
             'avg10': 'Recent form - average of your last 10 wars. Shows current performance vs all-time average.',
             'avgdiff': 'Team differential per war - how much your team wins/loses by on average. Positive = helping your team, negative = holding team back.',
+            'clutch': 'Clutch factor - measures performance in close wars (differential <= 38) vs overall average, normalized by consistency. Positive = clutch player, negative = chokes under pressure.',
             'cv': 'Consistency score (0-100%) - lower is more consistent. 10% = very steady, 50% = all over the place.',
             'form': 'Soccer-style rating (0-10+) of recent performance. Exponentially weighted average of last 10-20 wars where recent matches count more heavily. 6.0=average, 9.0=excellent, 10.0+=elite.',
             'highest': 'Personal best - the highest individual score you\'ve ever achieved in a single war.',
             'hotstreak': 'Average of last 10 wars minus your career average. Positive = hot streak (beating your average), negative = slump (below your average).',
             'lastwar': 'Most recent war - sorts by date so you see who played most recently. Useful for finding active players.',
             'lowest': 'Personal worst - the lowest individual score you\'ve ever gotten in a single war.',
+            'potential': 'Performance ceiling - recent form (avg10) plus standard deviation. Estimates your upper capability range.',
             'totaldiff': 'Career team differential - total points you\'ve helped/hurt your team across all wars. Your impact on team success.',
             'warcount': 'Experience level - total number of wars played. Higher = more experience.',
             'winrate': 'Team win percentage - % of wars where your team won. Shows if you\'re on winning teams.'
@@ -126,7 +130,7 @@ class LeaderboardView(discord.ui.View):
 
         # Build numbered leaderboard with flags
         # Determine what to show in third column based on sort
-        show_third_column = self.sortby in ['avg10', 'avgdiff', 'cv', 'form', 'highest', 'hotstreak', 'lastwar', 'lowest', 'totaldiff', 'winrate']
+        show_third_column = self.sortby in ['avg10', 'avgdiff', 'clutch', 'cv', 'form', 'highest', 'hotstreak', 'lastwar', 'lowest', 'potential', 'totaldiff', 'winrate']
 
         leaderboard_text = []
         for idx, player in enumerate(page_players):
@@ -166,6 +170,13 @@ class LeaderboardView(discord.ui.View):
                         avg_diff = total_diff / war_count if war_count > 0 else 0
                         diff_symbol = "+" if avg_diff >= 0 else ""
                         player_str += f" | **{diff_symbol}{avg_diff:.1f}** avg diff"
+                    elif self.sortby == 'clutch':
+                        clutch = player.get('clutch_factor')
+                        if clutch is not None:
+                            clutch_symbol = "+" if clutch >= 0 else ""
+                            player_str += f" | **{clutch_symbol}{clutch:.2f}** clutch"
+                        else:
+                            player_str += " | **N/A**"
                     elif self.sortby == 'cv':
                         cv_pct = player.get('cv_percent')
                         if cv_pct is not None:
@@ -197,6 +208,12 @@ class LeaderboardView(discord.ui.View):
                     elif self.sortby == 'lowest':
                         lowest = player.get('lowest_score', 0)
                         player_str += f" | **{lowest}** lowest"
+                    elif self.sortby == 'potential':
+                        potential = player.get('potential')
+                        if potential is not None:
+                            player_str += f" | **{potential:.1f}** pot"
+                        else:
+                            player_str += " | **N/A**"
                     elif self.sortby == 'totaldiff':
                         total_diff = player.get('total_team_differential', 0)
                         diff_symbol = "+" if total_diff >= 0 else ""
@@ -850,7 +867,7 @@ class MarioKartCommands(commands.Cog):
 
         Args:
             players_with_stats: List of players with war statistics
-            sortby: Sort criteria (avg10, avgdiff, cv, form, highest, hotstreak, lastwar, lowest, totaldiff, warcount, winrate)
+            sortby: Sort criteria (avg10, avgdiff, clutch, cv, form, highest, hotstreak, lastwar, lowest, potential, totaldiff, warcount, winrate)
             guild_id: Guild ID for database queries (required for some sorting options)
 
         Returns:
@@ -868,6 +885,12 @@ class MarioKartCommands(commands.Cog):
                 key=lambda x: x.get('total_team_differential', 0) / x.get('war_count', 1) if x.get('war_count', 1) > 0 else 0,
                 reverse=True
             )
+        elif sortby and sortby.lower() == 'clutch':
+            # Sort by clutch factor (descending - higher is more clutch)
+            # Filter players with clutch factor available
+            players_filtered = [p for p in players_with_stats if p.get('clutch_factor') is not None]
+            players_filtered.sort(key=lambda x: x.get('clutch_factor', 0), reverse=True)
+            players_with_stats = players_filtered
         elif sortby and sortby.lower() == 'cv':
             # Sort by CV% ascending (lower is better)
             # Filter out players with insufficient data (< 2 wars minimum)
@@ -897,6 +920,12 @@ class MarioKartCommands(commands.Cog):
         elif sortby and sortby.lower() == 'lowest':
             # Sort by lowest score (descending - higher lowest scores are better)
             players_with_stats.sort(key=lambda x: x.get('lowest_score', 0), reverse=True)
+        elif sortby and sortby.lower() == 'potential':
+            # Sort by potential (descending)
+            # Filter players with potential available
+            players_filtered = [p for p in players_with_stats if p.get('potential') is not None]
+            players_filtered.sort(key=lambda x: x.get('potential', 0), reverse=True)
+            players_with_stats = players_filtered
         elif sortby and sortby.lower() == 'totaldiff':
             # Sort by total team differential (descending)
             players_with_stats.sort(key=lambda x: x.get('total_team_differential', 0), reverse=True)
@@ -1133,10 +1162,11 @@ class MarioKartCommands(commands.Cog):
             war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
             if war_stats:
                 # Fetch additional stats for sorting if needed
-                if sortby in ['avg10', 'hotstreak', 'form']:
+                if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
                     player_name = roster_player['player_name']
 
                     # Fetch avg10 for Average 10 and Hotstreak sorting
+                    # (Potential fetches this internally via get_player_potential)
                     if sortby in ['avg10', 'hotstreak'] and war_stats.get('war_count', 0) >= 10:
                         avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
                         if avg10_stats:
@@ -1148,6 +1178,16 @@ class MarioKartCommands(commands.Cog):
                     if sortby == 'form':
                         form_score = self.bot.db.get_player_form_score(player_name, guild_id)
                         war_stats['form_score'] = form_score if form_score is not None else 0
+
+                    # Fetch clutch factor for Clutch sorting
+                    if sortby == 'clutch':
+                        clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
+                        war_stats['clutch_factor'] = clutch_factor
+
+                    # Fetch potential for Potential sorting
+                    if sortby == 'potential':
+                        potential = self.bot.db.get_player_potential(player_name, guild_id)
+                        war_stats['potential'] = potential
 
                 players_with_stats.append(war_stats)
             else:
@@ -1175,12 +1215,14 @@ class MarioKartCommands(commands.Cog):
         sortby=[
             app_commands.Choice(name="Average 10", value="avg10"),
             app_commands.Choice(name="Average Team Differential", value="avgdiff"),
+            app_commands.Choice(name="Clutch Factor", value="clutch"),
             app_commands.Choice(name="Consistency", value="cv"),
             app_commands.Choice(name="Form", value="form"),
             app_commands.Choice(name="Highest Score", value="highest"),
             app_commands.Choice(name="Hotstreak", value="hotstreak"),
             app_commands.Choice(name="Last War", value="lastwar"),
             app_commands.Choice(name="Lowest", value="lowest"),
+            app_commands.Choice(name="Potential", value="potential"),
             app_commands.Choice(name="Total Differential", value="totaldiff"),
             app_commands.Choice(name="Number of Wars", value="warcount"),
             app_commands.Choice(name="Win Rate", value="winrate")
