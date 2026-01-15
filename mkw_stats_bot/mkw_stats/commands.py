@@ -101,17 +101,17 @@ class LeaderboardView(discord.ui.View):
 
         # Sort description mapping
         sort_descriptions = {
-            'avg10': 'Average score of last 10 wars',
-            'avgdiff': 'Average team differential across all wars',
-            'cv': 'Consistency metric (coefficient of variation)',
-            'form': 'Recent momentum based on performance trends',
-            'highest': 'Highest score achieved in a single war',
-            'hotstreak': 'Current hot streak vs career average',
-            'lastwar': 'Most recent war performance',
-            'lowest': 'Lowest score achieved in a single war',
-            'totaldiff': 'Total team differential across all wars',
-            'warcount': 'Total number of wars played',
-            'winrate': 'Win rate percentage across all wars'
+            'avg10': 'Recent form - average of your last 10 wars. Shows current performance vs all-time average.',
+            'avgdiff': 'Team differential per war - how much your team wins/loses by on average. Positive = helping your team, negative = holding team back.',
+            'cv': 'Consistency score (0-100%) - lower is more consistent. 10% = very steady, 50% = all over the place.',
+            'form': 'Momentum metric - compares recent wars to your career average. Positive = hot streak, negative = slump.',
+            'highest': 'Personal best - the highest individual score you\'ve ever achieved in a single war.',
+            'hotstreak': 'Current run vs career average - measures if you\'re performing better or worse than normal right now.',
+            'lastwar': 'Most recent war - sorts by date so you see who played most recently. Useful for finding active players.',
+            'lowest': 'Personal worst - the lowest individual score you\'ve ever gotten in a single war.',
+            'totaldiff': 'Career team differential - total points you\'ve helped/hurt your team across all wars. Your impact on team success.',
+            'warcount': 'Experience level - total number of wars played. Higher = more experience.',
+            'winrate': 'Team win percentage - % of wars where your team won. Shows if you\'re on winning teams.'
         }
 
         # Get description for current sort
