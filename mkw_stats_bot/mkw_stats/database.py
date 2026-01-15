@@ -1296,6 +1296,7 @@ class DatabaseManager:
                 losses = 0
                 ties = 0
                 scores_list = []  # For standard deviation calculation
+                num_wars = len(performances)  # Track actual number of war records
 
                 for perf in performances:
                     war_date, race_count, team_diff, score, races_played, war_participation = perf
@@ -1355,6 +1356,7 @@ class DatabaseManager:
                     'total_score': total_score,
                     'total_races': total_races,
                     'war_count': total_war_participation,
+                    'num_wars': num_wars,  # Actual count of war records (for validation)
                     'average_score': float(average_score),
                     'last_war_date': last_war_date.isoformat() if last_war_date else None,
                     'stats_created_at': player_info[4].isoformat() if player_info[4] else None,
@@ -1575,7 +1577,6 @@ class DatabaseManager:
                     return None
 
                 # Calculate statistics
-                import statistics
                 avg_all = statistics.mean(all_scores)
                 stddev = statistics.pstdev(all_scores)
                 avg_close = statistics.mean(close_war_scores)
@@ -1618,6 +1619,11 @@ class DatabaseManager:
             # Get avg10 stats
             avg10_stats = self.get_player_stats_last_x_wars(player_name, 10, guild_id)
             if not avg10_stats:
+                return None
+
+            # Validate that we actually have 10 wars of history
+            num_wars = avg10_stats.get('num_wars', 0)
+            if num_wars < 10:
                 return None
 
             avg10_score = avg10_stats.get('average_score')

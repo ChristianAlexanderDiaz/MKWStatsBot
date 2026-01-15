@@ -85,12 +85,14 @@ class LeaderboardView(discord.ui.View):
             sort_names = {
                 "avg10": "Average 10",
                 "avgdiff": "Average Team Differential",
+                "clutch": "Clutch Factor",
                 "cv": "Consistency",
                 "form": "Form",
                 "highest": "Highest Score",
                 "hotstreak": "Hotstreak",
                 "lastwar": "Last War",
                 "lowest": "Lowest",
+                "potential": "Potential",
                 "totaldiff": "Total Differential",
                 "warcount": "Number of Wars",
                 "winrate": "Win Rate"
@@ -1163,8 +1165,9 @@ class MarioKartCommands(commands.Cog):
                 if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
                     player_name = roster_player['player_name']
 
-                    # Fetch avg10 for Average 10, Hotstreak, and Potential sorting
-                    if sortby in ['avg10', 'hotstreak', 'potential'] and war_stats.get('war_count', 0) >= 10:
+                    # Fetch avg10 for Average 10 and Hotstreak sorting
+                    # (Potential fetches this internally via get_player_potential)
+                    if sortby in ['avg10', 'hotstreak'] and war_stats.get('war_count', 0) >= 10:
                         avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
                         if avg10_stats:
                             war_stats['avg10_score'] = avg10_stats.get('average_score', 0)
