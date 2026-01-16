@@ -13,6 +13,9 @@ from typing import List, Dict, Any, Optional
 from . import config
 # OCR processor initialized in bot.py at startup for instant response
 
+# Bot owner ID - Master admin with global override
+BOT_OWNER_ID = 291621912914821120
+
 # Member status choices - centralized definition
 MEMBER_STATUS_CHOICES = [
     app_commands.Choice(name="Member", value="member"),
@@ -60,7 +63,6 @@ def get_player_display_name(player_name: str, team_name: str, guild_id: int, db)
 
 def is_bot_owner(user_id: int) -> bool:
     """Check if user is the bot owner (Christian/Cynical)."""
-    BOT_OWNER_ID = 291621912914821120
     return user_id == BOT_OWNER_ID
 
 
@@ -3499,6 +3501,14 @@ class MarioKartCommands(commands.Cog):
         try:
             guild_id = self.get_guild_id(interaction)
 
+            # Check admin permissions
+            if not has_admin_permission(interaction):
+                await interaction.response.send_message(
+                    "❌ Only server administrators can set team tags.",
+                    ephemeral=True
+                )
+                return
+
             # Validate tag length
             tag_stripped = tag.strip()
             if len(tag_stripped) < 1 or len(tag_stripped) > 8:
@@ -3544,6 +3554,15 @@ class MarioKartCommands(commands.Cog):
         """Remove the tag from a team in the guild."""
         try:
             guild_id = self.get_guild_id(interaction)
+
+            # Check admin permissions
+            if not has_admin_permission(interaction):
+                await interaction.response.send_message(
+                    "❌ Only server administrators can remove team tags.",
+                    ephemeral=True
+                )
+                return
+
             success = self.bot.db.remove_team_tag(guild_id, team_name)
 
             if success:

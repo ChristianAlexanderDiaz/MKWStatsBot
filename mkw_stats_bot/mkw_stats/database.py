@@ -23,6 +23,9 @@ import os
 from contextlib import contextmanager
 from urllib.parse import urlparse
 
+# Bot owner ID - Master admin with global override (Cynical/Christian)
+BOT_OWNER_ID = 291621912914821120
+
 class DatabaseManager:
     # Form Score calculation constants
     FORM_SCORE_DECAY_FACTOR = 0.85  # Exponential weight decay (recent wars weighted ~15% more)
@@ -680,7 +683,28 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"❌ PostgreSQL health check failed: {e}")
             return False
-    
+
+    @staticmethod
+    def get_bot_owner_id() -> int:
+        """Get the master admin bot owner ID (Cynical/Christian).
+
+        Returns:
+            int: Discord user ID of the bot owner
+        """
+        return BOT_OWNER_ID
+
+    @staticmethod
+    def is_bot_owner(user_id: int) -> bool:
+        """Check if a user ID is the bot owner.
+
+        Args:
+            user_id: Discord user ID to check
+
+        Returns:
+            bool: True if user is bot owner, False otherwise
+        """
+        return user_id == BOT_OWNER_ID
+
     # Roster Management Methods
     def get_roster_players(self, guild_id: int = 0) -> List[str]:
         """Get list of active roster players."""
@@ -2434,6 +2458,9 @@ class DatabaseManager:
             bool: True if tag was set successfully, False otherwise
         """
         try:
+            # Validate guild_id to prevent cross-guild contamination
+            self._validate_guild_id(guild_id, "set_team_tag")
+
             # Validate tag format
             if not tag or not tag.strip():
                 logging.error("Tag cannot be empty or whitespace-only")
@@ -2509,6 +2536,9 @@ class DatabaseManager:
             Optional[str]: Tag string if set, None if no tag exists
         """
         try:
+            # Validate guild_id to prevent cross-guild contamination
+            self._validate_guild_id(guild_id, "get_team_tag")
+
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -2548,6 +2578,9 @@ class DatabaseManager:
             bool: True if tag was removed successfully, False otherwise
         """
         try:
+            # Validate guild_id to prevent cross-guild contamination
+            self._validate_guild_id(guild_id, "remove_team_tag")
+
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -2602,6 +2635,9 @@ class DatabaseManager:
             Dict[str, str]: Dictionary mapping team names to tags {"Team Name": "TAG"}
         """
         try:
+            # Validate guild_id to prevent cross-guild contamination
+            self._validate_guild_id(guild_id, "get_all_team_tags")
+
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
