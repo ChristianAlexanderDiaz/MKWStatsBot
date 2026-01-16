@@ -1323,7 +1323,7 @@ class DatabaseManager:
                     'lowest_score': result[16] or 0,
                     'score_stddev': score_stddev,
                     'cv_percent': cv_percent,
-                    'consistency_score': float(result[14]) if result[14] else None,
+                    'consistency_score': float(result[14]) if result[14] is not None else None,
                     'wins': result[17] or 0,
                     'losses': result[18] or 0,
                     'ties': result[19] or 0,

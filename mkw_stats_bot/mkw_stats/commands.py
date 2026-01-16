@@ -54,11 +54,12 @@ def has_admin_permission(interaction: discord.Interaction) -> bool:
 class LeaderboardView(discord.ui.View):
     """Pagination view for player statistics leaderboard."""
 
-    def __init__(self, all_players: list, sortby: str, total_players_count: int):
+    def __init__(self, all_players: list, sortby: str, total_players_count: int, bot):
         super().__init__(timeout=300)  # 5 minute timeout
         self.all_players = all_players
         self.sortby = sortby
         self.total_players_count = total_players_count
+        self.bot = bot
         self.current_page = 1
         self.players_per_page = 10
         self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
@@ -1210,7 +1211,7 @@ class MarioKartCommands(commands.Cog):
         all_players = players_with_stats + players_without_stats
 
         # Use pagination view for leaderboard
-        view = LeaderboardView(all_players, sortby, len(all_players))
+        view = LeaderboardView(all_players, sortby, len(all_players), self.bot)
         embed = view.create_embed()
 
         await interaction.response.send_message(embed=embed, view=view)

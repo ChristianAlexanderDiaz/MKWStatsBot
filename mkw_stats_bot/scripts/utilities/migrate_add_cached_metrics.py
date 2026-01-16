@@ -37,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def add_cached_metrics_columns(db):
+def add_cached_metrics_columns(db: DatabaseManager) -> bool:
     """Add 12 cached metric columns to the players table."""
     logger.info("=" * 80)
     logger.info("STEP 1: Adding cached metric columns to players table")
@@ -110,7 +110,7 @@ def add_cached_metrics_columns(db):
         return False
 
 
-def backfill_stable_metrics(db):
+def backfill_stable_metrics(db: DatabaseManager) -> bool:
     """Backfill stable metrics for existing players."""
     logger.info("")
     logger.info("=" * 80)
@@ -162,17 +162,17 @@ def backfill_stable_metrics(db):
                             wins = COALESCE((
                                 SELECT COUNT(*) FROM player_war_performances pwp
                                 JOIN wars w ON pwp.war_id = w.id
-                                WHERE pwp.player_id = %s AND w.team_differential > 0
+                                WHERE pwp.player_id = %s AND w.team_differential > 0 AND w.guild_id = %s
                             ), 0),
                             losses = COALESCE((
                                 SELECT COUNT(*) FROM player_war_performances pwp
                                 JOIN wars w ON pwp.war_id = w.id
-                                WHERE pwp.player_id = %s AND w.team_differential < 0
+                                WHERE pwp.player_id = %s AND w.team_differential < 0 AND w.guild_id = %s
                             ), 0),
                             ties = COALESCE((
                                 SELECT COUNT(*) FROM player_war_performances pwp
                                 JOIN wars w ON pwp.war_id = w.id
-                                WHERE pwp.player_id = %s AND w.team_differential = 0
+                                WHERE pwp.player_id = %s AND w.team_differential = 0 AND w.guild_id = %s
                             ), 0),
                             consistency_score = CASE
                                 WHEN war_count >= 2 AND average_score > 0
@@ -189,13 +189,13 @@ def backfill_stable_metrics(db):
                                 THEN (COALESCE((
                                     SELECT COUNT(*) FROM player_war_performances pwp
                                     JOIN wars w ON pwp.war_id = w.id
-                                    WHERE pwp.player_id = %s AND w.team_differential > 0
+                                    WHERE pwp.player_id = %s AND w.team_differential > 0 AND w.guild_id = %s
                                 ), 0)::DECIMAL / war_count * 100)
                                 ELSE 0.0
                             END
                         WHERE id = %s
-                    """, (player_id, player_id, player_id, player_id, player_id, player_id,
-                          player_id, player_id, player_id))
+                    """, (player_id, player_id, player_id, player_id, guild_id, player_id, guild_id,
+                          player_id, guild_id, player_id, player_id, guild_id, player_id))
 
                 except Exception as e:
                     logger.error(f"Error backfilling player {player_name} (ID {player_id}): {e}")
@@ -211,7 +211,7 @@ def backfill_stable_metrics(db):
         return False
 
 
-def verify_migration(db):
+def verify_migration(db: DatabaseManager) -> bool:
     """Verify the migration was successful."""
     logger.info("")
     logger.info("=" * 80)
@@ -287,7 +287,7 @@ def verify_migration(db):
         return False
 
 
-def main():
+def main() -> int:
     """Main migration execution."""
     logger.info("")
     logger.info("🚀 Cached Metrics Migration")

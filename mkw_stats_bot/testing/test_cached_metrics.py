@@ -38,7 +38,17 @@ class CachedMetricsTestSuite:
     def __init__(self):
         """Initialize test suite."""
         self.db = DatabaseManager()
-        self.test_guild_id = 0  # Use default guild
+
+        # Query for a valid guild_id (fallback to 0 if no guilds found)
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT DISTINCT guild_id FROM players WHERE is_active = TRUE LIMIT 1")
+                result = cursor.fetchone()
+                self.test_guild_id = result[0] if result else 0
+        except Exception:
+            self.test_guild_id = 0
+
         self.test_player_name = None
         self.passed = 0
         self.failed = 0
@@ -318,9 +328,9 @@ class CachedMetricsTestSuite:
 
                 after_refresh = cursor.fetchone()
 
-                # At minimum, avg10 and form should be populated
+                # At minimum, avg10 and updated_at timestamp should be populated
                 has_metrics = (
-                    (after_refresh[0] is not None or after_refresh[0] is None) and  # avg10
+                    after_refresh[0] is not None and  # avg10
                     after_refresh[5] is not None  # updated_at timestamp
                 )
 
