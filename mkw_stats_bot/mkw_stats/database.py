@@ -1329,11 +1329,11 @@ class DatabaseManager:
                     'ties': result[19] or 0,
                     'win_percentage': float(result[20]) if result[20] else 0.0,
                     # Cached volatile metrics (may be NULL)
-                    'avg10_score': float(result[21]) if result[21] else None,
-                    'form_score': float(result[22]) if result[22] else None,
-                    'clutch_factor': float(result[23]) if result[23] else None,
-                    'potential': float(result[24]) if result[24] else None,
-                    'hotstreak': float(result[25]) if result[25] else None,
+                    'avg10_score': float(result[21]) if result[21] is not None else None,
+                    'form_score': float(result[22]) if result[22] is not None else None,
+                    'clutch_factor': float(result[23]) if result[23] is not None else None,
+                    'potential': float(result[24]) if result[24] is not None else None,
+                    'hotstreak': float(result[25]) if result[25] is not None else None,
                 }
 
         except Exception as e:

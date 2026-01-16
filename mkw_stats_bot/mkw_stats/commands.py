@@ -1085,7 +1085,15 @@ class MarioKartCommands(commands.Cog):
         embed.add_field(name="📊 Consistency", value=consistency_text, inline=True)
 
         # Clutch Factor (performance in close wars)
-        clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
+        # Use cached value from stats; compute and cache if needed
+        clutch_factor = stats.get('clutch_factor')
+        if clutch_factor is None and float(stats.get('war_count', 0)) >= 2:
+            # Cache miss - compute and cache
+            clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
+            if clutch_factor is not None:
+                # Update cache with computed value
+                stats['clutch_factor'] = clutch_factor
+
         if clutch_factor is not None:
             clutch_symbol = "+" if clutch_factor >= 0 else ""
             clutch_category = self.bot.db.get_clutch_category(clutch_factor)
