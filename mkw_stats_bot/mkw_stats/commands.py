@@ -1208,6 +1208,16 @@ class MarioKartCommands(commands.Cog):
                         # Re-fetch with updated cache
                         war_stats = self.bot.db.get_player_stats(player_name, guild_id)
 
+                    # Fetch clutch factor for Clutch sorting
+                    if sortby == 'clutch':
+                        clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
+                        war_stats['clutch_factor'] = clutch_factor
+
+                    # Fetch potential for Potential sorting
+                    if sortby == 'potential':
+                        potential = self.bot.db.get_player_potential(player_name, guild_id)
+                        war_stats['potential'] = potential
+
                 players_with_stats.append(war_stats)
             else:
                 players_without_stats.append(roster_player)

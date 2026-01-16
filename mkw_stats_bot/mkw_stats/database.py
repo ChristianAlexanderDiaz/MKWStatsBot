@@ -1303,6 +1303,8 @@ class DatabaseManager:
                 score_stddev = float(result[13]) if result[13] else 0.0
                 total_wars = float(result[3]) if result[3] else 0.0
                 cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
+                # Convert to user-friendly Consistency Score (100 - CV%, capped at 0)
+                consistency_score = max(0, 100 - cv_percent) if cv_percent is not None else None
 
                 return {
                     'player_name': player_name,
