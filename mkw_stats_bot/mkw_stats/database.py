@@ -639,8 +639,11 @@ class DatabaseManager:
             logging.error(f"❌ Error getting all player stats: {e}")
             return []
 
-    def get_all_players_stats_global(self) -> List[Dict]:
+    def get_all_players_stats_global(self, limit: Optional[int] = None) -> List[Dict]:
         """Get basic stats for all active players across all guilds for global leaderboard.
+
+        Args:
+            limit: Optional limit on number of results to return (for pagination in large deployments)
 
         Returns list of dicts with: player_name, guild_id, team, nicknames,
         country_code, discord_user_id, member_status.
@@ -649,13 +652,20 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
-                cursor.execute("""
+                # Build query with optional LIMIT clause
+                query = """
                     SELECT player_name, guild_id, team, nicknames,
                            country_code, discord_user_id, member_status
                     FROM players
                     WHERE is_active = TRUE
                     ORDER BY player_name
-                """)
+                """
+
+                if limit is not None:
+                    query += " LIMIT %s"
+                    cursor.execute(query, (limit,))
+                else:
+                    cursor.execute(query)
 
                 players = []
                 for row in cursor.fetchall():
@@ -664,7 +674,7 @@ class DatabaseManager:
                         'guild_id': row[1],
                         'team': row[2] or 'Unassigned',
                         'nicknames': row[3] or [],
-                        'country_code': row[4] or 'XX',
+                        'country_code': row[4] or None,
                         'discord_user_id': row[5],
                         'member_status': row[6] or 'member',
                     })

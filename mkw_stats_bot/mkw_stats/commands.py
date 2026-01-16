@@ -1697,6 +1697,15 @@ class MarioKartCommands(commands.Cog):
 
             # Trigger volatile metrics refresh if needed (same as guild leaderboard)
             if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
+                # Metric-specific war count thresholds
+                thresholds = {
+                    'clutch': 2,
+                    'avg10': 10,
+                    'hotstreak': 10,
+                    'form': 10,
+                    'potential': 10
+                }
+
                 metric_key = {
                     'avg10': 'avg10_score',
                     'hotstreak': 'hotstreak',
@@ -1705,8 +1714,10 @@ class MarioKartCommands(commands.Cog):
                     'potential': 'potential'
                 }.get(sortby, sortby)
 
+                min_wars = thresholds.get(sortby, 10)
+
                 for stats in players_with_stats:
-                    if stats.get(metric_key) is None and stats.get('war_count', 0) >= 10:
+                    if stats.get(metric_key) is None and stats.get('war_count', 0) >= min_wars:
                         self.bot.db._refresh_volatile_metrics(
                             stats['player_name'],
                             stats['guild_id']
