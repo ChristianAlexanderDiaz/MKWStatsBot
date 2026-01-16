@@ -3,9 +3,10 @@
 Migration Script: Add Cached Metrics Columns to Players Table
 ==============================================================
 
-This migration adds 12 columns to cache expensive player statistics:
+This migration adds 14 columns to cache expensive player statistics:
 - 8 stable metrics (updated on every war add/remove)
-- 4 volatile metrics (lazily calculated on first access after invalidation)
+- 5 volatile metrics (lazily calculated on first access after invalidation)
+- 1 timestamp (cached_metrics_updated_at)
 
 Performance Improvement:
 - Old: 30 leaderboard requests = 30 full metric calculations (~4.5 seconds)
@@ -13,7 +14,7 @@ Performance Improvement:
 
 Run this script to:
 1. Check if columns already exist (idempotent)
-2. Add 12 new columns to players table
+2. Add 14 new columns to players table (8 stable + 5 volatile + 1 timestamp)
 3. Backfill stable metrics for existing players
 4. Leave volatile metrics as NULL (populated on first access)
 """
