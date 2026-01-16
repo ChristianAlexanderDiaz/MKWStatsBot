@@ -1005,11 +1005,12 @@ class MarioKartCommands(commands.Cog):
         avg_score = stats.get('average_score', 0.0)
         lowest_score = stats.get('lowest_score', 0)
 
-        # Fetch avg10 for consistent reference metric
-        # Optimize: reuse stats if lastxwars already equals 10
+        # Use cached avg10 and form metrics from stats dict
+        # These are pre-computed and cached in the database
         avg10_score = None
         htsk_score = None
         overall_avg = avg_score  # Default to current avg (which is overall avg in normal case)
+        form_score = stats.get('form_score')
 
         if lastxwars == 10:
             # Reuse existing calculation to avoid duplicate query
@@ -1022,20 +1023,24 @@ class MarioKartCommands(commands.Cog):
                 if fetched_avg is not None and fetched_avg > 0:
                     overall_avg = fetched_avg
         else:
-            # Fetch avg10, but only show if player has at least 10 wars
-            avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
-            if avg10_stats:
-                # Only display avg10 if player has participated in at least 10 wars
-                war_count = avg10_stats.get('war_count', 0)
-                if war_count >= 10:
-                    avg10_score = avg10_stats.get('average_score')
+            # Use cached avg10 from stats dict if available
+            avg10_score = stats.get('avg10_score')
+            # Only display avg10 if player has participated in at least 10 wars
+            war_count = stats.get('war_count', 0)
+            if avg10_score is None and war_count >= 10:
+                # Cache miss - refresh volatile metrics
+                self.bot.db._refresh_volatile_metrics(player_name, guild_id)
+                # Re-fetch stats with updated cache
+                updated_stats = self.bot.db.get_player_stats(player_name, guild_id)
+                if updated_stats:
+                    avg10_score = updated_stats.get('avg10_score')
+                    form_score = updated_stats.get('form_score')
 
-        # Calculate HtSk if we have valid avg10 data
-        if avg10_score is not None and avg10_score > 0 and overall_avg > 0:
+        # Use cached hotstreak if available, calculate from avg10 if needed
+        if stats.get('hotstreak') is not None:
+            htsk_score = stats.get('hotstreak')
+        elif avg10_score is not None and avg10_score > 0 and overall_avg > 0:
             htsk_score = avg10_score - overall_avg
-
-        # Fetch Form Score - method already returns None if < 10 wars
-        form_score = self.bot.db.get_player_form_score(player_name, guild_id)
 
         # Add soccer-style rating indicator for clarity
         form_display = ""
@@ -1172,33 +1177,27 @@ class MarioKartCommands(commands.Cog):
         for roster_player in member_stats:
             war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
             if war_stats:
-                # Fetch additional stats for sorting if needed
+                # For volatile metrics that need refreshing (first access after war change)
                 if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
                     player_name = roster_player['player_name']
+                    war_count = war_stats.get('war_count', 0)
 
-                    # Fetch avg10 for Average 10 and Hotstreak sorting
-                    # (Potential fetches this internally via get_player_potential)
-                    if sortby in ['avg10', 'hotstreak'] and war_stats.get('war_count', 0) >= 10:
-                        avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
-                        if avg10_stats:
-                            war_stats['avg10_score'] = avg10_stats.get('average_score', 0)
-                            # Calculate hotstreak
-                            war_stats['hotstreak'] = war_stats['avg10_score'] - war_stats.get('average_score', 0)
+                    # Map sortby to metric key and required minimum wars
+                    metric_requirements = {
+                        'avg10': ('avg10_score', 10),
+                        'hotstreak': ('hotstreak', 10),
+                        'form': ('form_score', 10),
+                        'clutch': ('clutch_factor', 2),
+                        'potential': ('potential', 10),
+                    }
 
-                    # Fetch form score for Form sorting
-                    if sortby == 'form':
-                        form_score = self.bot.db.get_player_form_score(player_name, guild_id)
-                        war_stats['form_score'] = form_score if form_score is not None else 0
+                    metric_key, min_wars = metric_requirements.get(sortby, (None, 0))
 
-                    # Fetch clutch factor for Clutch sorting
-                    if sortby == 'clutch':
-                        clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
-                        war_stats['clutch_factor'] = clutch_factor
-
-                    # Fetch potential for Potential sorting
-                    if sortby == 'potential':
-                        potential = self.bot.db.get_player_potential(player_name, guild_id)
-                        war_stats['potential'] = potential
+                    # If metric is NULL but player has enough wars, refresh cache
+                    if metric_key and war_stats.get(metric_key) is None and war_count >= min_wars:
+                        self.bot.db._refresh_volatile_metrics(player_name, guild_id)
+                        # Re-fetch with updated cache
+                        war_stats = self.bot.db.get_player_stats(player_name, guild_id)
 
                 players_with_stats.append(war_stats)
             else:

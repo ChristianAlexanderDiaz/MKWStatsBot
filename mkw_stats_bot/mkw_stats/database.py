@@ -1009,26 +1009,30 @@ class DatabaseManager:
 
     # Player Statistics Management Methods
     def update_player_stats(self, player_name: str, score: int, races_played: int, war_participation: float, war_date: str, guild_id: int = 0, team_differential: int = 0) -> bool:
-        """Update player statistics when a war is added with fractional war support."""
+        """Update player statistics when a war is added with fractional war support.
+
+        Also updates stable metrics and invalidates volatile metrics for cache.
+        """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
                 # Check if player exists and get current stats
                 cursor.execute("""
-                    SELECT total_score, total_races, war_count, total_team_differential
+                    SELECT id, total_score, total_races, war_count, total_team_differential
                     FROM players WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
 
                 result = cursor.fetchone()
                 if result:
                     # Player has existing stats - UPDATE
-                    new_total_score = result[0] + score
-                    new_total_races = result[1] + races_played
-                    new_war_count = float(result[2]) + war_participation  # Support fractional wars
+                    player_id = result[0]
+                    new_total_score = result[1] + score
+                    new_total_races = result[2] + races_played
+                    new_war_count = float(result[3]) + war_participation  # Support fractional wars
                     # Scale team_differential by war_participation for fractional wars
                     scaled_differential = int(team_differential * war_participation)
-                    new_total_differential = (result[3] or 0) + scaled_differential
+                    new_total_differential = (result[4] or 0) + scaled_differential
                     # Correct average calculation: total_score / war_count (preserves per-war average)
                     new_average = round(new_total_score / new_war_count, 2)
 
@@ -1036,9 +1040,67 @@ class DatabaseManager:
                         UPDATE players
                         SET total_score = %s, total_races = %s, war_count = %s,
                             average_score = %s, last_war_date = %s, total_team_differential = %s,
+                            -- Recalculate stable metrics via subqueries
+                            score_stddev = COALESCE((
+                                SELECT STDDEV_POP(score) FROM player_war_performances
+                                WHERE player_id = %s
+                            ), 0.0),
+                            highest_score = COALESCE((
+                                SELECT MAX(score) FROM player_war_performances
+                                WHERE player_id = %s AND races_played = 12
+                            ), 0),
+                            lowest_score = COALESCE((
+                                SELECT MIN(score) FROM player_war_performances
+                                WHERE player_id = %s AND races_played = 12
+                            ), 0),
+                            wins = COALESCE((
+                                SELECT COUNT(*) FROM player_war_performances pwp
+                                JOIN wars w ON pwp.war_id = w.id
+                                WHERE pwp.player_id = %s AND w.team_differential > 0 AND w.guild_id = %s
+                            ), 0),
+                            losses = COALESCE((
+                                SELECT COUNT(*) FROM player_war_performances pwp
+                                JOIN wars w ON pwp.war_id = w.id
+                                WHERE pwp.player_id = %s AND w.team_differential < 0 AND w.guild_id = %s
+                            ), 0),
+                            ties = COALESCE((
+                                SELECT COUNT(*) FROM player_war_performances pwp
+                                JOIN wars w ON pwp.war_id = w.id
+                                WHERE pwp.player_id = %s AND w.team_differential = 0 AND w.guild_id = %s
+                            ), 0),
+                            consistency_score = CASE
+                                WHEN %s >= 2 AND %s > 0
+                                THEN GREATEST(0, 100 - (
+                                    COALESCE((
+                                        SELECT STDDEV_POP(score) FROM player_war_performances
+                                        WHERE player_id = %s
+                                    ), 0.0) / %s * 100
+                                ))
+                                ELSE NULL
+                            END,
+                            win_percentage = CASE
+                                WHEN %s > 0
+                                THEN (COALESCE((
+                                    SELECT COUNT(*) FROM player_war_performances pwp
+                                    JOIN wars w ON pwp.war_id = w.id
+                                    WHERE pwp.player_id = %s AND w.team_differential > 0 AND w.guild_id = %s
+                                ), 0)::DECIMAL / %s * 100)
+                                ELSE 0.0
+                            END,
+                            -- Invalidate volatile metrics (set to NULL)
+                            avg10_score = NULL,
+                            form_score = NULL,
+                            clutch_factor = NULL,
+                            potential = NULL,
+                            hotstreak = NULL,
+                            cached_metrics_updated_at = NULL,
                             updated_at = CURRENT_TIMESTAMP
                         WHERE player_name = %s AND guild_id = %s
-                    """, (new_total_score, new_total_races, new_war_count, new_average, war_date, new_total_differential, player_name, guild_id))
+                    """, (new_total_score, new_total_races, new_war_count, new_average, war_date, new_total_differential,
+                          player_id, player_id, player_id, player_id, guild_id, player_id, guild_id, player_id, guild_id,
+                          new_war_count, new_average, player_id, new_average,
+                          new_war_count, player_id, guild_id, new_war_count,
+                          player_name, guild_id))
                 else:
                     # Player doesn't exist - this shouldn't happen if /setup was used properly
                     logging.error(f"Player {player_name} not found in players table for guild {guild_id}")
@@ -1107,14 +1169,86 @@ class DatabaseManager:
 
                 logging.info(f"🔍 New average score: {new_average}")
 
-                # Execute UPDATE with debug logging
+                # Get player ID for metric calculations
+                cursor.execute("""
+                    SELECT id FROM players
+                    WHERE player_name = %s AND guild_id = %s
+                """, (player_name, guild_id))
+
+                player_row = cursor.fetchone()
+                if not player_row:
+                    logging.error(f"Could not get player ID for {player_name}")
+                    return False
+
+                player_id = player_row[0]
+
+                # Execute UPDATE with debug logging, recalculate stable metrics and invalidate volatile
                 logging.info(f"🔍 Executing UPDATE for player {player_name}")
                 cursor.execute("""
                     UPDATE players
                     SET total_score = %s, total_races = %s, war_count = %s,
-                        average_score = %s, total_team_differential = %s, updated_at = CURRENT_TIMESTAMP
+                        average_score = %s, total_team_differential = %s,
+                        -- Recalculate stable metrics via subqueries
+                        score_stddev = COALESCE((
+                            SELECT STDDEV_POP(score) FROM player_war_performances
+                            WHERE player_id = %s
+                        ), 0.0),
+                        highest_score = COALESCE((
+                            SELECT MAX(score) FROM player_war_performances
+                            WHERE player_id = %s AND races_played = 12
+                        ), 0),
+                        lowest_score = COALESCE((
+                            SELECT MIN(score) FROM player_war_performances
+                            WHERE player_id = %s AND races_played = 12
+                        ), 0),
+                        wins = COALESCE((
+                            SELECT COUNT(*) FROM player_war_performances pwp
+                            JOIN wars w ON pwp.war_id = w.id
+                            WHERE pwp.player_id = %s AND w.team_differential > 0 AND w.guild_id = %s
+                        ), 0),
+                        losses = COALESCE((
+                            SELECT COUNT(*) FROM player_war_performances pwp
+                            JOIN wars w ON pwp.war_id = w.id
+                            WHERE pwp.player_id = %s AND w.team_differential < 0 AND w.guild_id = %s
+                        ), 0),
+                        ties = COALESCE((
+                            SELECT COUNT(*) FROM player_war_performances pwp
+                            JOIN wars w ON pwp.war_id = w.id
+                            WHERE pwp.player_id = %s AND w.team_differential = 0 AND w.guild_id = %s
+                        ), 0),
+                        consistency_score = CASE
+                            WHEN %s >= 2 AND %s > 0
+                            THEN GREATEST(0, 100 - (
+                                COALESCE((
+                                    SELECT STDDEV_POP(score) FROM player_war_performances
+                                    WHERE player_id = %s
+                                ), 0.0) / %s * 100
+                            ))
+                            ELSE NULL
+                        END,
+                        win_percentage = CASE
+                            WHEN %s > 0
+                            THEN (COALESCE((
+                                SELECT COUNT(*) FROM player_war_performances pwp
+                                JOIN wars w ON pwp.war_id = w.id
+                                WHERE pwp.player_id = %s AND w.team_differential > 0 AND w.guild_id = %s
+                            ), 0)::DECIMAL / %s * 100)
+                            ELSE 0.0
+                        END,
+                        -- Invalidate volatile metrics (set to NULL)
+                        avg10_score = NULL,
+                        form_score = NULL,
+                        clutch_factor = NULL,
+                        potential = NULL,
+                        hotstreak = NULL,
+                        cached_metrics_updated_at = NULL,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE player_name = %s AND guild_id = %s
-                """, (new_total_score, new_total_races, new_war_count, new_average, new_total_differential, player_name, guild_id))
+                """, (new_total_score, new_total_races, new_war_count, new_average, new_total_differential,
+                      player_id, player_id, player_id, player_id, guild_id, player_id, guild_id, player_id, guild_id,
+                      new_war_count, new_average, player_id, new_average,
+                      new_war_count, player_id, guild_id, new_war_count,
+                      player_name, guild_id))
                 
                 # Check if UPDATE affected any rows
                 rows_affected = cursor.rowcount
@@ -1135,20 +1269,27 @@ class DatabaseManager:
             return False
     
     def get_player_stats(self, player_name: str, guild_id: int = 0) -> Optional[Dict]:
-        """Get comprehensive player statistics.
+        """Get comprehensive player statistics with cached metrics.
 
+        Fetches pre-computed stable metrics from cache and volatile metrics if available.
         Highest and lowest scores are calculated only from wars where the player
         participated in all 12 races for fair comparison across matches.
         """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                
-                # Get player basic stats
+
+                # Fetch ALL stats including cached metrics
                 cursor.execute("""
                     SELECT id, total_score, total_races, war_count, average_score,
                            last_war_date, created_at, updated_at,
-                           team, nicknames, added_by, total_team_differential, country_code
+                           team, nicknames, added_by, total_team_differential, country_code,
+                           -- Cached stable metrics
+                           score_stddev, consistency_score, highest_score, lowest_score,
+                           wins, losses, ties, win_percentage,
+                           -- Cached volatile metrics
+                           avg10_score, form_score, clutch_factor, potential, hotstreak,
+                           cached_metrics_updated_at
                     FROM players
                     WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
                 """, (player_name, guild_id))
@@ -1157,62 +1298,18 @@ class DatabaseManager:
                 if not result:
                     return None
 
-                player_id = result[0]
-
-                # Get highest and lowest scores from player_war_performances
-                # Only include wars where player participated in all 12 races
-                cursor.execute("""
-                    SELECT MAX(pwp.score), MIN(pwp.score)
-                    FROM player_war_performances pwp
-                    JOIN wars w ON pwp.war_id = w.id
-                    WHERE pwp.player_id = %s AND w.guild_id = %s AND pwp.races_played = 12
-                """, (player_id, guild_id))
-
-                score_stats = cursor.fetchone()
-                highest_score = score_stats[0] if score_stats and score_stats[0] is not None else 0
-                lowest_score = score_stats[1] if score_stats and score_stats[1] is not None else 0
-
-                # Calculate standard deviation of scores from all wars (consistency metric)
-                cursor.execute("""
-                    SELECT STDDEV_POP(pwp.score)
-                    FROM player_war_performances pwp
-                    JOIN wars w ON pwp.war_id = w.id
-                    WHERE pwp.player_id = %s AND w.guild_id = %s
-                """, (player_id, guild_id))
-
-                stddev_result = cursor.fetchone()
-                score_stddev = float(stddev_result[0]) if stddev_result and stddev_result[0] is not None else 0.0
-
-                # Calculate win/loss/tie record from team differentials
-                cursor.execute("""
-                    SELECT COUNT(CASE WHEN w.team_differential > 0 THEN 1 END),
-                           COUNT(CASE WHEN w.team_differential < 0 THEN 1 END),
-                           COUNT(CASE WHEN w.team_differential = 0 THEN 1 END)
-                    FROM player_war_performances pwp
-                    JOIN wars w ON pwp.war_id = w.id
-                    WHERE pwp.player_id = %s AND w.guild_id = %s
-                """, (player_id, guild_id))
-
-                record_stats = cursor.fetchone()
-                wins = record_stats[0] if record_stats else 0
-                losses = record_stats[1] if record_stats else 0
-                ties = record_stats[2] if record_stats else 0
-                total_wars = wins + losses + ties
-                win_percentage = (wins / total_wars * 100) if total_wars > 0 else 0.0
-
-                # Calculate CV% (Coefficient of Variation) - must come after total_wars is defined
+                # Calculate CV% from cached stddev and average_score
                 average_score = float(result[4]) if result[4] else 0.0
-                # Only calculate CV% for players with at least 2 wars (need variance)
+                score_stddev = float(result[13]) if result[13] else 0.0
+                total_wars = float(result[3]) if result[3] else 0.0
                 cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
-                # Convert to user-friendly Consistency Score (100 - CV%, capped at 0)
-                consistency_score = max(0, 100 - cv_percent) if cv_percent is not None else None
 
                 return {
                     'player_name': player_name,
                     'total_score': result[1],
                     'total_races': result[2],
                     'war_count': result[3],
-                    'average_score': float(result[4]) if result[4] else 0.0,
+                    'average_score': average_score,
                     'last_war_date': result[5].isoformat() if result[5] else None,
                     'stats_created_at': result[6].isoformat() if result[6] else None,
                     'stats_updated_at': result[7].isoformat() if result[7] else None,
@@ -1221,21 +1318,93 @@ class DatabaseManager:
                     'added_by': result[10],
                     'total_team_differential': result[11] if result[11] is not None else 0,
                     'country_code': result[12] if result[12] else None,
-                    'highest_score': highest_score,
-                    'lowest_score': lowest_score,
+                    # Cached stable metrics
+                    'highest_score': result[15] or 0,
+                    'lowest_score': result[16] or 0,
                     'score_stddev': score_stddev,
                     'cv_percent': cv_percent,
-                    'consistency_score': consistency_score,
-                    'wins': wins,
-                    'losses': losses,
-                    'ties': ties,
-                    'win_percentage': win_percentage
+                    'consistency_score': float(result[14]) if result[14] else None,
+                    'wins': result[17] or 0,
+                    'losses': result[18] or 0,
+                    'ties': result[19] or 0,
+                    'win_percentage': float(result[20]) if result[20] else 0.0,
+                    # Cached volatile metrics (may be NULL)
+                    'avg10_score': float(result[21]) if result[21] else None,
+                    'form_score': float(result[22]) if result[22] else None,
+                    'clutch_factor': float(result[23]) if result[23] else None,
+                    'potential': float(result[24]) if result[24] else None,
+                    'hotstreak': float(result[25]) if result[25] else None,
                 }
-                
+
         except Exception as e:
             logging.error(f"❌ Error getting player stats: {e}")
             return None
-    
+
+    def _refresh_volatile_metrics(self, player_name: str, guild_id: int) -> bool:
+        """Recalculate and cache volatile metrics after invalidation.
+
+        Called lazily when volatile metrics are NULL but needed.
+        Volatile metrics include: avg10_score, form_score, clutch_factor, potential, hotstreak
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get player ID and war count
+                cursor.execute("""
+                    SELECT id, war_count, average_score
+                    FROM players
+                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                """, (player_name, guild_id))
+
+                result = cursor.fetchone()
+                if not result:
+                    return False
+
+                player_id, war_count, avg_score = result
+                war_count = float(war_count) if war_count else 0.0
+                avg_score = float(avg_score) if avg_score else 0.0
+
+                # Calculate volatile metrics using existing methods
+                avg10_score = None
+                form_score = None
+                clutch_factor = None
+                potential = None
+                hotstreak = None
+
+                if war_count >= 10:
+                    avg10_stats = self.get_player_stats_last_x_wars(player_name, 10, guild_id)
+                    if avg10_stats:
+                        avg10_score = avg10_stats.get('average_score')
+                        hotstreak = avg10_score - avg_score if avg10_score else None
+
+                    form_score = self.get_player_form_score(player_name, guild_id)
+                    potential = self.get_player_potential(player_name, guild_id)
+
+                if war_count >= 2:
+                    clutch_factor = self.get_player_clutch_factor(player_name, guild_id)
+
+                # Store in database
+                cursor.execute("""
+                    UPDATE players
+                    SET avg10_score = %s,
+                        form_score = %s,
+                        clutch_factor = %s,
+                        potential = %s,
+                        hotstreak = %s,
+                        cached_metrics_updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = %s AND guild_id = %s
+                """, (avg10_score, form_score, clutch_factor, potential, hotstreak,
+                      player_name, guild_id))
+
+                conn.commit()
+                logging.info(f"✅ Refreshed cached metrics for {player_name}")
+                return True
+
+        except Exception as e:
+            logging.error(f"❌ Error refreshing metrics: {e}")
+            return False
+
     def get_player_stats_last_x_wars(self, player_name: str, x_wars: int, guild_id: int = 0) -> Optional[Dict]:
         """
         Get player statistics calculated from their last X wars only.
