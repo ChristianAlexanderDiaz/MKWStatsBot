@@ -1506,6 +1506,32 @@ class DatabaseManager:
             logging.error(f"❌ Error calculating form score for {player_name}: {e}")
             return None
 
+    @staticmethod
+    def get_clutch_category(clutch_factor: Optional[float]) -> Optional[str]:
+        """
+        Categorize clutch factor into performance category.
+
+        Based on percentile distribution across all players:
+        - +0.45+: Elite Clutch (top 10%)
+        - +0.14 to +0.45: Clutch (next 15%)
+        - -0.30 to +0.14: Neutral (middle 50%)
+        - -0.87 to -0.30: Shaky (next 15%)
+        - -0.87 or lower: Chokes (bottom 10%)
+        """
+        if clutch_factor is None:
+            return None
+
+        if clutch_factor >= 0.45:
+            return "Elite Clutch"
+        elif clutch_factor >= 0.14:
+            return "Clutch"
+        elif clutch_factor >= -0.30:
+            return "Neutral"
+        elif clutch_factor >= -0.87:
+            return "Shaky"
+        else:
+            return "Chokes"
+
     def get_player_clutch_factor(self, player_name: str, guild_id: int = 0) -> Optional[float]:
         """
         Calculate Clutch Factor: performance in close wars vs overall average.

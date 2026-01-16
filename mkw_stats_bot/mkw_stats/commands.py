@@ -105,7 +105,7 @@ class LeaderboardView(discord.ui.View):
         sort_descriptions = {
             'avg10': 'Recent form - average of your last 10 wars. Shows current performance vs all-time average.',
             'avgdiff': 'Team differential per war - how much your team wins/loses by on average. Positive = helping your team, negative = holding team back.',
-            'clutch': 'Clutch factor - measures performance in close wars (differential <= 38) vs overall average, normalized by consistency. Positive = clutch player, negative = chokes under pressure.',
+            'clutch': 'Clutch factor - performance in close wars (differential ≤38) vs overall average. Categories: Elite Clutch (+0.45+), Clutch (+0.14 to +0.45), Neutral (-0.30 to +0.14), Shaky (-0.87 to -0.30), Chokes (-0.87 or lower).',
             'cv': 'Consistency score (0-100%) - higher is more consistent. 90% = very steady, 50% = moderate variance, 0% = extremely inconsistent.',
             'form': 'Soccer-style rating (0-10+) of recent performance. Exponentially weighted average of last 10-20 wars where recent matches count more heavily. 6.0=average, 9.0=excellent, 10.0+=elite.',
             'highest': 'Personal best - the highest individual score you\'ve ever achieved in a single war.',
@@ -174,7 +174,8 @@ class LeaderboardView(discord.ui.View):
                         clutch = player.get('clutch_factor')
                         if clutch is not None:
                             clutch_symbol = "+" if clutch >= 0 else ""
-                            player_str += f" | **{clutch_symbol}{clutch:.2f}** clutch"
+                            category = self.bot.db.get_clutch_category(clutch)
+                            player_str += f" | **{clutch_symbol}{clutch:.2f}** ({category})"
                         else:
                             player_str += " | **N/A**"
                     elif self.sortby == 'cv':
@@ -1076,6 +1077,16 @@ class MarioKartCommands(commands.Cog):
         else:
             consistency_text = "```\nN/A\n(Need 2+ wars)\n```"
         embed.add_field(name="📊 Consistency", value=consistency_text, inline=True)
+
+        # Clutch Factor (performance in close wars)
+        clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
+        if clutch_factor is not None:
+            clutch_symbol = "+" if clutch_factor >= 0 else ""
+            clutch_category = self.bot.db.get_clutch_category(clutch_factor)
+            clutch_text = f"```\n{clutch_symbol}{clutch_factor:.2f}\n{clutch_category}\n```"
+        else:
+            clutch_text = "```\nN/A\n(Need 2+ wars)\n```"
+        embed.add_field(name="⚡ Clutch Factor", value=clutch_text, inline=True)
 
         # Team Differential (highlight wins/losses)
         if total_diff is not None:
