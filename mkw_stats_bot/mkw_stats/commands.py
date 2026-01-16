@@ -54,11 +54,12 @@ def has_admin_permission(interaction: discord.Interaction) -> bool:
 class LeaderboardView(discord.ui.View):
     """Pagination view for player statistics leaderboard."""
 
-    def __init__(self, all_players: list, sortby: str, total_players_count: int):
+    def __init__(self, all_players: list, sortby: str, total_players_count: int, bot):
         super().__init__(timeout=300)  # 5 minute timeout
         self.all_players = all_players
         self.sortby = sortby
         self.total_players_count = total_players_count
+        self.bot = bot
         self.current_page = 1
         self.players_per_page = 10
         self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
@@ -105,7 +106,7 @@ class LeaderboardView(discord.ui.View):
         sort_descriptions = {
             'avg10': 'Recent form - average of your last 10 wars. Shows current performance vs all-time average.',
             'avgdiff': 'Team differential per war - how much your team wins/loses by on average. Positive = helping your team, negative = holding team back.',
-            'clutch': 'Clutch factor - measures performance in close wars (differential <= 38) vs overall average, normalized by consistency. Positive = clutch player, negative = chokes under pressure.',
+            'clutch': 'Clutch factor - performance in close wars (differential ≤38) vs overall average. Categories: Elite Clutch (+0.45+), Clutch (+0.14 to +0.45), Neutral (-0.30 to +0.14), Shaky (-0.87 to -0.30), Chokes (-0.87 or lower).',
             'cv': 'Consistency score (0-100%) - higher is more consistent. 90% = very steady, 50% = moderate variance, 0% = extremely inconsistent.',
             'form': 'Soccer-style rating (0-10+) of recent performance. Exponentially weighted average of last 10-20 wars where recent matches count more heavily. 6.0=average, 9.0=excellent, 10.0+=elite.',
             'highest': 'Personal best - the highest individual score you\'ve ever achieved in a single war.',
@@ -174,7 +175,8 @@ class LeaderboardView(discord.ui.View):
                         clutch = player.get('clutch_factor')
                         if clutch is not None:
                             clutch_symbol = "+" if clutch >= 0 else ""
-                            player_str += f" | **{clutch_symbol}{clutch:.2f}** clutch"
+                            category = self.bot.db.get_clutch_category(clutch)
+                            player_str += f" | **{clutch_symbol}{clutch:.2f}** ({category})"
                         else:
                             player_str += " | **N/A**"
                     elif self.sortby == 'cv':
@@ -1004,11 +1006,12 @@ class MarioKartCommands(commands.Cog):
         avg_score = stats.get('average_score', 0.0)
         lowest_score = stats.get('lowest_score', 0)
 
-        # Fetch avg10 for consistent reference metric
-        # Optimize: reuse stats if lastxwars already equals 10
+        # Use cached avg10 and form metrics from stats dict
+        # These are pre-computed and cached in the database
         avg10_score = None
         htsk_score = None
         overall_avg = avg_score  # Default to current avg (which is overall avg in normal case)
+        form_score = stats.get('form_score')
 
         if lastxwars == 10:
             # Reuse existing calculation to avoid duplicate query
@@ -1021,20 +1024,24 @@ class MarioKartCommands(commands.Cog):
                 if fetched_avg is not None and fetched_avg > 0:
                     overall_avg = fetched_avg
         else:
-            # Fetch avg10, but only show if player has at least 10 wars
-            avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
-            if avg10_stats:
-                # Only display avg10 if player has participated in at least 10 wars
-                war_count = avg10_stats.get('war_count', 0)
-                if war_count >= 10:
-                    avg10_score = avg10_stats.get('average_score')
+            # Use cached avg10 from stats dict if available
+            avg10_score = stats.get('avg10_score')
+            # Only display avg10 if player has participated in at least 10 wars
+            war_count = stats.get('war_count', 0)
+            if avg10_score is None and war_count >= 10:
+                # Cache miss - refresh volatile metrics
+                self.bot.db._refresh_volatile_metrics(player_name, guild_id)
+                # Re-fetch stats with updated cache
+                updated_stats = self.bot.db.get_player_stats(player_name, guild_id)
+                if updated_stats:
+                    avg10_score = updated_stats.get('avg10_score')
+                    form_score = updated_stats.get('form_score')
 
-        # Calculate HtSk if we have valid avg10 data
-        if avg10_score is not None and avg10_score > 0 and overall_avg > 0:
+        # Use cached hotstreak if available, calculate from avg10 if needed
+        if stats.get('hotstreak') is not None:
+            htsk_score = stats.get('hotstreak')
+        elif avg10_score is not None and avg10_score > 0 and overall_avg > 0:
             htsk_score = avg10_score - overall_avg
-
-        # Fetch Form Score - method already returns None if < 10 wars
-        form_score = self.bot.db.get_player_form_score(player_name, guild_id)
 
         # Add soccer-style rating indicator for clarity
         form_display = ""
@@ -1076,6 +1083,24 @@ class MarioKartCommands(commands.Cog):
         else:
             consistency_text = "```\nN/A\n(Need 2+ wars)\n```"
         embed.add_field(name="📊 Consistency", value=consistency_text, inline=True)
+
+        # Clutch Factor (performance in close wars)
+        # Use cached value from stats; compute and cache if needed
+        clutch_factor = stats.get('clutch_factor')
+        if clutch_factor is None and float(stats.get('war_count', 0)) >= 2:
+            # Cache miss - compute and cache
+            clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
+            if clutch_factor is not None:
+                # Update cache with computed value
+                stats['clutch_factor'] = clutch_factor
+
+        if clutch_factor is not None:
+            clutch_symbol = "+" if clutch_factor >= 0 else ""
+            clutch_category = self.bot.db.get_clutch_category(clutch_factor)
+            clutch_text = f"```\n{clutch_symbol}{clutch_factor:.2f}\n{clutch_category}\n```"
+        else:
+            clutch_text = "```\nN/A\n(Need 2+ wars)\n```"
+        embed.add_field(name="⚡ Clutch Factor", value=clutch_text, inline=True)
 
         # Team Differential (highlight wins/losses)
         if total_diff is not None:
@@ -1161,23 +1186,27 @@ class MarioKartCommands(commands.Cog):
         for roster_player in member_stats:
             war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
             if war_stats:
-                # Fetch additional stats for sorting if needed
+                # For volatile metrics that need refreshing (first access after war change)
                 if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
                     player_name = roster_player['player_name']
+                    war_count = war_stats.get('war_count', 0)
 
-                    # Fetch avg10 for Average 10 and Hotstreak sorting
-                    # (Potential fetches this internally via get_player_potential)
-                    if sortby in ['avg10', 'hotstreak'] and war_stats.get('war_count', 0) >= 10:
-                        avg10_stats = self.bot.db.get_player_stats_last_x_wars(player_name, 10, guild_id)
-                        if avg10_stats:
-                            war_stats['avg10_score'] = avg10_stats.get('average_score', 0)
-                            # Calculate hotstreak
-                            war_stats['hotstreak'] = war_stats['avg10_score'] - war_stats.get('average_score', 0)
+                    # Map sortby to metric key and required minimum wars
+                    metric_requirements = {
+                        'avg10': ('avg10_score', 10),
+                        'hotstreak': ('hotstreak', 10),
+                        'form': ('form_score', 10),
+                        'clutch': ('clutch_factor', 2),
+                        'potential': ('potential', 10),
+                    }
 
-                    # Fetch form score for Form sorting
-                    if sortby == 'form':
-                        form_score = self.bot.db.get_player_form_score(player_name, guild_id)
-                        war_stats['form_score'] = form_score if form_score is not None else 0
+                    metric_key, min_wars = metric_requirements.get(sortby, (None, 0))
+
+                    # If metric is NULL but player has enough wars, refresh cache
+                    if metric_key and war_stats.get(metric_key) is None and war_count >= min_wars:
+                        self.bot.db._refresh_volatile_metrics(player_name, guild_id)
+                        # Re-fetch with updated cache
+                        war_stats = self.bot.db.get_player_stats(player_name, guild_id)
 
                     # Fetch clutch factor for Clutch sorting
                     if sortby == 'clutch':
@@ -1200,7 +1229,7 @@ class MarioKartCommands(commands.Cog):
         all_players = players_with_stats + players_without_stats
 
         # Use pagination view for leaderboard
-        view = LeaderboardView(all_players, sortby, len(all_players))
+        view = LeaderboardView(all_players, sortby, len(all_players), self.bot)
         embed = view.create_embed()
 
         await interaction.response.send_message(embed=embed, view=view)
