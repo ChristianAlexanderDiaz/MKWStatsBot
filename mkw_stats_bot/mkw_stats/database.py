@@ -646,7 +646,7 @@ class DatabaseManager:
             limit: Optional limit on number of results to return (for pagination in large deployments)
 
         Returns list of dicts with: player_name, guild_id, team, nicknames,
-        country_code, discord_user_id, member_status.
+        country_code, member_status.
         """
         try:
             with self.get_connection() as conn:
@@ -655,7 +655,7 @@ class DatabaseManager:
                 # Build query with optional LIMIT clause
                 query = """
                     SELECT player_name, guild_id, team, nicknames,
-                           country_code, discord_user_id, member_status
+                           country_code, member_status
                     FROM players
                     WHERE is_active = TRUE
                     ORDER BY player_name
@@ -675,8 +675,7 @@ class DatabaseManager:
                         'team': row[2] or 'Unassigned',
                         'nicknames': row[3] or [],
                         'country_code': row[4] or None,
-                        'discord_user_id': row[5],
-                        'member_status': row[6] or 'member',
+                        'member_status': row[5] or 'member',
                     })
 
                 logging.info(f"✅ Retrieved {len(players)} active players globally")
