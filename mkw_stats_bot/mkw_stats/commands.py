@@ -37,7 +37,7 @@ def country_code_to_flag(country_code: str) -> str:
     return flag
 
 
-def get_player_display_name(player_name: str, team_name: str, guild_id: int, db) -> str:
+def get_player_display_name(player_name: str, team_name: str, guild_id: int, db: "DatabaseManager", team_tags: Optional[Dict[str, str]] = None) -> str:
     """Return player name with team tag prefix if tag exists.
 
     Args:
@@ -45,6 +45,7 @@ def get_player_display_name(player_name: str, team_name: str, guild_id: int, db)
         team_name: Player's team name
         guild_id: Guild ID
         db: Database manager instance
+        team_tags: Optional pre-fetched team tags dict to avoid DB calls
 
     Returns:
         str: 'TAG Playername' if tag exists, 'Playername' otherwise
@@ -52,7 +53,12 @@ def get_player_display_name(player_name: str, team_name: str, guild_id: int, db)
     if not team_name or team_name == 'Unassigned':
         return player_name
 
-    tag = db.get_team_tag(guild_id, team_name)
+    # Use pre-fetched team_tags if provided, otherwise query DB
+    if team_tags is not None:
+        tag = team_tags.get(team_name)
+    else:
+        tag = db.get_team_tag(guild_id, team_name)
+
     if tag:
         return f"{tag} {player_name}"
 
@@ -81,6 +87,9 @@ class LeaderboardView(discord.ui.View):
         self.current_page = 1
         self.players_per_page = 10
         self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
+
+        # Cache team tags to reduce DB calls during pagination
+        self.team_tags = self.bot.db.get_all_team_tags(guild_id)
 
         # Update button states
         self.update_buttons()
@@ -160,9 +169,9 @@ class LeaderboardView(discord.ui.View):
             country_code = player.get('country_code', '')
             flag = country_code_to_flag(country_code) if country_code else "❓"
 
-            # Get player display name with team tag
+            # Get player display name with team tag (use cached team_tags to avoid DB calls)
             team_name = player.get('team', 'Unassigned')
-            display_name = get_player_display_name(player['player_name'], team_name, self.guild_id, self.bot.db)
+            display_name = get_player_display_name(player['player_name'], team_name, self.guild_id, self.bot.db, self.team_tags)
 
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
@@ -3589,12 +3598,13 @@ class MarioKartCommands(commands.Cog):
 
             # Get all teams and tags
             all_teams = self.bot.db.get_guild_team_names(guild_id)
-            all_teams.append('Unassigned')  # Include Unassigned
-            team_tags = self.bot.db.get_all_team_tags(guild_id)
 
             if not all_teams:
                 await interaction.response.send_message("❌ No teams found. Use `/addteam` to create teams.", ephemeral=True)
                 return
+
+            all_teams.append('Unassigned')  # Include Unassigned
+            team_tags = self.bot.db.get_all_team_tags(guild_id)
 
             embed = discord.Embed(
                 title="🏷️ Team Tags",
