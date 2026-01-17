@@ -611,7 +611,7 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 cursor.execute("""
                     SELECT player_name, added_by, created_at, updated_at, team, nicknames, member_status, country_code, discord_user_id
                     FROM players
@@ -632,13 +632,59 @@ class DatabaseManager:
                         'country_code': row[7] if row[7] else None,
                         'discord_user_id': row[8] if row[8] else None
                     })
-                
+
                 return results
-                
+
         except Exception as e:
             logging.error(f"❌ Error getting all player stats: {e}")
             return []
-    
+
+    def get_all_players_stats_global(self, limit: Optional[int] = None) -> List[Dict]:
+        """Get basic stats for all active players across all guilds for global leaderboard.
+
+        Args:
+            limit: Optional limit on number of results to return (for pagination in large deployments)
+
+        Returns list of dicts with: player_name, guild_id, team, nicknames,
+        country_code, member_status.
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Build query with optional LIMIT clause
+                query = """
+                    SELECT player_name, guild_id, team, nicknames,
+                           country_code, member_status
+                    FROM players
+                    WHERE is_active = TRUE
+                    ORDER BY player_name
+                """
+
+                if limit is not None:
+                    query += " LIMIT %s"
+                    cursor.execute(query, (limit,))
+                else:
+                    cursor.execute(query)
+
+                players = []
+                for row in cursor.fetchall():
+                    players.append({
+                        'player_name': row[0],
+                        'guild_id': row[1],
+                        'team': row[2] or 'Unassigned',
+                        'nicknames': row[3] or [],
+                        'country_code': row[4] or None,
+                        'member_status': row[5] or 'member',
+                    })
+
+                logging.info(f"✅ Retrieved {len(players)} active players globally")
+                return players
+
+        except Exception as e:
+            logging.error(f"❌ Error getting global players: {e}")
+            return []
+
     def get_database_info(self, guild_id: int = 0) -> Dict:
         """Get database information."""
         try:

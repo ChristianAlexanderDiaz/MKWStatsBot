@@ -274,6 +274,225 @@ class LeaderboardView(discord.ui.View):
     async def first_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Go to first page."""
         self.current_page = 1
+        # Create new view instance to refresh timeout
+        new_view = LeaderboardView(
+            self.all_players, self.sortby, self.total_players_count, self.bot, self.guild_id
+        )
+        new_view.current_page = self.current_page
+        new_view.update_buttons()
+        await interaction.response.edit_message(embed=new_view.create_embed(), view=new_view)
+
+    @discord.ui.button(label="◀️", style=discord.ButtonStyle.primary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to previous page."""
+        self.current_page = max(1, self.current_page - 1)
+        # Create new view instance to refresh timeout
+        new_view = LeaderboardView(
+            self.all_players, self.sortby, self.total_players_count, self.bot, self.guild_id
+        )
+        new_view.current_page = self.current_page
+        new_view.update_buttons()
+        await interaction.response.edit_message(embed=new_view.create_embed(), view=new_view)
+
+    @discord.ui.button(label="▶️", style=discord.ButtonStyle.primary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to next page."""
+        self.current_page = min(self.total_pages, self.current_page + 1)
+        # Create new view instance to refresh timeout
+        new_view = LeaderboardView(
+            self.all_players, self.sortby, self.total_players_count, self.bot, self.guild_id
+        )
+        new_view.current_page = self.current_page
+        new_view.update_buttons()
+        await interaction.response.edit_message(embed=new_view.create_embed(), view=new_view)
+
+    @discord.ui.button(label="⏭️", style=discord.ButtonStyle.gray)
+    async def last_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to last page."""
+        self.current_page = self.total_pages
+        # Create new view instance to refresh timeout
+        new_view = LeaderboardView(
+            self.all_players, self.sortby, self.total_players_count, self.bot, self.guild_id
+        )
+        new_view.current_page = self.current_page
+        new_view.update_buttons()
+        await interaction.response.edit_message(embed=new_view.create_embed(), view=new_view)
+
+
+class GlobalLeaderboardView(discord.ui.View):
+    """Paginated view for global cross-guild leaderboard."""
+
+    def __init__(self, all_players: list, sortby: str, total_players_count: int, bot):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.all_players = all_players
+        self.sortby = sortby
+        self.total_players_count = total_players_count
+        self.bot = bot
+        self.current_page = 1
+        self.players_per_page = 10
+        self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
+
+        # Cache guild names for display
+        self.guild_names = {}  # {guild_id: guild_name}
+        self._populate_guild_names()
+
+        # Update button states
+        self.update_buttons()
+
+    def _populate_guild_names(self):
+        """Populate guild names from Discord client."""
+        for guild in self.bot.guilds:
+            self.guild_names[guild.id] = guild.name
+
+    def update_buttons(self):
+        """Enable/disable buttons based on current page."""
+        self.first_button.disabled = (self.current_page == 1)
+        self.prev_button.disabled = (self.current_page == 1)
+        self.next_button.disabled = (self.current_page == self.total_pages)
+        self.last_button.disabled = (self.current_page == self.total_pages)
+
+    def create_embed(self) -> discord.Embed:
+        """Create embed for current page."""
+        start_idx = (self.current_page - 1) * self.players_per_page
+        end_idx = min(start_idx + self.players_per_page, len(self.all_players))
+        page_players = self.all_players[start_idx:end_idx]
+
+        # Title based on sortby
+        title_map = {
+            'avg': '🌍 Global Leaderboard - Average Score',
+            'avg10': '🌍 Global Leaderboard - Average 10',
+            'avgdiff': '🌍 Global Leaderboard - Average Differential',
+            'clutch': '🌍 Global Leaderboard - Clutch Factor',
+            'cv': '🌍 Global Leaderboard - Consistency',
+            'form': '🌍 Global Leaderboard - Form',
+            'highest': '🌍 Global Leaderboard - Highest Score',
+            'hotstreak': '🌍 Global Leaderboard - Hotstreak',
+            'lastwar': '🌍 Global Leaderboard - Last War',
+            'lowest': '🌍 Global Leaderboard - Lowest Score',
+            'potential': '🌍 Global Leaderboard - Potential',
+            'totaldiff': '🌍 Global Leaderboard - Total Differential',
+            'warcount': '🌍 Global Leaderboard - War Count',
+            'winrate': '🌍 Global Leaderboard - Win Rate',
+        }
+        title = title_map.get(self.sortby, '🌍 Global Leaderboard')
+
+        # Build numbered leaderboard
+        leaderboard_text = []
+        for idx, player in enumerate(page_players):
+            rank = start_idx + idx + 1
+
+            # Get flag emoji
+            country_code = player.get('country_code', '')
+            flag = country_code_to_flag(country_code) if country_code else "❓"
+
+            # Get guild name
+            guild_id = player.get('guild_id', 0)
+            guild_name = self.guild_names.get(guild_id, 'Unknown')[:20]
+
+            # Get player display name (no team tags for global)
+            player_name = player['player_name'][:25]
+
+            if player.get('war_count', 0) > 0:
+                avg_score = player.get('average_score', 0.0)
+                war_count = float(player.get('war_count', 0))
+
+                # Bold the column being sorted by
+                if self.sortby is None or self.sortby == 'avg':
+                    player_str = f"{rank}. {flag} **{player_name}** | **{avg_score:.1f}** avg | {war_count:.1f} wars | {guild_name}"
+                elif self.sortby == 'warcount':
+                    player_str = f"{rank}. {flag} **{player_name}** | {avg_score:.1f} avg | **{war_count:.1f}** wars | {guild_name}"
+                else:
+                    player_str = f"{rank}. {flag} **{player_name}** | {avg_score:.1f} avg | {war_count:.1f} wars | {guild_name}"
+
+                # Add third column based on sort type (and bold it)
+                if self.sortby == 'avg10':
+                    avg10 = player.get('avg10_score')
+                    if avg10 is not None:
+                        player_str += f" | **{avg10:.1f}** avg10"
+                    else:
+                        player_str += " | **N/A**"
+                elif self.sortby == 'avgdiff':
+                    total_diff = player.get('total_team_differential', 0)
+                    avg_diff = total_diff / war_count if war_count > 0 else 0
+                    diff_symbol = "+" if avg_diff >= 0 else ""
+                    player_str += f" | **{diff_symbol}{avg_diff:.1f}**"
+                elif self.sortby == 'clutch':
+                    clutch = player.get('clutch_factor')
+                    if clutch is not None:
+                        clutch_symbol = "+" if clutch >= 0 else ""
+                        category = self.bot.db.get_clutch_category(clutch)
+                        player_str += f" | **{clutch_symbol}{clutch:.2f}** ({category})"
+                    else:
+                        player_str += " | **N/A**"
+                elif self.sortby == 'cv':
+                    consistency = player.get('consistency_score')
+                    if consistency is not None:
+                        player_str += f" | **{consistency:.1f}%**"
+                    else:
+                        player_str += " | **N/A**"
+                elif self.sortby == 'form':
+                    form = player.get('form_score')
+                    if form is not None and form > 0:
+                        player_str += f" | **{form:.1f}**"
+                    else:
+                        player_str += " | **N/A**"
+                elif self.sortby == 'highest':
+                    highest = player.get('highest_score', 0)
+                    player_str += f" | **{highest}**"
+                elif self.sortby == 'hotstreak':
+                    htsk = player.get('hotstreak')
+                    if htsk is not None:
+                        htsk_symbol = "+" if htsk >= 0 else ""
+                        player_str += f" | **{htsk_symbol}{htsk:.2f}**"
+                    else:
+                        player_str += " | **N/A**"
+                elif self.sortby == 'lastwar':
+                    last_war = player.get('last_war_date')
+                    if last_war:
+                        player_str += f" | **{last_war}**"
+                    else:
+                        player_str += " | **N/A**"
+                elif self.sortby == 'lowest':
+                    lowest = player.get('lowest_score', 0)
+                    player_str += f" | **{lowest}**"
+                elif self.sortby == 'potential':
+                    potential = player.get('potential')
+                    if potential is not None:
+                        player_str += f" | **{potential:.1f}**"
+                    else:
+                        player_str += " | **N/A**"
+                elif self.sortby == 'totaldiff':
+                    total_diff = player.get('total_team_differential', 0)
+                    diff_symbol = "+" if total_diff >= 0 else ""
+                    player_str += f" | **{diff_symbol}{total_diff}**"
+                elif self.sortby == 'winrate':
+                    win_pct = player.get('win_percentage', 0.0)
+                    player_str += f" | **{win_pct:.1f}%**"
+
+                leaderboard_text.append(player_str)
+            else:
+                leaderboard_text.append(f"{rank}. {flag} **{player_name}** | No wars | {guild_name}")
+
+        embed = discord.Embed(
+            title=title,
+            color=discord.Color.blue()
+        )
+
+        embed.add_field(
+            name="Global Rankings",
+            value="\n".join(leaderboard_text) if leaderboard_text else "No player data available",
+            inline=False
+        )
+
+        # Footer with page info
+        embed.set_footer(text=f"Page {self.current_page}/{self.total_pages} • {self.total_players_count} Total Players")
+
+        return embed
+
+    @discord.ui.button(label="⏮️", style=discord.ButtonStyle.gray)
+    async def first_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to first page."""
+        self.current_page = 1
         self.update_buttons()
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
@@ -1410,8 +1629,149 @@ class MarioKartCommands(commands.Cog):
             else:
                 await interaction.followup.send("❌ An error occurred while retrieving stats.", ephemeral=True)
 
+    @app_commands.command(
+        name="leaderboard",
+        description="🌍 View global cross-guild leaderboard sorted by various metrics"
+    )
+    @app_commands.describe(
+        sortby="Metric to sort by (default: average score)"
+    )
+    @app_commands.choices(sortby=[
+        app_commands.Choice(name="Average - Overall average score", value="avg"),
+        app_commands.Choice(name="Avg10 - Average of last 10 wars (10+ wars)", value="avg10"),
+        app_commands.Choice(name="Average Differential - Average team differential", value="avgdiff"),
+        app_commands.Choice(name="Clutch - Clutch factor in close games (2+ wars)", value="clutch"),
+        app_commands.Choice(name="Consistency - Score consistency (2+ wars)", value="cv"),
+        app_commands.Choice(name="Form - Current form score (10+ wars)", value="form"),
+        app_commands.Choice(name="Highest - Highest single war score", value="highest"),
+        app_commands.Choice(name="Hotstreak - Recent performance trend (10+ wars)", value="hotstreak"),
+        app_commands.Choice(name="Last War - Most recent war date", value="lastwar"),
+        app_commands.Choice(name="Lowest - Lowest single war score", value="lowest"),
+        app_commands.Choice(name="Potential - Performance ceiling (10+ wars)", value="potential"),
+        app_commands.Choice(name="Total Differential - Total team differential", value="totaldiff"),
+        app_commands.Choice(name="War Count - Number of wars played", value="warcount"),
+        app_commands.Choice(name="Win Rate - Win percentage", value="winrate"),
+    ])
+    async def leaderboard_slash(
+        self,
+        interaction: discord.Interaction,
+        sortby: Optional[str] = None
+    ):
+        """Display global cross-guild leaderboard."""
+        await interaction.response.defer()
 
+        # Default sortby to 'avg'
+        if sortby is None:
+            sortby = 'avg'
 
+        try:
+            # Get all players across all guilds
+            all_players_basic = self.bot.db.get_all_players_stats_global()
+
+            if not all_players_basic:
+                await interaction.followup.send(
+                    "❌ No active players found in the database.",
+                    ephemeral=True
+                )
+                return
+
+            # Get full stats for each player (cached metrics)
+            players_with_stats = []
+            for player_basic in all_players_basic:
+                player_name = player_basic['player_name']
+                guild_id = player_basic['guild_id']
+
+                # Get full stats including cached metrics
+                stats = self.bot.db.get_player_stats(player_name, guild_id)
+                if stats and stats.get('war_count', 0) > 0:
+                    # Add guild_id to stats for guild identification
+                    stats['guild_id'] = guild_id
+                    players_with_stats.append(stats)
+
+            if not players_with_stats:
+                await interaction.followup.send(
+                    "❌ No players with war data found.",
+                    ephemeral=True
+                )
+                return
+
+            # Trigger volatile metrics refresh if needed (same as guild leaderboard)
+            if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
+                # Metric-specific war count thresholds
+                thresholds = {
+                    'clutch': 2,
+                    'avg10': 10,
+                    'hotstreak': 10,
+                    'form': 10,
+                    'potential': 10
+                }
+
+                metric_key = {
+                    'avg10': 'avg10_score',
+                    'hotstreak': 'hotstreak',
+                    'form': 'form_score',
+                    'clutch': 'clutch_factor',
+                    'potential': 'potential'
+                }.get(sortby, sortby)
+
+                min_wars = thresholds.get(sortby, 10)
+
+                for stats in players_with_stats:
+                    if stats.get(metric_key) is None and stats.get('war_count', 0) >= min_wars:
+                        self.bot.db._refresh_volatile_metrics(
+                            stats['player_name'],
+                            stats['guild_id']
+                        )
+                        # Re-fetch stats
+                        refreshed = self.bot.db.get_player_stats(
+                            stats['player_name'],
+                            stats['guild_id']
+                        )
+                        if refreshed:
+                            stats.update(refreshed)
+
+                        # Explicitly populate clutch_factor and potential if needed
+                        if sortby == 'clutch' and stats.get('clutch_factor') is None:
+                            clutch = self.bot.db.get_player_clutch_factor(
+                                stats['player_name'],
+                                stats['guild_id']
+                            )
+                            if clutch is not None:
+                                stats['clutch_factor'] = clutch
+
+                        if sortby == 'potential' and stats.get('potential') is None:
+                            potential = self.bot.db.get_player_potential(
+                                stats['player_name'],
+                                stats['guild_id']
+                            )
+                            if potential is not None:
+                                stats['potential'] = potential
+
+            # Sort using existing method (works cross-guild)
+            players_with_stats = self._sort_player_stats(
+                players_with_stats,
+                sortby,
+                guild_id=0  # Not used for global leaderboard
+            )
+
+            # Display with GlobalLeaderboardView
+            view = GlobalLeaderboardView(
+                players_with_stats,
+                sortby,
+                len(players_with_stats),
+                self.bot
+            )
+            embed = view.create_embed()
+            await interaction.followup.send(embed=embed, view=view)
+
+        except Exception as e:
+            logging.error(f"❌ Error in /leaderboard command: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            await interaction.followup.send(
+                "❌ An error occurred while generating the leaderboard.",
+                ephemeral=True
+            )
 
 
     @app_commands.command(name="roster", description="Show complete guild roster organized by teams")
