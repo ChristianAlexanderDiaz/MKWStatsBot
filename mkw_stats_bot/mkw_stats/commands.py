@@ -11,6 +11,7 @@ import os
 import traceback
 from typing import List, Dict, Any, Optional
 from . import config
+from .database import DatabaseManager
 # OCR processor initialized in bot.py at startup for instant response
 
 # Member status choices - centralized definition
@@ -36,10 +37,32 @@ def country_code_to_flag(country_code: str) -> str:
     return flag
 
 
-def is_bot_owner(user_id: int) -> bool:
-    """Check if user is the bot owner (Christian/Cynical)."""
-    BOT_OWNER_ID = 291621912914821120
-    return user_id == BOT_OWNER_ID
+def get_player_display_name(player_name: str, team_name: str, guild_id: int, db: "DatabaseManager", team_tags: Optional[Dict[str, str]] = None) -> str:
+    """Return player name with team tag prefix if tag exists.
+
+    Args:
+        player_name: Player's name
+        team_name: Player's team name
+        guild_id: Guild ID
+        db: Database manager instance
+        team_tags: Optional pre-fetched team tags dict to avoid DB calls
+
+    Returns:
+        str: 'TAG Playername' if tag exists, 'Playername' otherwise
+    """
+    if not team_name or team_name == 'Unassigned':
+        return player_name
+
+    # Use pre-fetched team_tags if provided, otherwise query DB
+    if team_tags is not None:
+        tag = team_tags.get(team_name)
+    else:
+        tag = db.get_team_tag(guild_id, team_name)
+
+    if tag:
+        return f"{tag} {player_name}"
+
+    return player_name
 
 
 def has_admin_permission(interaction: discord.Interaction) -> bool:
@@ -47,22 +70,26 @@ def has_admin_permission(interaction: discord.Interaction) -> bool:
     return (
         interaction.user.guild_permissions.administrator or
         interaction.user.id == interaction.guild.owner_id or
-        is_bot_owner(interaction.user.id)
+        DatabaseManager.is_bot_owner(interaction.user.id)
     )
 
 
 class LeaderboardView(discord.ui.View):
     """Pagination view for player statistics leaderboard."""
 
-    def __init__(self, all_players: list, sortby: str, total_players_count: int, bot):
+    def __init__(self, all_players: list, sortby: str, total_players_count: int, bot, guild_id: int):
         super().__init__(timeout=300)  # 5 minute timeout
         self.all_players = all_players
         self.sortby = sortby
         self.total_players_count = total_players_count
         self.bot = bot
+        self.guild_id = guild_id
         self.current_page = 1
         self.players_per_page = 10
         self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
+
+        # Cache team tags to reduce DB calls during pagination
+        self.team_tags = self.bot.db.get_all_team_tags(guild_id)
 
         # Update button states
         self.update_buttons()
@@ -142,6 +169,10 @@ class LeaderboardView(discord.ui.View):
             country_code = player.get('country_code', '')
             flag = country_code_to_flag(country_code) if country_code else "❓"
 
+            # Get player display name with team tag (use cached team_tags to avoid DB calls)
+            team_name = player.get('team', 'Unassigned')
+            display_name = get_player_display_name(player['player_name'], team_name, self.guild_id, self.bot.db, self.team_tags)
+
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
                 war_count = float(player.get('war_count', 0))
@@ -150,13 +181,13 @@ class LeaderboardView(discord.ui.View):
                 # Default (None) sorts by avg, "warcount" sorts by wars
                 if self.sortby is None:
                     # Bold average score
-                    player_str = f"{rank}. {flag} **{player['player_name']}** | **{avg_score:.1f}** avg | {war_count:.1f} wars"
+                    player_str = f"{rank}. {flag} **{display_name}** | **{avg_score:.1f}** avg | {war_count:.1f} wars"
                 elif self.sortby == 'warcount':
                     # Bold war count
-                    player_str = f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | **{war_count:.1f}** wars"
+                    player_str = f"{rank}. {flag} **{display_name}** | {avg_score:.1f} avg | **{war_count:.1f}** wars"
                 else:
                     # For other sorts (winrate, avgdiff, cv), don't bold base columns
-                    player_str = f"{rank}. {flag} **{player['player_name']}** | {avg_score:.1f} avg | {war_count:.1f} wars"
+                    player_str = f"{rank}. {flag} **{display_name}** | {avg_score:.1f} avg | {war_count:.1f} wars"
 
                 # Add third column based on sort type (and bold it)
                 if show_third_column:
@@ -226,7 +257,7 @@ class LeaderboardView(discord.ui.View):
 
                 leaderboard_text.append(player_str)
             else:
-                leaderboard_text.append(f"{rank}. {flag} **{player['player_name']}** | No wars yet")
+                leaderboard_text.append(f"{rank}. {flag} **{display_name}** | No wars yet")
 
         embed.add_field(
             name="Top Players",
@@ -970,12 +1001,16 @@ class MarioKartCommands(commands.Cog):
         flag = country_code_to_flag(country_code) if country_code else ""
         flag_prefix = f"{flag} " if flag else ""
 
+        # Get player display name with team tag
+        team_name = stats.get('team', 'Unassigned')
+        display_name = get_player_display_name(stats['player_name'], team_name, guild_id, self.bot.db)
+
         # Determine title and color based on context
         if lastxwars is not None:
-            title_text = f"{flag_prefix}{stats['player_name']} (Last {lastxwars} Wars)"
+            title_text = f"{flag_prefix}{display_name} (Last {lastxwars} Wars)"
             scope_text = f"Last {lastxwars} Wars"
         else:
-            title_text = f"{flag_prefix}{stats['player_name']}"
+            title_text = f"{flag_prefix}{display_name}"
             scope_text = "Career Statistics"
 
         # Dynamic color based on team differential
@@ -1229,7 +1264,7 @@ class MarioKartCommands(commands.Cog):
         all_players = players_with_stats + players_without_stats
 
         # Use pagination view for leaderboard
-        view = LeaderboardView(all_players, sortby, len(all_players), self.bot)
+        view = LeaderboardView(all_players, sortby, len(all_players), self.bot, guild_id)
         embed = view.create_embed()
 
         await interaction.response.send_message(embed=embed, view=view)
@@ -1411,12 +1446,14 @@ class MarioKartCommands(commands.Cog):
             for team_name, players in teams.items():
                 if players:  # Only show teams with players
                     player_list = []
-                    
+
                     for player in players:
+                        # Get display name with tag
+                        display_name = get_player_display_name(player['player_name'], team_name, guild_id, self.bot.db)
                         nickname_count = len(player.get('nicknames', []))
                         nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
-                        player_list.append(f"• **{player['player_name']}**{nickname_text}")
-                    
+                        player_list.append(f"• **{display_name}**{nickname_text}")
+
                     embed.add_field(
                         name=f"{team_name} ({len(players)} players)",
                         value="\n".join(player_list),
@@ -2414,10 +2451,13 @@ class MarioKartCommands(commands.Cog):
                     
                     player_list = []
                     for player in players:
+                        # Get display name with tag
+                        team_name = player.get('team', 'Unassigned')
+                        display_name = get_player_display_name(player['player_name'], team_name, guild_id, self.bot.db)
                         nickname_count = len(player.get('nicknames', []))
                         nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
-                        player_list.append(f"• **{player['player_name']}**{nickname_text}")
-                    
+                        player_list.append(f"• **{display_name}**{nickname_text}")
+
                     embed.add_field(
                         name=f"{info['icon']} {info['name']} ({len(players)} players)",
                         value="\n".join(player_list),
@@ -2462,14 +2502,16 @@ class MarioKartCommands(commands.Cog):
                 # Get detailed stats for team members
                 detailed_players = []
                 for player in team_players:
+                    # Get display name with tag
+                    display_name = get_player_display_name(player, team_name, guild_id, self.bot.db)
                     player_stats = self.bot.db.get_player_info(player, guild_id)
                     if player_stats:
                         nicknames = player_stats.get('nicknames', [])
                         nickname_text = f" ({', '.join(nicknames)})" if nicknames else ""
-                        detailed_players.append(f"• **{player}**{nickname_text}")
+                        detailed_players.append(f"• **{display_name}**{nickname_text}")
                     else:
-                        detailed_players.append(f"• **{player}**")
-                
+                        detailed_players.append(f"• **{display_name}**")
+
                 embed.add_field(
                     name=f"Team Members ({len(team_players)})",
                     value="\n".join(detailed_players),
@@ -2662,11 +2704,14 @@ class MarioKartCommands(commands.Cog):
             if trials:
                 trial_list = []
                 for player in trials:
+                    # Get display name with tag
+                    team_name = player.get('team', 'Unassigned')
+                    display_name = get_player_display_name(player['player_name'], team_name, guild_id, self.bot.db)
                     nickname_count = len(player.get('nicknames', []))
                     nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
-                    team_text = f" - {player['team']}" if player['team'] != 'Unassigned' else ""
-                    trial_list.append(f"• **{player['player_name']}**{team_text}{nickname_text}")
-                
+                    team_text = f" - {team_name}" if team_name != 'Unassigned' else ""
+                    trial_list.append(f"• **{display_name}**{team_text}{nickname_text}")
+
                 embed.description = "\n".join(trial_list)
                 embed.add_field(
                     name="Total Trial Members",
@@ -3405,7 +3450,7 @@ class MarioKartCommands(commands.Cog):
         try:
             guild_id = self.get_guild_id(interaction)
             success = self.bot.db.rename_guild_team(guild_id, old_name, new_name)
-            
+
             if success:
                 embed = discord.Embed(
                     title="✅ Team Renamed!",
@@ -3420,13 +3465,197 @@ class MarioKartCommands(commands.Cog):
                 await interaction.response.send_message(embed=embed)
             else:
                 await interaction.response.send_message("❌ Failed to rename team. Check if the old team exists and the new name is valid.")
-                
+
         except Exception as e:
             logging.error(f"Error renaming team: {e}")
             if not interaction.response.is_done():
                 await interaction.response.send_message("❌ Error renaming team", ephemeral=True)
             else:
                 await interaction.followup.send("❌ Error renaming team", ephemeral=True)
+
+    async def team_with_tag_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        """Autocomplete callback for teams that have tags set."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+            team_tags = self.bot.db.get_all_team_tags(guild_id)
+
+            # Only show teams that have tags
+            teams_with_tags = list(team_tags.keys())
+
+            # Filter based on current input
+            filtered = [name for name in teams_with_tags if current.lower() in name.lower()]
+
+            # Return up to 25 choices (Discord limit)
+            return [app_commands.Choice(name=name, value=name) for name in filtered[:25]]
+        except Exception as e:
+            logging.error(f"Error in team_with_tag autocomplete: {e}")
+            return []
+
+    @app_commands.command(name="setteamtag", description="Set a tag for a team (1-8 chars, displays as 'TAG Playername')")
+    @app_commands.describe(
+        team_name="Team to set tag for",
+        tag="Tag to display (1-8 characters, Unicode supported, no newlines)"
+    )
+    @app_commands.autocomplete(team_name=team_autocomplete)
+    @require_guild_setup
+    async def set_team_tag(self, interaction: discord.Interaction, team_name: str, tag: str):
+        """Set a tag for a team in the guild."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+
+            # Check admin permissions
+            if not has_admin_permission(interaction):
+                await interaction.response.send_message(
+                    "❌ Only server administrators can set team tags.",
+                    ephemeral=True
+                )
+                return
+
+            # Validate tag length
+            tag_stripped = tag.strip()
+            if len(tag_stripped) < 1 or len(tag_stripped) > 8:
+                await interaction.response.send_message(
+                    f"❌ Tag must be 1-8 characters long (you provided {len(tag_stripped)} chars).\n"
+                    f"Max 8 chars due to Switch 10-char name limit (8 tag + 1 separator + 1 name minimum).",
+                    ephemeral=True
+                )
+                return
+
+            # Set the tag
+            success = self.bot.db.set_team_tag(guild_id, team_name, tag)
+
+            if success:
+                embed = discord.Embed(
+                    title="✅ Team Tag Set!",
+                    description=f"Successfully set tag for **{team_name}**",
+                    color=0x00ff00
+                )
+                embed.add_field(name="Tag", value=f"`{tag_stripped}`", inline=True)
+                embed.add_field(name="Display Format", value=f"`{tag_stripped} Playername`", inline=True)
+                embed.set_footer(text="Tags will appear in roster, leaderboard, and stats views")
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message(
+                    f"❌ Failed to set tag for team '{team_name}'.\n"
+                    f"Make sure the team exists. Use `/showallteams` to see available teams.",
+                    ephemeral=True
+                )
+
+        except Exception as e:
+            logging.error(f"Error setting team tag: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error setting team tag", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error setting team tag", ephemeral=True)
+
+    @app_commands.command(name="removeteamtag", description="Remove the tag from a team")
+    @app_commands.describe(team_name="Team to remove tag from")
+    @app_commands.autocomplete(team_name=team_with_tag_autocomplete)
+    @require_guild_setup
+    async def remove_team_tag(self, interaction: discord.Interaction, team_name: str):
+        """Remove the tag from a team in the guild."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+
+            # Check admin permissions
+            if not has_admin_permission(interaction):
+                await interaction.response.send_message(
+                    "❌ Only server administrators can remove team tags.",
+                    ephemeral=True
+                )
+                return
+
+            success = self.bot.db.remove_team_tag(guild_id, team_name)
+
+            if success:
+                embed = discord.Embed(
+                    title="✅ Team Tag Removed!",
+                    description=f"Successfully removed tag from **{team_name}**",
+                    color=0x00ff00
+                )
+                embed.set_footer(text="Players from this team will now display without a tag")
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message(
+                    f"❌ Failed to remove tag from team '{team_name}'.\n"
+                    f"Make sure the team exists and has a tag set. Use `/showteamtags` to see teams with tags.",
+                    ephemeral=True
+                )
+
+        except Exception as e:
+            logging.error(f"Error removing team tag: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error removing team tag", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error removing team tag", ephemeral=True)
+
+    @app_commands.command(name="showteamtags", description="Show all team tags for this guild")
+    @require_guild_setup
+    async def show_team_tags(self, interaction: discord.Interaction):
+        """Show all team tags for the guild."""
+        try:
+            guild_id = self.get_guild_id(interaction)
+
+            # Get all teams and tags
+            all_teams = self.bot.db.get_guild_team_names(guild_id)
+
+            if not all_teams:
+                await interaction.response.send_message("❌ No teams found. Use `/addteam` to create teams.", ephemeral=True)
+                return
+
+            all_teams.append('Unassigned')  # Include Unassigned
+            team_tags = self.bot.db.get_all_team_tags(guild_id)
+
+            embed = discord.Embed(
+                title="🏷️ Team Tags",
+                description="Tags are displayed as 'TAG Playername' in roster, leaderboard, and stats.\nMax 8 characters (Switch 10-char limit).",
+                color=0x9932cc
+            )
+
+            # Separate teams with tags and without tags
+            teams_with_tags = []
+            teams_without_tags = []
+
+            for team in all_teams:
+                tag = team_tags.get(team)
+                if tag:
+                    teams_with_tags.append((team, tag))
+                else:
+                    teams_without_tags.append(team)
+
+            # Show teams with tags
+            if teams_with_tags:
+                tag_text = []
+                for team, tag in sorted(teams_with_tags):
+                    tag_text.append(f"**{team}**: `{tag}`")
+
+                embed.add_field(
+                    name=f"Teams with Tags ({len(teams_with_tags)})",
+                    value="\n".join(tag_text),
+                    inline=False
+                )
+
+            # Show teams without tags
+            if teams_without_tags:
+                no_tag_text = ", ".join(f"**{team}**" for team in sorted(teams_without_tags))
+                if len(no_tag_text) > 1024:
+                    no_tag_text = no_tag_text[:1020] + "..."
+
+                embed.add_field(
+                    name=f"Teams without Tags ({len(teams_without_tags)})",
+                    value=no_tag_text,
+                    inline=False
+                )
+
+            embed.set_footer(text="Use /setteamtag to add tags | /removeteamtag to remove tags")
+            await interaction.response.send_message(embed=embed)
+
+        except Exception as e:
+            logging.error(f"Error showing team tags: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Error retrieving team tags", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error retrieving team tags", ephemeral=True)
 
     async def _add_ocr_confirmation(self, message, processed_results, guild_id: int, user_id: int, original_message):
         """Add confirmation reactions to OCR results for database submission."""
@@ -3797,7 +4026,7 @@ class MarioKartCommands(commands.Cog):
         - /sendcommand command_name:scanimage channel:#results
         """
         # Check if user is bot owner (Cynical - 291621912914821120)
-        if not is_bot_owner(interaction.user.id):
+        if not DatabaseManager.is_bot_owner(interaction.user.id):
             await interaction.response.send_message(
                 "❌ This command is restricted to the bot owner only.",
                 ephemeral=True

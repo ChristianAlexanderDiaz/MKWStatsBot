@@ -23,6 +23,9 @@ import os
 from contextlib import contextmanager
 from urllib.parse import urlparse
 
+# Bot owner ID - Master admin with global override (Cynical/Christian)
+BOT_OWNER_ID = 291621912914821120
+
 class DatabaseManager:
     # Form Score calculation constants
     FORM_SCORE_DECAY_FACTOR = 0.85  # Exponential weight decay (recent wars weighted ~15% more)
@@ -680,7 +683,28 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"❌ PostgreSQL health check failed: {e}")
             return False
-    
+
+    @staticmethod
+    def get_bot_owner_id() -> int:
+        """Get the master admin bot owner ID (Cynical/Christian).
+
+        Returns:
+            int: Discord user ID of the bot owner
+        """
+        return BOT_OWNER_ID
+
+    @staticmethod
+    def is_bot_owner(user_id: int) -> bool:
+        """Check if a user ID is the bot owner.
+
+        Args:
+            user_id: Discord user ID to check
+
+        Returns:
+            bool: True if user is bot owner, False otherwise
+        """
+        return user_id == BOT_OWNER_ID
+
     # Roster Management Methods
     def get_roster_players(self, guild_id: int = 0) -> List[str]:
         """Get list of active roster players."""
@@ -2415,9 +2439,220 @@ class DatabaseManager:
         try:
             teams = self.get_players_by_team(guild_id=guild_id)
             return {team_name: len(players) for team_name, players in teams.items()}
-            
+
         except Exception as e:
             logging.error(f"❌ Error getting guild teams with counts: {e}")
+            return {}
+
+    # Team Tag Management Methods
+    def set_team_tag(self, guild_id: int, team_name: str, tag: str) -> bool:
+        """Set a tag for a team in a guild's configuration.
+
+        Args:
+            guild_id: Guild ID
+            team_name: Name of the team (must exist in guild's team_names)
+            tag: Tag string (1-8 chars, Unicode supported, no newlines)
+                 Max 8 chars due to Switch 10 char limit (8 tag + 1 separator + 1 name minimum)
+
+        Returns:
+            bool: True if tag was set successfully, False otherwise
+        """
+        try:
+            # Validate guild_id to prevent cross-guild contamination
+            self._validate_guild_id(guild_id, "set_team_tag")
+
+            # Validate tag format
+            if not tag or not tag.strip():
+                logging.error("Tag cannot be empty or whitespace-only")
+                return False
+
+            tag = tag.strip()
+
+            # Length check (1-8 characters for Switch compatibility)
+            if len(tag) < 1 or len(tag) > 8:
+                logging.error(f"Tag must be 1-8 characters long, got {len(tag)}")
+                return False
+
+            # Check for newlines (not allowed)
+            if '\n' in tag or '\r' in tag:
+                logging.error("Tag cannot contain newline characters")
+                return False
+
+            # Get current teams to validate team_name exists
+            current_teams = self.get_guild_team_names(guild_id)
+
+            # Check if team exists (case-insensitive search)
+            team_to_tag = None
+            for team in current_teams:
+                if team.lower() == team_name.lower():
+                    team_to_tag = team
+                    break
+
+            if not team_to_tag:
+                logging.error(f"Team '{team_name}' not found in guild {guild_id}")
+                return False
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get current team_tags
+                cursor.execute("""
+                    SELECT team_tags FROM guild_configs WHERE guild_id = %s
+                """, (guild_id,))
+
+                result = cursor.fetchone()
+                if not result:
+                    logging.error(f"Guild {guild_id} not found in guild_configs")
+                    return False
+
+                team_tags = result[0] if result[0] else {}
+
+                # Update the team tag (use exact team name from team_names)
+                team_tags[team_to_tag] = tag
+
+                # Update guild config
+                cursor.execute("""
+                    UPDATE guild_configs
+                    SET team_tags = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE guild_id = %s
+                """, (json.dumps(team_tags), guild_id))
+
+                conn.commit()
+                logging.info(f"✅ Set tag '{tag}' for team '{team_to_tag}' in guild {guild_id}")
+                return True
+
+        except Exception as e:
+            logging.error(f"❌ Error setting team tag: {e}")
+            return False
+
+    def get_team_tag(self, guild_id: int, team_name: str) -> Optional[str]:
+        """Get the tag for a team in a guild.
+
+        Args:
+            guild_id: Guild ID
+            team_name: Name of the team
+
+        Returns:
+            Optional[str]: Tag string if set, None if no tag exists
+        """
+        try:
+            # Validate guild_id to prevent cross-guild contamination
+            self._validate_guild_id(guild_id, "get_team_tag")
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    SELECT team_tags FROM guild_configs WHERE guild_id = %s
+                """, (guild_id,))
+
+                result = cursor.fetchone()
+                if not result or not result[0]:
+                    return None
+
+                team_tags = result[0]
+
+                # Try exact match first
+                if team_name in team_tags:
+                    return team_tags[team_name]
+
+                # Try case-insensitive match
+                for team, tag in team_tags.items():
+                    if team.lower() == team_name.lower():
+                        return tag
+
+                return None
+
+        except Exception as e:
+            logging.error(f"❌ Error getting team tag: {e}")
+            return None
+
+    def remove_team_tag(self, guild_id: int, team_name: str) -> bool:
+        """Remove the tag from a team in a guild's configuration.
+
+        Args:
+            guild_id: Guild ID
+            team_name: Name of the team
+
+        Returns:
+            bool: True if tag was removed successfully, False otherwise
+        """
+        try:
+            # Validate guild_id to prevent cross-guild contamination
+            self._validate_guild_id(guild_id, "remove_team_tag")
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get current team_tags
+                cursor.execute("""
+                    SELECT team_tags FROM guild_configs WHERE guild_id = %s
+                """, (guild_id,))
+
+                result = cursor.fetchone()
+                if not result:
+                    logging.error(f"Guild {guild_id} not found in guild_configs")
+                    return False
+
+                team_tags = result[0] if result[0] else {}
+
+                # Find the team (case-insensitive)
+                team_to_remove = None
+                for team in team_tags.keys():
+                    if team.lower() == team_name.lower():
+                        team_to_remove = team
+                        break
+
+                if not team_to_remove:
+                    logging.error(f"No tag set for team '{team_name}' in guild {guild_id}")
+                    return False
+
+                # Remove the tag
+                del team_tags[team_to_remove]
+
+                # Update guild config
+                cursor.execute("""
+                    UPDATE guild_configs
+                    SET team_tags = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE guild_id = %s
+                """, (json.dumps(team_tags), guild_id))
+
+                conn.commit()
+                logging.info(f"✅ Removed tag from team '{team_to_remove}' in guild {guild_id}")
+                return True
+
+        except Exception as e:
+            logging.error(f"❌ Error removing team tag: {e}")
+            return False
+
+    def get_all_team_tags(self, guild_id: int) -> Dict[str, str]:
+        """Get all team tags for a guild.
+
+        Args:
+            guild_id: Guild ID
+
+        Returns:
+            Dict[str, str]: Dictionary mapping team names to tags {"Team Name": "TAG"}
+        """
+        try:
+            # Validate guild_id to prevent cross-guild contamination
+            self._validate_guild_id(guild_id, "get_all_team_tags")
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    SELECT team_tags FROM guild_configs WHERE guild_id = %s
+                """, (guild_id,))
+
+                result = cursor.fetchone()
+                if not result or not result[0]:
+                    return {}
+
+                return result[0]
+
+        except Exception as e:
+            logging.error(f"❌ Error getting all team tags: {e}")
             return {}
 
     def set_player_member_status(self, player_name: str, member_status: str, guild_id: int = 0) -> bool:
