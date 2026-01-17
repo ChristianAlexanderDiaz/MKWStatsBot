@@ -11,10 +11,8 @@ import os
 import traceback
 from typing import List, Dict, Any, Optional
 from . import config
+from .database import DatabaseManager
 # OCR processor initialized in bot.py at startup for instant response
-
-# Bot owner ID - Master admin with global override
-BOT_OWNER_ID = 291621912914821120
 
 # Member status choices - centralized definition
 MEMBER_STATUS_CHOICES = [
@@ -61,17 +59,12 @@ def get_player_display_name(player_name: str, team_name: str, guild_id: int, db)
     return player_name
 
 
-def is_bot_owner(user_id: int) -> bool:
-    """Check if user is the bot owner (Christian/Cynical)."""
-    return user_id == BOT_OWNER_ID
-
-
 def has_admin_permission(interaction: discord.Interaction) -> bool:
     """Check if user has admin permission (server admin, server owner, or bot owner)."""
     return (
         interaction.user.guild_permissions.administrator or
         interaction.user.id == interaction.guild.owner_id or
-        is_bot_owner(interaction.user.id)
+        DatabaseManager.is_bot_owner(interaction.user.id)
     )
 
 
@@ -4023,7 +4016,7 @@ class MarioKartCommands(commands.Cog):
         - /sendcommand command_name:scanimage channel:#results
         """
         # Check if user is bot owner (Cynical - 291621912914821120)
-        if not is_bot_owner(interaction.user.id):
+        if not DatabaseManager.is_bot_owner(interaction.user.id):
             await interaction.response.send_message(
                 "❌ This command is restricted to the bot owner only.",
                 ephemeral=True
