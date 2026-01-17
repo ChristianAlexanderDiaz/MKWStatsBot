@@ -1730,6 +1730,23 @@ class MarioKartCommands(commands.Cog):
                         if refreshed:
                             stats.update(refreshed)
 
+                        # Explicitly populate clutch_factor and potential if needed
+                        if sortby == 'clutch' and stats.get('clutch_factor') is None:
+                            clutch = self.bot.db.get_player_clutch_factor(
+                                stats['player_name'],
+                                stats['guild_id']
+                            )
+                            if clutch is not None:
+                                stats['clutch_factor'] = clutch
+
+                        if sortby == 'potential' and stats.get('potential') is None:
+                            potential = self.bot.db.get_player_potential(
+                                stats['player_name'],
+                                stats['guild_id']
+                            )
+                            if potential is not None:
+                                stats['potential'] = potential
+
             # Sort using existing method (works cross-guild)
             players_with_stats = self._sort_player_stats(
                 players_with_stats,
