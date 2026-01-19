@@ -26,6 +26,42 @@ from urllib.parse import urlparse
 # Bot owner ID - Master admin with global override (Cynical/Christian)
 BOT_OWNER_ID = 291621912914821120
 
+# Excluded guilds (testing/dev guilds excluded from leaderboards)
+# Format: comma-separated guild IDs in EXCLUDED_GUILD_IDS environment variable
+# If unset: uses default testing guild IDs
+# If empty string: disables exclusions (allows all guilds)
+# If set: parses comma-separated guild IDs
+def _parse_excluded_guilds() -> List[int]:
+    """Parse excluded guild IDs from environment variable.
+
+    - None/Unset: Returns default testing guild IDs
+    - Empty string: Returns [] (disables exclusions)
+    - CSV string: Parses and returns guild IDs
+    """
+    excluded_str = os.getenv('EXCLUDED_GUILD_IDS')
+
+    if excluded_str is None:
+        # Unset: use default testing guild exclusion
+        default_testing_guild = 1395476782312063096
+        logging.info(f"✅ EXCLUDED_GUILD_IDS not set, using default: {default_testing_guild}")
+        return [default_testing_guild]
+
+    if excluded_str == '':
+        # Explicitly empty: disable all exclusions
+        logging.info("✅ EXCLUDED_GUILD_IDS set to empty, disabling all exclusions")
+        return []
+
+    # Parse CSV guild IDs
+    try:
+        guild_ids = [int(guild_id.strip()) for guild_id in excluded_str.split(',') if guild_id.strip()]
+        logging.info(f"✅ Excluding guilds: {guild_ids}")
+        return guild_ids
+    except ValueError as e:
+        logging.warning(f"⚠️ Invalid EXCLUDED_GUILD_IDS format: {e}")
+        return []
+
+EXCLUDED_GUILD_IDS = _parse_excluded_guilds()
+
 class DatabaseManager:
     # Form Score calculation constants
     FORM_SCORE_DECAY_FACTOR = 0.85  # Exponential weight decay (recent wars weighted ~15% more)
@@ -647,25 +683,35 @@ class DatabaseManager:
 
         Returns list of dicts with: player_name, guild_id, team, nicknames,
         country_code, member_status.
+
+        Automatically excludes testing/dev guilds configured in EXCLUDED_GUILD_IDS env var.
         """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Build query with optional LIMIT clause
+                # Build query with optional guild exclusion and LIMIT clause
                 query = """
                     SELECT player_name, guild_id, team, nicknames,
                            country_code, member_status
                     FROM players
                     WHERE is_active = TRUE
-                    ORDER BY player_name
                 """
+
+                params = []
+                if EXCLUDED_GUILD_IDS:
+                    placeholders = ','.join(['%s'] * len(EXCLUDED_GUILD_IDS))
+                    query += f" AND guild_id NOT IN ({placeholders})"
+                    params.extend(EXCLUDED_GUILD_IDS)
+
+                query += " ORDER BY player_name"
 
                 if limit is not None:
                     query += " LIMIT %s"
-                    cursor.execute(query, (limit,))
+                    params.append(limit)
+                    cursor.execute(query, params)
                 else:
-                    cursor.execute(query)
+                    cursor.execute(query, params) if params else cursor.execute(query)
 
                 players = []
                 for row in cursor.fetchall():

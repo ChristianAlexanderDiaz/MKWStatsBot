@@ -1664,8 +1664,11 @@ class MarioKartCommands(commands.Cog):
         if sortby is None:
             sortby = 'avg'
 
+        # Global minimum war threshold for leaderboard data quality
+        MIN_WARS_FOR_LEADERBOARD = 20
+
         try:
-            # Get all players across all guilds
+            # Get all players across all guilds (excludes testing guilds via env var)
             all_players_basic = self.bot.db.get_all_players_stats_global()
 
             if not all_players_basic:
@@ -1683,7 +1686,7 @@ class MarioKartCommands(commands.Cog):
 
                 # Get full stats including cached metrics
                 stats = self.bot.db.get_player_stats(player_name, guild_id)
-                if stats and stats.get('war_count', 0) > 0:
+                if stats and stats.get('war_count', 0) >= MIN_WARS_FOR_LEADERBOARD:
                     # Add guild_id to stats for guild identification
                     stats['guild_id'] = guild_id
                     players_with_stats.append(stats)
@@ -1697,15 +1700,6 @@ class MarioKartCommands(commands.Cog):
 
             # Trigger volatile metrics refresh if needed (same as guild leaderboard)
             if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
-                # Metric-specific war count thresholds
-                thresholds = {
-                    'clutch': 2,
-                    'avg10': 10,
-                    'hotstreak': 10,
-                    'form': 10,
-                    'potential': 10
-                }
-
                 metric_key = {
                     'avg10': 'avg10_score',
                     'hotstreak': 'hotstreak',
@@ -1714,10 +1708,8 @@ class MarioKartCommands(commands.Cog):
                     'potential': 'potential'
                 }.get(sortby, sortby)
 
-                min_wars = thresholds.get(sortby, 10)
-
                 for stats in players_with_stats:
-                    if stats.get(metric_key) is None and stats.get('war_count', 0) >= min_wars:
+                    if stats.get(metric_key) is None and stats.get('war_count', 0) >= MIN_WARS_FOR_LEADERBOARD:
                         self.bot.db._refresh_volatile_metrics(
                             stats['player_name'],
                             stats['guild_id']
