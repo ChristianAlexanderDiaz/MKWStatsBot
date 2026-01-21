@@ -1701,7 +1701,7 @@ class MarioKartCommands(commands.Cog):
 
             if not players_with_stats:
                 await interaction.followup.send(
-                    "❌ No players with war data found.",
+                    f"❌ No players found with {MIN_WARS_FOR_LEADERBOARD}+ wars. Global leaderboard requires players to have at least {MIN_WARS_FOR_LEADERBOARD} wars for data quality.",
                     ephemeral=True
                 )
                 return

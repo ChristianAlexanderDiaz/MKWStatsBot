@@ -36,7 +36,7 @@ def _parse_excluded_guilds() -> List[int]:
 
     - None/Unset: Returns default testing guild IDs
     - Empty string: Returns [] (disables exclusions)
-    - CSV string: Parses and returns guild IDs
+    - CSV string: Parses and returns guild IDs (invalid tokens logged and skipped)
     """
     excluded_str = os.getenv('EXCLUDED_GUILD_IDS')
 
@@ -51,14 +51,25 @@ def _parse_excluded_guilds() -> List[int]:
         logging.info("✅ EXCLUDED_GUILD_IDS set to empty, disabling all exclusions")
         return []
 
-    # Parse CSV guild IDs
-    try:
-        guild_ids = [int(guild_id.strip()) for guild_id in excluded_str.split(',') if guild_id.strip()]
+    # Parse CSV guild IDs individually (keep valid, log invalid)
+    guild_ids = []
+    for token in excluded_str.split(','):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            guild_ids.append(int(token))
+        except ValueError:
+            logging.warning(f"⚠️ Invalid guild ID token '{token}' - skipping")
+
+    if guild_ids:
         logging.info(f"✅ Excluding guilds: {guild_ids}")
         return guild_ids
-    except ValueError as e:
-        logging.warning(f"⚠️ Invalid EXCLUDED_GUILD_IDS format: {e}")
-        return []
+    else:
+        # No valid IDs parsed - fall back to default testing guild
+        default_testing_guild = 1395476782312063096
+        logging.warning(f"⚠️ No valid guild IDs in EXCLUDED_GUILD_IDS, falling back to default: {default_testing_guild}")
+        return [default_testing_guild]
 
 EXCLUDED_GUILD_IDS = _parse_excluded_guilds()
 
