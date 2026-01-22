@@ -392,13 +392,16 @@ class GlobalLeaderboardView(discord.ui.View):
             guild_id = player.get('guild_id', 0)
             team_name = player.get('team', 'Unassigned')
             team_tag = ""
+            is_ally = (team_name == 'Unassigned')
+
             if guild_id in self.all_team_tags and team_name in self.all_team_tags[guild_id]:
                 tag = self.all_team_tags[guild_id][team_name]
                 team_tag = f"*{tag}* "  # Italicized tag with space
 
-            # Get player display name
+            # Get player display name with asterisk for allies
             player_name = player['player_name'][:25]
-            display_name = f"{team_tag}{player_name}"
+            ally_indicator = "*" if is_ally else ""
+            display_name = f"{team_tag}{player_name}{ally_indicator}"
 
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
@@ -492,8 +495,8 @@ class GlobalLeaderboardView(discord.ui.View):
             inline=False
         )
 
-        # Footer with page info
-        embed.set_footer(text=f"Page {self.current_page}/{self.total_pages} • {self.total_players_count} Total Players")
+        # Footer with page info and legend
+        embed.set_footer(text=f"Page {self.current_page}/{self.total_pages} • {self.total_players_count} Total Players • * = Ally (not assigned to team)")
 
         return embed
 
