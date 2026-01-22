@@ -2322,6 +2322,30 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error setting country: {e}")
             await interaction.response.send_message("❌ Error setting country flag", ephemeral=True)
 
+    async def guild_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        """Autocomplete callback for guild names (bot owner only)."""
+        try:
+            # Check if user is bot owner - security guard
+            if not DatabaseManager.is_bot_owner(interaction.user.id):
+                return []
+
+            # Get all guilds the bot is in
+            guilds = self.bot.guilds
+
+            # Create list of guild names with their IDs as values
+            guild_choices = []
+            for guild in guilds:
+                # Filter based on current input
+                if current.lower() in guild.name.lower():
+                    # Use guild name as display, guild ID as value
+                    guild_choices.append(app_commands.Choice(name=guild.name, value=str(guild.id)))
+
+            # Return up to 25 choices (Discord limit)
+            return guild_choices[:25]
+        except Exception as e:
+            logging.error(f"Error in guild autocomplete: {e}")
+            return []
+
     @app_commands.command(name="setflag", description="[ADMIN] Set country flag for any player across guilds")
     @app_commands.describe(
         player_name="Player name (case-sensitive)",
@@ -2728,26 +2752,6 @@ class MarioKartCommands(commands.Cog):
             return [app_commands.Choice(name=name, value=name) for name in filtered[:25]]
         except Exception as e:
             logging.error(f"Error in team autocomplete: {e}")
-            return []
-
-    async def guild_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        """Autocomplete callback for guild names (bot owner only)."""
-        try:
-            # Get all guilds the bot is in
-            guilds = self.bot.guilds
-
-            # Create list of guild names with their IDs as values
-            guild_choices = []
-            for guild in guilds:
-                # Filter based on current input
-                if current.lower() in guild.name.lower():
-                    # Use guild name as display, guild ID as value
-                    guild_choices.append(app_commands.Choice(name=guild.name, value=str(guild.id)))
-
-            # Return up to 25 choices (Discord limit)
-            return guild_choices[:25]
-        except Exception as e:
-            logging.error(f"Error in guild autocomplete: {e}")
             return []
 
     @app_commands.command(name="assignplayers", description="Assign multiple players to a team")
