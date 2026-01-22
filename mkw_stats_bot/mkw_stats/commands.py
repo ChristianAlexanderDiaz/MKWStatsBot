@@ -2370,7 +2370,7 @@ class MarioKartCommands(commands.Cog):
                 cursor.execute("""
                     UPDATE players
                     SET country_code = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                    WHERE LOWER(player_name) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
                 """, (country, player_name, target_guild_id))
 
                 if cursor.rowcount == 0:
