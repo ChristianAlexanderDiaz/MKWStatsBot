@@ -2324,7 +2324,7 @@ class MarioKartCommands(commands.Cog):
 
     @app_commands.command(name="setflag", description="[ADMIN] Set country flag for any player across guilds")
     @app_commands.describe(
-        player_name="Player name (case-sensitive)",
+        player_name="Player name",
         country="2-letter country code (US, CA, GB, JP, etc.)",
         guild_id="Guild ID (server ID) where the player is located"
     )
@@ -2365,12 +2365,12 @@ class MarioKartCommands(commands.Cog):
                 cursor.execute("""
                     UPDATE players
                     SET country_code = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
+                    WHERE LOWER(player_name) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
                 """, (country, player_name, target_guild_id))
 
                 if cursor.rowcount == 0:
                     await interaction.response.send_message(
-                        f"❌ Player '{player_name}' not found in guild {target_guild_id}. Check the player name (case-sensitive) and guild ID.",
+                        f"❌ Player '{player_name}' not found in guild {target_guild_id}. Check the player name and guild ID.",
                         ephemeral=True
                     )
                     return
