@@ -2325,6 +2325,10 @@ class MarioKartCommands(commands.Cog):
     async def guild_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         """Autocomplete callback for guild names (bot owner only)."""
         try:
+            # Check if user is bot owner - security guard
+            if not DatabaseManager.is_bot_owner(interaction.user.id):
+                return []
+
             # Get all guilds the bot is in
             guilds = self.bot.guilds
 
