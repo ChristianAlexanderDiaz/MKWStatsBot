@@ -169,9 +169,8 @@ class LeaderboardView(discord.ui.View):
             country_code = player.get('country_code', '')
             flag = country_code_to_flag(country_code) if country_code else "❓"
 
-            # Get player display name with team tag (use cached team_tags to avoid DB calls)
-            team_name = player.get('team', 'Unassigned')
-            display_name = get_player_display_name(player['player_name'], team_name, self.guild_id, self.bot.db, self.team_tags)
+            # Get player display name (no team tags in guild context - they're implied)
+            display_name = player['player_name']
 
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
@@ -332,17 +331,21 @@ class GlobalLeaderboardView(discord.ui.View):
         self.players_per_page = 10
         self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
 
-        # Cache guild names for display
-        self.guild_names = {}  # {guild_id: guild_name}
-        self._populate_guild_names()
+        # Cache team tags for all guilds
+        self.all_team_tags = {}  # {guild_id: {team_name: tag}}
+        self._populate_team_tags()
 
         # Update button states
         self.update_buttons()
 
-    def _populate_guild_names(self):
-        """Populate guild names from Discord client."""
-        for guild in self.bot.guilds:
-            self.guild_names[guild.id] = guild.name
+    def _populate_team_tags(self):
+        """Populate team tags for all guilds represented in the leaderboard."""
+        # Get unique guild_ids from all_players
+        guild_ids = set(player.get('guild_id') for player in self.all_players if player.get('guild_id'))
+
+        # Fetch team tags for each guild
+        for guild_id in guild_ids:
+            self.all_team_tags[guild_id] = self.bot.db.get_all_team_tags(guild_id)
 
     def update_buttons(self):
         """Enable/disable buttons based on current page."""
@@ -385,12 +388,17 @@ class GlobalLeaderboardView(discord.ui.View):
             country_code = player.get('country_code', '')
             flag = country_code_to_flag(country_code) if country_code else "❓"
 
-            # Get guild name
+            # Get team tag for the player's guild (italicized before name)
             guild_id = player.get('guild_id', 0)
-            guild_name = self.guild_names.get(guild_id, 'Unknown')[:20]
+            team_name = player.get('team', 'Unassigned')
+            team_tag = ""
+            if guild_id in self.all_team_tags and team_name in self.all_team_tags[guild_id]:
+                tag = self.all_team_tags[guild_id][team_name]
+                team_tag = f"*{tag}* "  # Italicized tag with space
 
-            # Get player display name (no team tags for global)
+            # Get player display name
             player_name = player['player_name'][:25]
+            display_name = f"{team_tag}{player_name}"
 
             if player.get('war_count', 0) > 0:
                 avg_score = player.get('average_score', 0.0)
@@ -398,11 +406,11 @@ class GlobalLeaderboardView(discord.ui.View):
 
                 # Bold the column being sorted by
                 if self.sortby is None or self.sortby == 'avg':
-                    player_str = f"{rank}. {flag} **{player_name}** | **{avg_score:.1f}** avg | {war_count:.1f} wars | {guild_name}"
+                    player_str = f"{rank}. {flag} {display_name} | **{avg_score:.1f}** avg | {war_count:.1f} wars"
                 elif self.sortby == 'warcount':
-                    player_str = f"{rank}. {flag} **{player_name}** | {avg_score:.1f} avg | **{war_count:.1f}** wars | {guild_name}"
+                    player_str = f"{rank}. {flag} {display_name} | {avg_score:.1f} avg | **{war_count:.1f}** wars"
                 else:
-                    player_str = f"{rank}. {flag} **{player_name}** | {avg_score:.1f} avg | {war_count:.1f} wars | {guild_name}"
+                    player_str = f"{rank}. {flag} {display_name} | {avg_score:.1f} avg | {war_count:.1f} wars"
 
                 # Add third column based on sort type (and bold it)
                 if self.sortby == 'avg10':
@@ -471,7 +479,7 @@ class GlobalLeaderboardView(discord.ui.View):
 
                 leaderboard_text.append(player_str)
             else:
-                leaderboard_text.append(f"{rank}. {flag} **{player_name}** | No wars | {guild_name}")
+                leaderboard_text.append(f"{rank}. {flag} {display_name} | No wars")
 
         embed = discord.Embed(
             title=title,
@@ -1693,7 +1701,7 @@ class MarioKartCommands(commands.Cog):
 
             if not players_with_stats:
                 await interaction.followup.send(
-                    "❌ No players with war data found.",
+                    f"❌ No players found with {MIN_WARS_FOR_LEADERBOARD}+ wars. Global leaderboard requires players to have at least {MIN_WARS_FOR_LEADERBOARD} wars for data quality.",
                     ephemeral=True
                 )
                 return
@@ -2312,6 +2320,81 @@ class MarioKartCommands(commands.Cog):
 
         except Exception as e:
             logging.error(f"Error setting country: {e}")
+            await interaction.response.send_message("❌ Error setting country flag", ephemeral=True)
+
+    @app_commands.command(name="setflag", description="[ADMIN] Set country flag for any player across guilds")
+    @app_commands.describe(
+        player_name="Player name",
+        country="2-letter country code (US, CA, GB, JP, etc.)",
+        guild_id="Guild ID (server ID) where the player is located"
+    )
+    async def set_flag_admin(self, interaction: discord.Interaction, player_name: str, country: str, guild_id: str):
+        """Admin-only command to set country flag for any player across different guilds."""
+        try:
+            # Check if user is bot owner
+            if not DatabaseManager.is_bot_owner(interaction.user.id):
+                await interaction.response.send_message(
+                    "❌ This command is restricted to bot administrators only.",
+                    ephemeral=True
+                )
+                return
+
+            # Validate country code
+            country = country.upper().strip()
+            if len(country) != 2 or not country.isalpha():
+                await interaction.response.send_message(
+                    f"❌ Invalid country code '{country}'. Use 2-letter codes like US, CA, GB, JP.",
+                    ephemeral=True
+                )
+                return
+
+            # Validate and parse guild_id
+            try:
+                target_guild_id = int(guild_id)
+            except ValueError:
+                await interaction.response.send_message(
+                    f"❌ Invalid guild ID '{guild_id}'. Must be a numeric Discord server ID.",
+                    ephemeral=True
+                )
+                return
+
+            # Update country code in database for the specified player and guild
+            with self.bot.db.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    UPDATE players
+                    SET country_code = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE LOWER(player_name) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
+                """, (country, player_name, target_guild_id))
+
+                if cursor.rowcount == 0:
+                    await interaction.response.send_message(
+                        f"❌ Player '{player_name}' not found in guild {target_guild_id}. Check the player name and guild ID.",
+                        ephemeral=True
+                    )
+                    return
+
+                conn.commit()
+
+            # Get flag emoji
+            flag = country_code_to_flag(country)
+
+            embed = discord.Embed(
+                title="🌍 Admin Flag Update",
+                description=f"Successfully set country flag to {flag} ({country})",
+                color=0x00ff00
+            )
+
+            embed.add_field(name="Player", value=player_name, inline=True)
+            embed.add_field(name="Guild ID", value=str(target_guild_id), inline=True)
+            embed.add_field(name="Flag", value=flag, inline=True)
+            embed.set_footer(text="Flag will appear in stats and global leaderboard")
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"Error in /setflag admin command: {e}")
             await interaction.response.send_message("❌ Error setting country flag", ephemeral=True)
 
     @app_commands.command(name="bulksetcountry", description="Set countries for multiple players at once")
