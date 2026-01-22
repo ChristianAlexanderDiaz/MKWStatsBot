@@ -37,6 +37,47 @@ class OCRConfirmationView(discord.ui.View):
         # Build dropdown selects and action buttons
         self._build_view_components()
 
+    async def _check_member_permission(self, interaction: discord.Interaction) -> bool:
+        """
+        Check if user has permission to interact with war menu.
+        Returns True if user has member role, False otherwise.
+        Sends error message to user if permission denied.
+        """
+        # Check if interaction is in a guild
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ This command can only be used in a server",
+                ephemeral=True
+            )
+            return False
+
+        # Get guild role configuration
+        role_config = self.bot.db.get_guild_role_config(self.guild_id)
+
+        # If no role config is set, prompt user to set it up
+        if not role_config or not role_config.get('role_member_id'):
+            await interaction.response.send_message(
+                "❌ No member role configured. An admin needs to run `/setroles` first to set up member/trial roles.",
+                ephemeral=True
+            )
+            return False
+
+        # Check if user has the member role
+        member_role_id = role_config['role_member_id']
+        user_role_ids = [role.id for role in interaction.user.roles]
+
+        if member_role_id not in user_role_ids:
+            # Get role name for error message
+            member_role = interaction.guild.get_role(member_role_id)
+            role_name = member_role.name if member_role else "Member"
+            await interaction.response.send_message(
+                f"❌ You need the **{role_name}** role to interact with war results",
+                ephemeral=True
+            )
+            return False
+
+        return True
+
     def _build_view_components(self):
         """Build dropdown selects and action buttons."""
         # Clear existing items
@@ -108,12 +149,8 @@ class OCRConfirmationView(discord.ui.View):
 
     async def _edit_select_callback(self, interaction: discord.Interaction):
         """Callback for edit player dropdown."""
-        # Permission check
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "❌ Only the person who uploaded the image can edit results",
-                ephemeral=True
-            )
+        # Permission check - require member role
+        if not await self._check_member_permission(interaction):
             return
 
         # Get selected player index from interaction data
@@ -127,12 +164,8 @@ class OCRConfirmationView(discord.ui.View):
 
     async def _remove_select_callback(self, interaction: discord.Interaction):
         """Callback for remove player dropdown."""
-        # Permission check
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "❌ Only the person who uploaded the image can edit results",
-                ephemeral=True
-            )
+        # Permission check - require member role
+        if not await self._check_member_permission(interaction):
             return
 
         # Get selected player index from interaction data
@@ -148,12 +181,8 @@ class OCRConfirmationView(discord.ui.View):
 
     async def _add_player_callback(self, interaction: discord.Interaction):
         """Callback for add player button."""
-        # Permission check
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "❌ Only the person who uploaded the image can edit results",
-                ephemeral=True
-            )
+        # Permission check - require member role
+        if not await self._check_member_permission(interaction):
             return
 
         # Open add modal
@@ -162,12 +191,8 @@ class OCRConfirmationView(discord.ui.View):
 
     async def _save_war_callback(self, interaction: discord.Interaction):
         """Callback for save war button."""
-        # Permission check
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "❌ Only the person who uploaded the image can save results",
-                ephemeral=True
-            )
+        # Permission check - require member role
+        if not await self._check_member_permission(interaction):
             return
 
         # Call the bot's handler for OCR submission
@@ -175,12 +200,8 @@ class OCRConfirmationView(discord.ui.View):
 
     async def _cancel_war_callback(self, interaction: discord.Interaction):
         """Callback for cancel button."""
-        # Permission check
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "❌ Only the person who uploaded the image can cancel",
-                ephemeral=True
-            )
+        # Permission check - require member role
+        if not await self._check_member_permission(interaction):
             return
 
         # Add ❌ to original image
@@ -283,12 +304,8 @@ class ReportIssueView(discord.ui.View):
     @discord.ui.button(label="🚩 Report Issue with Scan", style=discord.ButtonStyle.secondary)
     async def report_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Open modal to report OCR issue."""
-        # Permission check
-        if interaction.user.id != self.ocr_view.user_id:
-            await interaction.response.send_message(
-                "❌ Only the person who uploaded the image can report",
-                ephemeral=True
-            )
+        # Permission check - require member role
+        if not await self.ocr_view._check_member_permission(interaction):
             return
 
         # Open report modal
