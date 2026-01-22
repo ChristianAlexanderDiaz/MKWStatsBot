@@ -2324,11 +2324,12 @@ class MarioKartCommands(commands.Cog):
 
     @app_commands.command(name="setflag", description="[ADMIN] Set country flag for any player across guilds")
     @app_commands.describe(
-        player_name="Player name",
+        player_name="Player name (case-sensitive)",
         country="2-letter country code (US, CA, GB, JP, etc.)",
-        guild_id="Guild ID (server ID) where the player is located"
+        guild_name="Select the guild where the player is located"
     )
-    async def set_flag_admin(self, interaction: discord.Interaction, player_name: str, country: str, guild_id: str):
+    @app_commands.autocomplete(guild_name=guild_autocomplete)
+    async def set_flag_admin(self, interaction: discord.Interaction, player_name: str, country: str, guild_name: str):
         """Admin-only command to set country flag for any player across different guilds."""
         try:
             # Check if user is bot owner
@@ -2348,15 +2349,19 @@ class MarioKartCommands(commands.Cog):
                 )
                 return
 
-            # Validate and parse guild_id
+            # Parse guild_id from autocomplete value (guild_name actually contains the guild ID)
             try:
-                target_guild_id = int(guild_id)
+                target_guild_id = int(guild_name)
             except ValueError:
                 await interaction.response.send_message(
-                    f"❌ Invalid guild ID '{guild_id}'. Must be a numeric Discord server ID.",
+                    "❌ Invalid guild selection. Please select a guild from the dropdown.",
                     ephemeral=True
                 )
                 return
+
+            # Get the actual guild name for display
+            guild = self.bot.get_guild(target_guild_id)
+            guild_display_name = guild.name if guild else f"Guild {target_guild_id}"
 
             # Update country code in database for the specified player and guild
             with self.bot.db.get_connection() as conn:
@@ -2370,7 +2375,7 @@ class MarioKartCommands(commands.Cog):
 
                 if cursor.rowcount == 0:
                     await interaction.response.send_message(
-                        f"❌ Player '{player_name}' not found in guild {target_guild_id}. Check the player name and guild ID.",
+                        f"❌ Player '{player_name}' not found in **{guild_display_name}**. Check the player name (case-sensitive).",
                         ephemeral=True
                     )
                     return
@@ -2387,7 +2392,7 @@ class MarioKartCommands(commands.Cog):
             )
 
             embed.add_field(name="Player", value=player_name, inline=True)
-            embed.add_field(name="Guild ID", value=str(target_guild_id), inline=True)
+            embed.add_field(name="Guild", value=guild_display_name, inline=True)
             embed.add_field(name="Flag", value=flag, inline=True)
             embed.set_footer(text="Flag will appear in stats and global leaderboard")
 
@@ -2723,6 +2728,26 @@ class MarioKartCommands(commands.Cog):
             return [app_commands.Choice(name=name, value=name) for name in filtered[:25]]
         except Exception as e:
             logging.error(f"Error in team autocomplete: {e}")
+            return []
+
+    async def guild_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        """Autocomplete callback for guild names (bot owner only)."""
+        try:
+            # Get all guilds the bot is in
+            guilds = self.bot.guilds
+
+            # Create list of guild names with their IDs as values
+            guild_choices = []
+            for guild in guilds:
+                # Filter based on current input
+                if current.lower() in guild.name.lower():
+                    # Use guild name as display, guild ID as value
+                    guild_choices.append(app_commands.Choice(name=guild.name, value=str(guild.id)))
+
+            # Return up to 25 choices (Discord limit)
+            return guild_choices[:25]
+        except Exception as e:
+            logging.error(f"Error in guild autocomplete: {e}")
             return []
 
     @app_commands.command(name="assignplayers", description="Assign multiple players to a team")
