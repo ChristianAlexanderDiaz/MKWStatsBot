@@ -2755,18 +2755,19 @@ class MarioKartCommands(commands.Cog):
             return []
 
     @app_commands.command(name="assignplayers", description="Assign multiple players to a team")
-    @app_commands.describe(players="Space-separated list of player names (minimum 1 player)", team_name="Team to assign players to")
-    @app_commands.autocomplete(players=player_autocomplete, team_name=team_autocomplete)
+    @app_commands.describe(players="Comma-separated player names (e.g. 'Player1, Player2, CAP ahaha')", team_name="Team to assign players to")
+    @app_commands.autocomplete(team_name=team_autocomplete)
     @require_guild_setup
     async def assign_players_to_team(self, interaction: discord.Interaction, players: str, team_name: str):
         """Assign multiple players to a team."""
         try:
             guild_id = self.get_guild_id(interaction)
-            
-            # Parse player names from space-separated string
-            player_names = players.strip().split()
+
+            # Parse player names from comma-separated string
+            # Strip whitespace from each name to handle "Player1, Player2" and "Player1,Player2"
+            player_names = [name.strip() for name in players.split(',') if name.strip()]
             if len(player_names) == 0:
-                await interaction.response.send_message("❌ Please provide at least one player name.")
+                await interaction.response.send_message("❌ Please provide at least one player name. Use commas to separate multiple players.")
                 return
             
             # Validate team name
