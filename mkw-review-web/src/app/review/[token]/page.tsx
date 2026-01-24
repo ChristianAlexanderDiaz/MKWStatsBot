@@ -461,9 +461,9 @@ export default function BulkReviewPage() {
                               No staged players
                             </div>
                           ) : (
-                            stagedPlayers.map((player, index) => (
+                            stagedPlayers.map((player) => (
                             <div
-                              key={index}
+                              key={player.name}
                               className="flex items-center justify-between p-3 border-b last:border-b-0 hover:bg-muted/50 transition-colors"
                             >
                               <div className="flex-1">
@@ -480,37 +480,50 @@ export default function BulkReviewPage() {
                                   e.stopPropagation()
                                   const playerToRemove = player.name
 
-                                  // Remove this player from staged
-                                  setStagedPlayers(prev => prev.filter((_, i) => i !== index))
-                                  // Remove from newly added set if present
-                                  setNewlyAddedPlayers(prev => {
-                                    const updated = new Set(prev)
-                                    updated.delete(playerToRemove)
-                                    return updated
-                                  })
+                                  // Save previous state for rollback on error
+                                  const prevStagedPlayers = [...stagedPlayers]
+                                  const prevNewlyAddedPlayers = new Set(newlyAddedPlayers)
 
-                                  // Find all results that have this staged player and revert them to unknown
-                                  for (const result of results) {
-                                    const players = result.corrected_players || result.detected_players
-                                    const hasThisPlayer = players.some(p =>
-                                      p.name.toLowerCase() === playerToRemove.toLowerCase()
-                                    )
+                                  try {
+                                    // Remove this player from staged
+                                    setStagedPlayers(prev => prev.filter(p => p.name !== playerToRemove))
+                                    // Remove from newly added set if present
+                                    setNewlyAddedPlayers(prev => {
+                                      const updated = new Set(prev)
+                                      updated.delete(playerToRemove)
+                                      return updated
+                                    })
 
-                                    if (hasThisPlayer) {
-                                      // Update the players to mark this one as not a roster member
-                                      const updatedPlayers = players.map(p =>
+                                    // Find all results that have this staged player and revert them to unknown
+                                    for (const result of results) {
+                                      const players = result.corrected_players || result.detected_players
+                                      const hasThisPlayer = players.some(p =>
                                         p.name.toLowerCase() === playerToRemove.toLowerCase()
-                                          ? { ...p, is_roster_member: false }
-                                          : p
                                       )
 
-                                      // Update the result
-                                      await updateResultMutation.mutateAsync({
-                                        resultId: result.id,
-                                        status: result.review_status,
-                                        corrected: updatedPlayers
-                                      })
+                                      if (hasThisPlayer) {
+                                        // Update the players to mark this one as not a roster member
+                                        const updatedPlayers = players.map(p =>
+                                          p.name.toLowerCase() === playerToRemove.toLowerCase()
+                                            ? { ...p, is_roster_member: false }
+                                            : p
+                                        )
+
+                                        // Update the result
+                                        await updateResultMutation.mutateAsync({
+                                          resultId: result.id,
+                                          status: result.review_status,
+                                          corrected: updatedPlayers
+                                        })
+                                      }
                                     }
+                                  } catch (error) {
+                                    // Rollback state changes on error
+                                    console.error("Failed to remove staged player:", error)
+                                    setStagedPlayers(prevStagedPlayers)
+                                    setNewlyAddedPlayers(prevNewlyAddedPlayers)
+                                    // TODO: Show error toast/notification to user
+                                    alert(`Failed to remove staged player: ${error instanceof Error ? error.message : 'Unknown error'}`)
                                   }
                                 }}
                                 title="Remove from staged"
