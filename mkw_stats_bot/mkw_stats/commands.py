@@ -4838,9 +4838,13 @@ class MarioKartCommands(commands.Cog):
                 logging.info(f"[DEBUG-OCR] Processing Image {idx + 1}/{len(images_found)}: {attachment.filename}")
                 logging.info(f"[DEBUG-OCR] {'=' * 80}")
 
+                # Initialize temp file paths before try block to ensure cleanup in finally
+                temp_path = None
+                cropped_path = None
+                visual_path = None
+
                 try:
                     # Download image to temp file
-                    temp_path = None
                     async with aiohttp.ClientSession() as session:
                         async with session.get(attachment.url) as resp:
                             if resp.status == 200:
@@ -4890,17 +4894,6 @@ class MarioKartCommands(commands.Cog):
                             'error': ocr_result.get('error', 'OCR failed'),
                             'players_found': 0
                         })
-
-                        # Cleanup temp files
-                        try:
-                            os.unlink(temp_path)
-                            if cropped_path and os.path.exists(cropped_path):
-                                os.unlink(cropped_path)
-                            if visual_path and os.path.exists(visual_path):
-                                os.unlink(visual_path)
-                        except OSError as e:
-                            logging.debug(f"[DEBUG-OCR] Failed to delete temporary file: {e}")
-
                         continue
 
                     # Step 3: Log raw OCR text
@@ -4942,16 +4935,6 @@ class MarioKartCommands(commands.Cog):
                         'players': [r['name'] for r in processed_results] if processed_results else []
                     })
 
-                    # Cleanup temp files
-                    try:
-                        os.unlink(temp_path)
-                        if cropped_path and os.path.exists(cropped_path):
-                            os.unlink(cropped_path)
-                        if visual_path and os.path.exists(visual_path):
-                            os.unlink(visual_path)
-                    except OSError as e:
-                        logging.debug(f"[DEBUG-OCR] Failed to delete temporary file: {e}")
-
                 except Exception as e:
                     logging.error(f"[DEBUG-OCR] ❌ Error processing {attachment.filename}: {e}")
                     logging.error(f"[DEBUG-OCR] {traceback.format_exc()}")
@@ -4961,6 +4944,18 @@ class MarioKartCommands(commands.Cog):
                         'error': str(e),
                         'players_found': 0
                     })
+
+                finally:
+                    # Always cleanup temp files, regardless of success or failure
+                    try:
+                        if temp_path and os.path.exists(temp_path):
+                            os.unlink(temp_path)
+                        if cropped_path and os.path.exists(cropped_path):
+                            os.unlink(cropped_path)
+                        if visual_path and os.path.exists(visual_path):
+                            os.unlink(visual_path)
+                    except OSError as e:
+                        logging.debug(f"[DEBUG-OCR] Failed to delete temporary file: {e}")
 
             logging.info(f"[DEBUG-OCR] {'=' * 80}")
             logging.info("[DEBUG-OCR] Debug OCR Processing Complete")
