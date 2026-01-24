@@ -6,6 +6,8 @@ import asyncio
 import json
 import functools
 import aiohttp
+import aiofiles
+import aiofiles.os
 import tempfile
 import os
 import traceback
@@ -4842,11 +4844,14 @@ class MarioKartCommands(commands.Cog):
                     async with aiohttp.ClientSession() as session:
                         async with session.get(attachment.url) as resp:
                             if resp.status == 200:
-                                # Create temp file
+                                # Create temp file asynchronously
                                 suffix = os.path.splitext(attachment.filename)[1]
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-                                    tmp_file.write(await resp.read())
-                                    temp_path = tmp_file.name
+                                # Create temp file path without opening it yet
+                                fd, temp_path = tempfile.mkstemp(suffix=suffix)
+                                os.close(fd)  # Close the file descriptor
+                                # Write asynchronously
+                                async with aiofiles.open(temp_path, 'wb') as tmp_file:
+                                    await tmp_file.write(await resp.read())
 
                     if not temp_path:
                         logging.error(f"[DEBUG-OCR] ❌ Failed to download image {attachment.filename}")
@@ -4893,8 +4898,8 @@ class MarioKartCommands(commands.Cog):
                                 os.unlink(cropped_path)
                             if visual_path and os.path.exists(visual_path):
                                 os.unlink(visual_path)
-                        except:
-                            pass
+                        except OSError as e:
+                            logging.debug(f"[DEBUG-OCR] Failed to delete temporary file: {e}")
 
                         continue
 
@@ -4916,12 +4921,12 @@ class MarioKartCommands(commands.Cog):
                         for result in processed_results:
                             logging.info(f"[DEBUG-OCR]   • {result['name']} (raw: '{result.get('raw_name', result['name'])}') - {result['score']} points - {result.get('races', 12)} races")
                     else:
-                        logging.warning(f"[DEBUG-OCR] ⚠️ No players extracted")
+                        logging.warning("[DEBUG-OCR] ⚠️ No players extracted")
 
                     # Step 7: Log validation
                     validation = ocr._validate_results(processed_results, guild_id) if processed_results else None
                     if validation:
-                        logging.info(f"[DEBUG-OCR] 🔍 Validation Results:")
+                        logging.info("[DEBUG-OCR] 🔍 Validation Results:")
                         logging.info(f"[DEBUG-OCR]   Valid: {validation.get('is_valid', False)}")
                         if validation.get('errors'):
                             logging.info(f"[DEBUG-OCR]   Errors: {validation['errors']}")
@@ -4944,8 +4949,8 @@ class MarioKartCommands(commands.Cog):
                             os.unlink(cropped_path)
                         if visual_path and os.path.exists(visual_path):
                             os.unlink(visual_path)
-                    except:
-                        pass
+                    except OSError as e:
+                        logging.debug(f"[DEBUG-OCR] Failed to delete temporary file: {e}")
 
                 except Exception as e:
                     logging.error(f"[DEBUG-OCR] ❌ Error processing {attachment.filename}: {e}")
@@ -4958,7 +4963,7 @@ class MarioKartCommands(commands.Cog):
                     })
 
             logging.info(f"[DEBUG-OCR] {'=' * 80}")
-            logging.info(f"[DEBUG-OCR] Debug OCR Processing Complete")
+            logging.info("[DEBUG-OCR] Debug OCR Processing Complete")
             logging.info(f"[DEBUG-OCR] {'=' * 80}")
 
             # Create summary embed
@@ -4980,7 +4985,7 @@ class MarioKartCommands(commands.Cog):
 
             # Add individual results (limit to first 10 to avoid embed limits)
             results_text = []
-            for idx, result in enumerate(results_summary[:10]):
+            for result in results_summary[:10]:
                 status = "✅" if result['success'] else "❌"
                 players_info = f" ({result['players_found']} players)" if result['success'] else ""
                 error_info = f" - {result['error']}" if result.get('error') else ""
