@@ -20,7 +20,8 @@ import {
   Loader2,
   Plus,
   Trash2,
-  Link2
+  Link2,
+  ChevronDown
 } from "lucide-react"
 
 export default function BulkReviewPage() {
@@ -38,12 +39,29 @@ export default function BulkReviewPage() {
   const [rosterPlayers, setRosterPlayers] = useState<string[]>([])
   const [selectedRosterPlayer, setSelectedRosterPlayer] = useState<string>("")
   const [addingNewPlayer, setAddingNewPlayer] = useState<{ resultId: number; playerIndex: number; playerName: string } | null>(null)
-  const [newPlayerFormData, setNewPlayerFormData] = useState<{ name: string; memberStatus: string }>({ name: "", memberStatus: "member" })
+  const [newPlayerFormData, setNewPlayerFormData] = useState<{ name: string; memberStatus: string }>({ name: "", memberStatus: "ally" })
   const [newlyAddedPlayers, setNewlyAddedPlayers] = useState<Set<string>>(new Set())
   const [stagedPlayers, setStagedPlayers] = useState<Array<{ name: string; memberStatus: string }>>([])
   const [editingFailure, setEditingFailure] = useState<number | null>(null)
   const [failureEditedPlayers, setFailureEditedPlayers] = useState<BulkPlayer[]>([])
   const [linkSearchQuery, setLinkSearchQuery] = useState("")
+  const [showStagedMenu, setShowStagedMenu] = useState(false)
+  const [stagedPlayerName, setStagedPlayerName] = useState("")
+  const [stagedPlayerStatus, setStagedPlayerStatus] = useState("ally")
+
+  // Handle Escape key to close staged players menu
+  useEffect(() => {
+    if (!showStagedMenu) return
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowStagedMenu(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [showStagedMenu])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["bulk-review", token],
@@ -166,11 +184,25 @@ export default function BulkReviewPage() {
   const rejectedCount = results.filter((r) => r.review_status === "rejected").length
 
   const handleApprove = (resultId: number) => {
-    updateResultMutation.mutate({ resultId, status: "approved" })
+    // If we're currently editing this result, save the edits first
+    const corrected = editingResult === resultId ? editedPlayers : undefined
+    updateResultMutation.mutate({ resultId, status: "approved", corrected })
+    // Clear edit state if we were editing
+    if (editingResult === resultId) {
+      setEditingResult(null)
+      setEditedPlayers([])
+    }
   }
 
   const handleReject = (resultId: number) => {
-    updateResultMutation.mutate({ resultId, status: "rejected" })
+    // If we're currently editing this result, save the edits first
+    const corrected = editingResult === resultId ? editedPlayers : undefined
+    updateResultMutation.mutate({ resultId, status: "rejected", corrected })
+    // Clear edit state if we were editing
+    if (editingResult === resultId) {
+      setEditingResult(null)
+      setEditedPlayers([])
+    }
   }
 
   const handleEdit = (result: BulkResult) => {
@@ -208,8 +240,15 @@ export default function BulkReviewPage() {
     results
       .filter((r) => r.review_status === "pending")
       .forEach((r) => {
-        updateResultMutation.mutate({ resultId: r.id, status: "approved" })
+        // If this result is currently being edited, save those edits
+        const corrected = editingResult === r.id ? editedPlayers : undefined
+        updateResultMutation.mutate({ resultId: r.id, status: "approved", corrected })
       })
+    // Clear edit state if we were editing any result
+    if (editingResult !== null) {
+      setEditingResult(null)
+      setEditedPlayers([])
+    }
   }
 
   // Failure editing handlers
@@ -350,7 +389,7 @@ export default function BulkReviewPage() {
 
     // Close the form
     setAddingNewPlayer(null)
-    setNewPlayerFormData({ name: "", memberStatus: "member" })
+    setNewPlayerFormData({ name: "", memberStatus: "ally" })
   }
 
   const totalScore = (players: BulkPlayer[]) =>
@@ -382,10 +421,137 @@ export default function BulkReviewPage() {
                 {rejectedCount}
               </Badge>
               {stagedPlayers.length > 0 && (
-                <Badge variant="outline" className="gap-1 border-blue-500 text-blue-600">
-                  <UserPlus className="h-3 w-3" />
-                  {stagedPlayers.length} new
-                </Badge>
+                <div className="relative">
+                  <Badge
+                    variant="outline"
+                    className="gap-1 border-blue-500 text-blue-600 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
+                    onClick={() => setShowStagedMenu(!showStagedMenu)}
+                  >
+                    <UserPlus className="h-3 w-3" />
+                    {stagedPlayers.length} staged
+                    <ChevronDown className={`h-3 w-3 transition-transform ${showStagedMenu ? 'rotate-180' : ''}`} />
+                  </Badge>
+
+                  {showStagedMenu && (
+                    <>
+                      {/* Backdrop to close menu when clicking outside */}
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowStagedMenu(false)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+                            setShowStagedMenu(false);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Close staged players menu"
+                      />
+
+                      {/* Dropdown Menu */}
+                      <div className="absolute right-0 top-full mt-2 w-80 bg-background border rounded-md shadow-lg z-50 overflow-hidden">
+                        <div className="p-3 border-b bg-muted/50 flex items-start justify-between">
+                          <div>
+                            <h3 className="font-semibold text-sm">Staged Players</h3>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              These players will be added to your roster when you save
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 -mt-1"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setShowStagedMenu(false)
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="max-h-96 overflow-y-auto">
+                          {stagedPlayers.length === 0 ? (
+                            <div className="p-6 text-center text-sm text-muted-foreground">
+                              No staged players
+                            </div>
+                          ) : (
+                            stagedPlayers.map((player) => (
+                            <div
+                              key={player.name}
+                              className="flex items-center justify-between p-3 border-b last:border-b-0 hover:bg-muted/50 transition-colors"
+                            >
+                              <div className="flex-1">
+                                <div className="font-medium text-sm">{player.name}</div>
+                                <div className="text-xs text-muted-foreground capitalize">
+                                  {player.memberStatus}
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  const playerToRemove = player.name
+
+                                  // Save previous state for rollback on error
+                                  const prevStagedPlayers = [...stagedPlayers]
+                                  const prevNewlyAddedPlayers = new Set(newlyAddedPlayers)
+
+                                  try {
+                                    // Remove this player from staged
+                                    setStagedPlayers(prev => prev.filter(p => p.name !== playerToRemove))
+                                    // Remove from newly added set if present
+                                    setNewlyAddedPlayers(prev => {
+                                      const updated = new Set(prev)
+                                      updated.delete(playerToRemove)
+                                      return updated
+                                    })
+
+                                    // Find all results that have this staged player and revert them to unknown
+                                    for (const result of results) {
+                                      const players = result.corrected_players || result.detected_players
+                                      const hasThisPlayer = players.some(p =>
+                                        p.name.toLowerCase() === playerToRemove.toLowerCase()
+                                      )
+
+                                      if (hasThisPlayer) {
+                                        // Update the players to mark this one as not a roster member
+                                        const updatedPlayers = players.map(p =>
+                                          p.name.toLowerCase() === playerToRemove.toLowerCase()
+                                            ? { ...p, is_roster_member: false }
+                                            : p
+                                        )
+
+                                        // Update the result
+                                        await updateResultMutation.mutateAsync({
+                                          resultId: result.id,
+                                          status: result.review_status,
+                                          corrected: updatedPlayers
+                                        })
+                                      }
+                                    }
+                                  } catch (error) {
+                                    // Rollback state changes on error
+                                    console.error("Failed to remove staged player:", error)
+                                    setStagedPlayers(prevStagedPlayers)
+                                    setNewlyAddedPlayers(prevNewlyAddedPlayers)
+                                    // TODO: Show error toast/notification to user
+                                    alert(`Failed to remove staged player: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                                  }
+                                }}
+                                title="Remove from staged"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
             <Button
@@ -653,7 +819,7 @@ export default function BulkReviewPage() {
                                       className="h-7 text-xs"
                                       onClick={() => {
                                         setAddingNewPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
-                                        setNewPlayerFormData({ name: player.name, memberStatus: "member" })
+                                        setNewPlayerFormData({ name: player.name, memberStatus: "ally" })
                                         setLinkingPlayer(null)
                                       }}
                                     >
@@ -747,7 +913,7 @@ export default function BulkReviewPage() {
                                         size="sm"
                                         onClick={() => {
                                           setAddingNewPlayer(null)
-                                          setNewPlayerFormData({ name: "", memberStatus: "member" })
+                                          setNewPlayerFormData({ name: "", memberStatus: "ally" })
                                         }}
                                       >
                                         Cancel
