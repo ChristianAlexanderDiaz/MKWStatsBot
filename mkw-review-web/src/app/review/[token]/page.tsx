@@ -39,7 +39,7 @@ export default function BulkReviewPage() {
   const [rosterPlayers, setRosterPlayers] = useState<string[]>([])
   const [selectedRosterPlayer, setSelectedRosterPlayer] = useState<string>("")
   const [addingNewPlayer, setAddingNewPlayer] = useState<{ resultId: number; playerIndex: number; playerName: string } | null>(null)
-  const [newPlayerFormData, setNewPlayerFormData] = useState<{ name: string; memberStatus: string }>({ name: "", memberStatus: "member" })
+  const [newPlayerFormData, setNewPlayerFormData] = useState<{ name: string; memberStatus: string }>({ name: "", memberStatus: "ally" })
   const [newlyAddedPlayers, setNewlyAddedPlayers] = useState<Set<string>>(new Set())
   const [stagedPlayers, setStagedPlayers] = useState<Array<{ name: string; memberStatus: string }>>([])
   const [editingFailure, setEditingFailure] = useState<number | null>(null)
@@ -47,7 +47,21 @@ export default function BulkReviewPage() {
   const [linkSearchQuery, setLinkSearchQuery] = useState("")
   const [showStagedMenu, setShowStagedMenu] = useState(false)
   const [stagedPlayerName, setStagedPlayerName] = useState("")
-  const [stagedPlayerStatus, setStagedPlayerStatus] = useState("member")
+  const [stagedPlayerStatus, setStagedPlayerStatus] = useState("ally")
+
+  // Handle Escape key to close staged players menu
+  useEffect(() => {
+    if (!showStagedMenu) return
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowStagedMenu(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [showStagedMenu])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["bulk-review", token],
@@ -375,7 +389,7 @@ export default function BulkReviewPage() {
 
     // Close the form
     setAddingNewPlayer(null)
-    setNewPlayerFormData({ name: "", memberStatus: "member" })
+    setNewPlayerFormData({ name: "", memberStatus: "ally" })
   }
 
   const totalScore = (players: BulkPlayer[]) =>
@@ -424,14 +438,6 @@ export default function BulkReviewPage() {
                       <div
                         className="fixed inset-0 z-40"
                         onClick={() => setShowStagedMenu(false)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') {
-                            setShowStagedMenu(false);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        aria-label="Close staged players menu"
                       />
 
                       {/* Dropdown Menu */}
@@ -805,7 +811,7 @@ export default function BulkReviewPage() {
                                       className="h-7 text-xs"
                                       onClick={() => {
                                         setAddingNewPlayer({ resultId: result.id, playerIndex: idx, playerName: player.name })
-                                        setNewPlayerFormData({ name: player.name, memberStatus: "member" })
+                                        setNewPlayerFormData({ name: player.name, memberStatus: "ally" })
                                         setLinkingPlayer(null)
                                       }}
                                     >
@@ -899,7 +905,7 @@ export default function BulkReviewPage() {
                                         size="sm"
                                         onClick={() => {
                                           setAddingNewPlayer(null)
-                                          setNewPlayerFormData({ name: "", memberStatus: "member" })
+                                          setNewPlayerFormData({ name: "", memberStatus: "ally" })
                                         }}
                                       >
                                         Cancel
