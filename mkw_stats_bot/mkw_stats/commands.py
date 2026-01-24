@@ -4219,8 +4219,8 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
             
-            # Check if current channel is the configured OCR channel
-            if interaction.channel.id != configured_channel_id:
+            # Check if current channel is the configured OCR channel (bypass for bot owner)
+            if interaction.channel.id != configured_channel_id and not DatabaseManager.is_bot_owner(interaction.user.id):
                 configured_channel = self.bot.get_channel(configured_channel_id)
                 channel_mention = configured_channel.mention if configured_channel else f"<#{configured_channel_id}>"
                 
@@ -4348,8 +4348,8 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
             
-            # Check if current channel is the configured OCR channel
-            if interaction.channel.id != configured_channel_id:
+            # Check if current channel is the configured OCR channel (bypass for bot owner)
+            if interaction.channel.id != configured_channel_id and not DatabaseManager.is_bot_owner(interaction.user.id):
                 configured_channel = self.bot.get_channel(configured_channel_id)
                 channel_mention = configured_channel.mention if configured_channel else f"<#{configured_channel_id}>"
                 
@@ -4774,8 +4774,8 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
 
-            # Check if current channel is the configured OCR channel
-            if interaction.channel.id != configured_channel_id:
+            # Check if current channel is the configured OCR channel (bypass for bot owner)
+            if interaction.channel.id != configured_channel_id and not DatabaseManager.is_bot_owner(interaction.user.id):
                 configured_channel = self.bot.get_channel(configured_channel_id)
                 channel_mention = configured_channel.mention if configured_channel else f"<#{configured_channel_id}>"
 
