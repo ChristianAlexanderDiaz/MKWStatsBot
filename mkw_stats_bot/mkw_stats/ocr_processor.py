@@ -105,21 +105,51 @@ class OCRProcessor:
         """Initialize PaddleOCR with optimized settings."""
         try:
             logging.info("🚀 Initializing PaddleOCR with memory-optimized settings...")
-            
+
             # Memory-optimized PaddleOCR settings (from working Discord bot)
+            # Try different parameter combinations for compatibility with different PaddleOCR versions
+
+            # Try full Railway configuration first
+            try:
+                self.ocr = PaddleOCR(
+                    use_angle_cls=False,  # Disable angle classification to save memory
+                    lang='en',  # Use English model (smaller than multilingual)
+                    use_gpu=False,  # CPU only for Railway deployment
+                    det_model_dir=None,  # Use default lightweight models
+                    rec_model_dir=None,
+                    cls_model_dir=None,
+                    show_log=False,
+                    use_space_char=True
+                )
+                logging.info("✅ PaddleOCR initialized (full config)")
+                return
+            except TypeError:
+                pass  # Try next configuration
+
+            # Try without show_log (older versions)
+            try:
+                self.ocr = PaddleOCR(
+                    use_angle_cls=False,
+                    lang='en',
+                    use_gpu=False,
+                    det_model_dir=None,
+                    rec_model_dir=None,
+                    cls_model_dir=None,
+                    use_space_char=True
+                )
+                logging.info("✅ PaddleOCR initialized (no show_log)")
+                return
+            except TypeError:
+                pass  # Try next configuration
+
+            # Try minimal configuration (maximum compatibility)
             self.ocr = PaddleOCR(
-                use_angle_cls=False,  # Disable angle classification to save memory
-                lang='en',  # Use English model (smaller than multilingual)
-                use_gpu=False,  # CPU only for Railway deployment
-                det_model_dir=None,  # Use default lightweight models
-                rec_model_dir=None,
-                cls_model_dir=None,
-                show_log=False,
-                use_space_char=True
+                use_angle_cls=False,
+                lang='en',
+                use_gpu=False
             )
-            
-            logging.info("✅ PaddleOCR initialized successfully!")
-            
+            logging.info("✅ PaddleOCR initialized (minimal config)")
+
         except Exception as e:
             logging.error(f"❌ Failed to initialize PaddleOCR: {e}")
             raise
@@ -1454,36 +1484,44 @@ class OCRProcessor:
                 logging.info(f"🎯 Used embedded score: '{official_name}' (raw: '{raw_name}') with embedded score {score} ({race_count} races)")
                 continue
             
-            # Find the next available score after this name position
+            # Find the closest available score with priority for positional order
+            # Handles consecutive duplicate scores by preferring adjacent scores
             best_score_pos = None
-            min_distance = float('inf')
-            
-            # First, try to find a score that comes AFTER the name (preferred pattern: "Name Score")
+            best_after_pos = None
+            best_before_pos = None
+            min_after_distance = float('inf')
+            min_before_distance = float('inf')
+
+            # Separate AFTER and BEFORE patterns for explicit prioritization
             for score_pos in score_positions:
-                if score_pos not in used_scores and score_pos > name_pos:
-                    distance = score_pos - name_pos
-                    if distance < min_distance:
-                        min_distance = distance
-                        best_score_pos = score_pos
-            
-            # If no score found after the name, try scores BEFORE the name (pattern: "Score Name")
-            if best_score_pos is None:
-                for score_pos in score_positions:
-                    if score_pos not in used_scores and score_pos < name_pos:
+                if score_pos not in used_scores:
+                    if score_pos > name_pos:
+                        # Score comes AFTER name (pattern: "Name Score")
+                        distance = score_pos - name_pos
+                        if distance < min_after_distance:
+                            min_after_distance = distance
+                            best_after_pos = score_pos
+                    else:
+                        # Score comes BEFORE name (pattern: "Score Name")
                         distance = name_pos - score_pos
-                        # Only consider scores that are very close (within 2 positions) to avoid wrong pairings
-                        if distance <= 2 and distance < min_distance:
-                            min_distance = distance
-                            best_score_pos = score_pos
-            
-            # If still no score found, fall back to absolute nearest unused score
-            if best_score_pos is None:
-                for score_pos in score_positions:
-                    if score_pos not in used_scores:
-                        distance = abs(name_pos - score_pos)
-                        if distance < min_distance:
-                            min_distance = distance
-                            best_score_pos = score_pos
+                        # Only consider scores that are very close (within 2 positions)
+                        if distance <= 2 and distance < min_before_distance:
+                            min_before_distance = distance
+                            best_before_pos = score_pos
+
+            # Prioritize: 1) Immediately after (distance=1), 2) Immediately before (distance=1), 3) Closest after, 4) Closest before
+            if min_after_distance == 1:
+                # Immediately adjacent score after name (most common pattern)
+                best_score_pos = best_after_pos
+            elif min_before_distance == 1:
+                # Immediately adjacent score before name (reversed pattern)
+                best_score_pos = best_before_pos
+            elif best_after_pos is not None:
+                # Any score after name (prefer natural reading order)
+                best_score_pos = best_after_pos
+            elif best_before_pos is not None:
+                # Fall back to score before name
+                best_score_pos = best_before_pos
             
             if best_score_pos is not None:
                 score = int(tokens[best_score_pos])

@@ -4747,16 +4747,18 @@ class MarioKartCommands(commands.Cog):
             logging.error(f"Error setting OCR channel: {e}")
             await interaction.response.send_message(f"❌ Error setting OCR channel: {str(e)}", ephemeral=True)
 
-    @app_commands.command(name="debugocr", description="Debug OCR processing with detailed logging (does NOT save to database)")
+    @app_commands.command(name="debugocr", description="Debug OCR processing with detailed output file (does NOT save to database)")
     @app_commands.describe(limit="Maximum number of images to process (default: all images)")
     @require_guild_setup
     async def debugocr(self, interaction: discord.Interaction, limit: int = None):
-        """Debug OCR processing with detailed logging output."""
+        """Debug OCR processing with detailed output file."""
         await interaction.response.defer(thinking=True)
+
+        debug_output_path = None  # Track the debug output file for cleanup
 
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
-            logging.info(f"[DEBUG-OCR] 🔍 Starting debug OCR scan for user {interaction.user.name} with limit: {limit}")
+            logging.info(f"[DEBUG-OCR] Debug scan started by {interaction.user.name} (limit: {limit})")
 
             # Check if an OCR channel is configured for this guild
             configured_channel_id = self.bot.db.get_ocr_channel(guild_id)
@@ -4822,10 +4824,29 @@ class MarioKartCommands(commands.Cog):
             # Send initial status message
             status_embed = discord.Embed(
                 title="🔍 Debug OCR Processing Started",
-                description=f"Processing {len(images_found)} image{'s' if len(images_found) != 1 else ''}...\n\n**This will NOT save results to the database.**\n**Check the bot logs for detailed debug output.**",
+                description=f"Processing {len(images_found)} image{'s' if len(images_found) != 1 else ''}...\n\n**This will NOT save results to the database.**\n**Detailed output will be provided in a text file.**",
                 color=0x3498db
             )
             status_msg = await interaction.followup.send(embed=status_embed)
+
+            # Initialize debug output buffer
+            from datetime import datetime
+            debug_lines = []
+            debug_lines.append(f"Debug OCR Scan | User: {interaction.user.name} | Limit: {limit if limit else 'all'} | Started: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            debug_lines.append("")
+
+            # Custom logging handler to capture OCR processing logs
+            class DebugLogHandler(logging.Handler):
+                def __init__(self):
+                    super().__init__()
+                    self.messages = []
+
+                def emit(self, record):
+                    try:
+                        msg = record.getMessage()
+                        self.messages.append(msg)
+                    except Exception:
+                        pass
 
             # Process each image with detailed logging
             results_summary = []
@@ -4834,14 +4855,16 @@ class MarioKartCommands(commands.Cog):
                 message = img_data['message']
                 attachment = img_data['attachment']
 
-                logging.info(f"[DEBUG-OCR] {'=' * 80}")
-                logging.info(f"[DEBUG-OCR] Processing Image {idx + 1}/{len(images_found)}: {attachment.filename}")
-                logging.info(f"[DEBUG-OCR] {'=' * 80}")
+                debug_lines.append(f"[Image {idx + 1}/{len(images_found)}: {attachment.filename}]")
 
                 # Initialize temp file paths before try block to ensure cleanup in finally
                 temp_path = None
                 cropped_path = None
                 visual_path = None
+
+                # Create log capture handler
+                debug_handler = DebugLogHandler()
+                debug_handler.setLevel(logging.DEBUG)
 
                 try:
                     # Download image to temp file
@@ -4858,11 +4881,13 @@ class MarioKartCommands(commands.Cog):
                                     await tmp_file.write(await resp.read())
 
                     if not temp_path:
-                        logging.error(f"[DEBUG-OCR] ❌ Failed to download image {attachment.filename}")
+                        error_msg = "Failed to download image"
+                        debug_lines.append(f"ERROR: {error_msg}")
+                        debug_lines.append("")
                         results_summary.append({
                             'filename': attachment.filename,
                             'success': False,
-                            'error': 'Failed to download image',
+                            'error': error_msg,
                             'players_found': 0
                         })
                         continue
@@ -4872,37 +4897,39 @@ class MarioKartCommands(commands.Cog):
                     with Image.open(temp_path) as img:
                         img_width, img_height = img.size
 
-                    logging.info(f"[DEBUG-OCR] 📐 Image Dimensions: {img_width}x{img_height} pixels")
-
                     # Perform OCR with detailed logging
                     ocr = self.bot.ocr
+
+                    # Add handler to capture all OCR processing logs
+                    logging.getLogger().addHandler(debug_handler)
 
                     # Step 1: Crop and detect format
                     cropped_path, visual_path, crop_coords = ocr.crop_image_to_target_region(temp_path)
                     table_format = ocr.detect_table_format(img_width, img_height)
-                    logging.info(f"[DEBUG-OCR] 🎯 Detected Table Format: {table_format.value}")
-                    logging.info(f"[DEBUG-OCR] ✂️ Crop Coordinates: {crop_coords}")
+                    debug_lines.append(f"Dim: {img_width}x{img_height} | Format: {table_format.value} | Crop: {crop_coords}")
 
                     # Step 2: Perform OCR
                     ocr_result = ocr.perform_ocr_on_file(temp_path)
 
                     if not ocr_result["success"]:
-                        logging.error(f"[DEBUG-OCR] ❌ OCR Failed: {ocr_result.get('error', 'Unknown error')}")
+                        error_msg = ocr_result.get('error', 'Unknown error')
+                        debug_lines.append(f"OCR Failed: {error_msg}")
+                        debug_lines.append("")
                         results_summary.append({
                             'filename': attachment.filename,
                             'success': False,
-                            'error': ocr_result.get('error', 'OCR failed'),
+                            'error': error_msg,
                             'players_found': 0
                         })
                         continue
 
                     # Step 3: Log raw OCR text
                     raw_text = ocr_result.get("text", "")
-                    logging.info(f"[DEBUG-OCR] 📝 Raw OCR Text:\n{raw_text}")
+                    debug_lines.append(f"OCR:\n{raw_text if raw_text.strip() else '(empty)'}")
 
                     # Step 4: Log OCR tokens
                     tokens = raw_text.split()
-                    logging.info(f"[DEBUG-OCR] 🔢 Tokens ({len(tokens)} total): {tokens}")
+                    debug_lines.append(f"Tokens[{len(tokens)}]: {tokens}")
 
                     # Step 5: Parse results with detailed logging
                     extracted_texts = [{'text': raw_text, 'confidence': 0.9}]
@@ -4910,21 +4937,37 @@ class MarioKartCommands(commands.Cog):
 
                     # Step 6: Log player extraction results
                     if processed_results:
-                        logging.info(f"[DEBUG-OCR] ✅ Players Extracted: {len(processed_results)}")
+                        player_strs = []
                         for result in processed_results:
-                            logging.info(f"[DEBUG-OCR]   • {result['name']} (raw: '{result.get('raw_name', result['name'])}') - {result['score']} points - {result.get('races', 12)} races")
+                            raw_name = result.get('raw_name', result['name'])
+                            races = result.get('races', 12)
+                            player_strs.append(f"{result['name']}({result['score']}pts,{races}r)")
+                        debug_lines.append(f"Players[{len(processed_results)}]: {' | '.join(player_strs)}")
                     else:
-                        logging.warning("[DEBUG-OCR] ⚠️ No players extracted")
+                        debug_lines.append("Players[0]: none")
 
                     # Step 7: Log validation
                     validation = ocr._validate_results(processed_results, guild_id) if processed_results else None
                     if validation:
-                        logging.info("[DEBUG-OCR] 🔍 Validation Results:")
-                        logging.info(f"[DEBUG-OCR]   Valid: {validation.get('is_valid', False)}")
-                        if validation.get('errors'):
-                            logging.info(f"[DEBUG-OCR]   Errors: {validation['errors']}")
-                        if validation.get('warnings'):
-                            logging.info(f"[DEBUG-OCR]   Warnings: {validation['warnings']}")
+                        valid_str = "true" if validation.get('is_valid', False) else "false"
+                        errors_str = ", ".join(validation['errors']) if validation.get('errors') else "none"
+                        warnings_str = ", ".join(validation['warnings']) if validation.get('warnings') else "none"
+                        debug_lines.append(f"Valid: {valid_str} | Errors: {errors_str} | Warnings: {warnings_str}")
+                    else:
+                        debug_lines.append("Valid: false | Errors: no results | Warnings: none")
+
+                    # Step 8: Add captured internal logs
+                    if debug_handler.messages:
+                        debug_lines.append("")
+                        debug_lines.append("Processing Details:")
+                        for log_msg in debug_handler.messages:
+                            # Filter for OCR-related messages (skip unrelated logs)
+                            if any(marker in log_msg for marker in ['🔍', '📊', '✅', '🎯', '🔀', '⚠️', '🏁', '✂️', '❌', '[DEBUG-OCR]', 'OCR', 'guild', 'score', 'player', 'team', 'split']):
+                                # Clean up log message (remove log level prefixes if present)
+                                clean_msg = log_msg.replace('[DEBUG-OCR] ', '')
+                                debug_lines.append(f"  {clean_msg}")
+
+                    debug_lines.append("")
 
                     # Add to summary
                     results_summary.append({
@@ -4936,16 +4979,24 @@ class MarioKartCommands(commands.Cog):
                     })
 
                 except Exception as e:
-                    logging.error(f"[DEBUG-OCR] ❌ Error processing {attachment.filename}: {e}")
-                    logging.error(f"[DEBUG-OCR] {traceback.format_exc()}")
+                    error_msg = str(e)
+                    debug_lines.append(f"ERROR: {error_msg}")
+                    debug_lines.append(f"Traceback: {traceback.format_exc()}")
+                    debug_lines.append("")
                     results_summary.append({
                         'filename': attachment.filename,
                         'success': False,
-                        'error': str(e),
+                        'error': error_msg,
                         'players_found': 0
                     })
 
                 finally:
+                    # Always remove the log handler to prevent memory leaks
+                    try:
+                        logging.getLogger().removeHandler(debug_handler)
+                    except Exception:
+                        pass
+
                     # Always cleanup temp files, regardless of success or failure
                     try:
                         if temp_path and os.path.exists(temp_path):
@@ -4957,9 +5008,14 @@ class MarioKartCommands(commands.Cog):
                     except OSError as e:
                         logging.debug(f"[DEBUG-OCR] Failed to delete temporary file: {e}")
 
-            logging.info(f"[DEBUG-OCR] {'=' * 80}")
-            logging.info("[DEBUG-OCR] Debug OCR Processing Complete")
-            logging.info(f"[DEBUG-OCR] {'=' * 80}")
+            # Write debug output to file
+            fd, debug_output_path = tempfile.mkstemp(suffix='.txt', prefix='debug_ocr_')
+            os.close(fd)
+
+            async with aiofiles.open(debug_output_path, 'w', encoding='utf-8') as f:
+                await f.write('\n'.join(debug_lines))
+
+            logging.info("[DEBUG-OCR] Debug scan completed")
 
             # Create summary embed
             summary_embed = discord.Embed(
@@ -4987,7 +5043,7 @@ class MarioKartCommands(commands.Cog):
                 results_text.append(f"{status} `{result['filename']}`{players_info}{error_info}")
 
             if len(results_summary) > 10:
-                results_text.append(f"\n_...and {len(results_summary) - 10} more (see logs)_")
+                results_text.append(f"\n_...and {len(results_summary) - 10} more (see attached file)_")
 
             summary_embed.add_field(
                 name="📁 Images Processed",
@@ -4996,25 +5052,33 @@ class MarioKartCommands(commands.Cog):
             )
 
             summary_embed.add_field(
-                name="📋 Logs",
-                value="**Check the bot logs for detailed debug output:**\n"
-                      "• Raw OCR text\n"
-                      "• Token parsing\n"
+                name="📋 Debug Output",
+                value="**See attached file for complete details:**\n"
+                      "• Image dimensions and crop coordinates\n"
+                      "• Raw OCR text and tokens\n"
                       "• Player name resolution\n"
-                      "• Team splitting decisions\n"
-                      "• Validation warnings",
+                      "• Validation results",
                 inline=False
             )
 
             summary_embed.set_footer(text="Debug mode - no changes made to database")
 
-            # Edit the status message with final results
-            await status_msg.edit(embed=summary_embed)
+            # Send the debug file and edit the status message with final results
+            debug_file = discord.File(debug_output_path, filename=f"debug_ocr_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt")
+            await status_msg.edit(embed=summary_embed, attachments=[debug_file])
 
         except Exception as e:
-            logging.error(f"[DEBUG-OCR] ❌ Error in debugocr command: {e}")
+            logging.error(f"[DEBUG-OCR] Error in debugocr command: {e}")
             logging.error(traceback.format_exc())
             await interaction.followup.send(f"❌ An error occurred: {str(e)}")
+
+        finally:
+            # Cleanup debug output file
+            try:
+                if debug_output_path and os.path.exists(debug_output_path):
+                    os.unlink(debug_output_path)
+            except OSError as e:
+                logging.debug(f"[DEBUG-OCR] Failed to delete debug output file: {e}")
 
 
 async def setup(bot):
