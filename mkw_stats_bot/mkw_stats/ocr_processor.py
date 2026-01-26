@@ -105,21 +105,51 @@ class OCRProcessor:
         """Initialize PaddleOCR with optimized settings."""
         try:
             logging.info("🚀 Initializing PaddleOCR with memory-optimized settings...")
-            
+
             # Memory-optimized PaddleOCR settings (from working Discord bot)
+            # Try different parameter combinations for compatibility with different PaddleOCR versions
+
+            # Try full Railway configuration first
+            try:
+                self.ocr = PaddleOCR(
+                    use_angle_cls=False,  # Disable angle classification to save memory
+                    lang='en',  # Use English model (smaller than multilingual)
+                    use_gpu=False,  # CPU only for Railway deployment
+                    det_model_dir=None,  # Use default lightweight models
+                    rec_model_dir=None,
+                    cls_model_dir=None,
+                    show_log=False,
+                    use_space_char=True
+                )
+                logging.info("✅ PaddleOCR initialized (full config)")
+                return
+            except TypeError:
+                pass  # Try next configuration
+
+            # Try without show_log (older versions)
+            try:
+                self.ocr = PaddleOCR(
+                    use_angle_cls=False,
+                    lang='en',
+                    use_gpu=False,
+                    det_model_dir=None,
+                    rec_model_dir=None,
+                    cls_model_dir=None,
+                    use_space_char=True
+                )
+                logging.info("✅ PaddleOCR initialized (no show_log)")
+                return
+            except TypeError:
+                pass  # Try next configuration
+
+            # Try minimal configuration (maximum compatibility)
             self.ocr = PaddleOCR(
-                use_angle_cls=False,  # Disable angle classification to save memory
-                lang='en',  # Use English model (smaller than multilingual)
-                use_gpu=False,  # CPU only for Railway deployment
-                det_model_dir=None,  # Use default lightweight models
-                rec_model_dir=None,
-                cls_model_dir=None,
-                show_log=False,
-                use_space_char=True
+                use_angle_cls=False,
+                lang='en',
+                use_gpu=False
             )
-            
-            logging.info("✅ PaddleOCR initialized successfully!")
-            
+            logging.info("✅ PaddleOCR initialized (minimal config)")
+
         except Exception as e:
             logging.error(f"❌ Failed to initialize PaddleOCR: {e}")
             raise
@@ -277,12 +307,14 @@ class OCRProcessor:
                 for item in ocr_result["results"]:
                     text = item.get("text", "").strip()
                     confidence = item.get("confidence", 0.0)
-                    
+                    bbox = item.get("bbox", None)
+
                     # Filter out junk - keep only characters, numbers, spaces, punctuation, parentheses
                     if text and re.match(r'^[a-zA-Z0-9\s.,\-+%$()]+$', text):
                         extracted_texts.append({
                             'text': text,
-                            'confidence': confidence
+                            'confidence': confidence,
+                            'bbox': bbox
                         })
             
             if not extracted_texts:
@@ -544,9 +576,23 @@ class OCRProcessor:
                 return []
             
             # Combine all OCR text into single string and tokenize
+            # Also build token-to-bbox mapping for spatial disambiguation
             combined_text = ' '.join([item['text'] for item in extracted_texts])
             tokens = combined_text.split()
-            
+
+            # Build token-to-bbox mapping
+            token_bboxes = {}
+            token_idx = 0
+            for item in extracted_texts:
+                item_tokens = item['text'].split()
+                bbox = item.get('bbox')
+                # Assign same bbox to all tokens from this OCR line (approximation)
+                # In practice, each word in a line has similar x-position
+                for _ in item_tokens:
+                    if token_idx < len(tokens) and bbox:
+                        token_bboxes[token_idx] = bbox
+                    token_idx += 1
+
             logging.info(f"🔍 OCR tokens: {tokens}")
             
             # Find all valid scores (1-180)
@@ -595,9 +641,9 @@ class OCRProcessor:
             
             # Find all valid player names using sliding window
             valid_names = self._find_valid_names_with_window(tokens, guild_id)
-            
-            # Pair names with scores using proximity
-            results = self._pair_names_with_scores(valid_names, score_positions, tokens)
+
+            # Pair names with scores using proximity (with bbox-based disambiguation)
+            results = self._pair_names_with_scores(valid_names, score_positions, tokens, token_bboxes)
             
             # Count total detected vs guild players
             all_detected_scores = len(score_positions)
@@ -1426,10 +1472,35 @@ class OCRProcessor:
         
         return valid_names
     
-    def _pair_names_with_scores(self, valid_names: List[tuple], score_positions: List[int], tokens: List[str]) -> List[Dict]:
-        """Pair validated player names with scores using sequential flow matching."""
+    def _get_bbox_center_x(self, bbox) -> float:
+        """Calculate horizontal center of a bounding box."""
+        if not bbox or len(bbox) < 4:
+            return 0.0
+        # Handle both list of points [[x1,y1],[x2,y2],...] and flat [x1,y1,x2,y2]
+        if isinstance(bbox[0], list):
+            x_coords = [point[0] for point in bbox]
+            return sum(x_coords) / len(x_coords)
+        else:
+            # Assume [x1, y1, x2, y2] format
+            return (bbox[0] + bbox[2]) / 2.0
+
+    def _get_bbox_center_y(self, bbox) -> float:
+        """Calculate vertical center of a bounding box."""
+        if not bbox or len(bbox) < 4:
+            return 0.0
+        if isinstance(bbox[0], list):
+            y_coords = [point[1] for point in bbox]
+            return sum(y_coords) / len(y_coords)
+        else:
+            return (bbox[1] + bbox[3]) / 2.0
+
+    def _pair_names_with_scores(self, valid_names: List[tuple], score_positions: List[int], tokens: List[str], token_bboxes: Dict[int, list] = None) -> List[Dict]:
+        """Pair validated player names with scores using sequential flow matching with spatial disambiguation."""
         results = []
         used_scores = set()
+
+        if token_bboxes is None:
+            token_bboxes = {}
         
         # Sort names by position to process in reading order
         valid_names_sorted = sorted(valid_names, key=lambda x: x[0])
@@ -1454,36 +1525,83 @@ class OCRProcessor:
                 logging.info(f"🎯 Used embedded score: '{official_name}' (raw: '{raw_name}') with embedded score {score} ({race_count} races)")
                 continue
             
-            # Find the next available score after this name position
+            # Find the closest available score with priority for positional order
+            # Handles consecutive duplicate scores by preferring adjacent scores
             best_score_pos = None
-            min_distance = float('inf')
-            
-            # First, try to find a score that comes AFTER the name (preferred pattern: "Name Score")
+            best_after_pos = None
+            best_before_pos = None
+            min_after_distance = float('inf')
+            min_before_distance = float('inf')
+
+            # Separate AFTER and BEFORE patterns for explicit prioritization
             for score_pos in score_positions:
-                if score_pos not in used_scores and score_pos > name_pos:
-                    distance = score_pos - name_pos
-                    if distance < min_distance:
-                        min_distance = distance
-                        best_score_pos = score_pos
-            
-            # If no score found after the name, try scores BEFORE the name (pattern: "Score Name")
-            if best_score_pos is None:
-                for score_pos in score_positions:
-                    if score_pos not in used_scores and score_pos < name_pos:
+                if score_pos not in used_scores:
+                    if score_pos > name_pos:
+                        # Score comes AFTER name (pattern: "Name Score")
+                        distance = score_pos - name_pos
+                        if distance < min_after_distance:
+                            min_after_distance = distance
+                            best_after_pos = score_pos
+                    else:
+                        # Score comes BEFORE name (pattern: "Score Name")
                         distance = name_pos - score_pos
-                        # Only consider scores that are very close (within 2 positions) to avoid wrong pairings
-                        if distance <= 2 and distance < min_distance:
-                            min_distance = distance
-                            best_score_pos = score_pos
-            
-            # If still no score found, fall back to absolute nearest unused score
-            if best_score_pos is None:
-                for score_pos in score_positions:
-                    if score_pos not in used_scores:
-                        distance = abs(name_pos - score_pos)
-                        if distance < min_distance:
-                            min_distance = distance
-                            best_score_pos = score_pos
+                        # Only consider scores that are very close (within 2 positions)
+                        if distance <= 2 and distance < min_before_distance:
+                            min_before_distance = distance
+                            best_before_pos = score_pos
+
+            # Prioritize: 1) Disambiguate double-adjacent case, 2) Immediately after, 3) Immediately before, 4) Closest after, 5) Closest before
+            if min_after_distance == 1 and min_before_distance == 1:
+                # Both scores are immediately adjacent - use bbox horizontal position to disambiguate
+                name_bbox = token_bboxes.get(name_pos)
+                after_bbox = token_bboxes.get(best_after_pos)
+                before_bbox = token_bboxes.get(best_before_pos)
+
+                if name_bbox and after_bbox and before_bbox:
+                    name_center_x = self._get_bbox_center_x(name_bbox)
+                    after_center_x = self._get_bbox_center_x(after_bbox)
+                    before_center_x = self._get_bbox_center_x(before_bbox)
+
+                    # Prefer score on the expected reading side (after => right, before => left)
+                    if after_center_x > name_center_x and before_center_x < name_center_x:
+                        # Clear case: after is to the right, before is to the left
+                        best_score_pos = best_after_pos
+                        logging.info(f"🎯 Bbox disambiguation: chose after score at pos {best_after_pos} (x={after_center_x:.1f} > name x={name_center_x:.1f})")
+                    elif before_center_x < name_center_x and after_center_x <= name_center_x:
+                        # Before is clearly to the left
+                        best_score_pos = best_before_pos
+                        logging.info(f"🎯 Bbox disambiguation: chose before score at pos {best_before_pos} (x={before_center_x:.1f} < name x={name_center_x:.1f})")
+                    else:
+                        # Ambiguous horizontal position - use vertical distance as tiebreaker
+                        name_center_y = self._get_bbox_center_y(name_bbox)
+                        after_center_y = self._get_bbox_center_y(after_bbox)
+                        before_center_y = self._get_bbox_center_y(before_bbox)
+
+                        after_y_dist = abs(after_center_y - name_center_y)
+                        before_y_dist = abs(before_center_y - name_center_y)
+
+                        if after_y_dist < before_y_dist:
+                            best_score_pos = best_after_pos
+                            logging.info(f"🎯 Bbox disambiguation (y-tiebreak): chose after score at pos {best_after_pos} (y_dist={after_y_dist:.1f} < {before_y_dist:.1f})")
+                        else:
+                            best_score_pos = best_before_pos
+                            logging.info(f"🎯 Bbox disambiguation (y-tiebreak): chose before score at pos {best_before_pos} (y_dist={before_y_dist:.1f} < {after_y_dist:.1f})")
+                else:
+                    # Fallback to after preference if bbox data unavailable
+                    best_score_pos = best_after_pos
+                    logging.info(f"⚠️ Bbox disambiguation fallback: missing bbox data, defaulting to after score")
+            elif min_after_distance == 1:
+                # Immediately adjacent score after name (most common pattern)
+                best_score_pos = best_after_pos
+            elif min_before_distance == 1:
+                # Immediately adjacent score before name (reversed pattern)
+                best_score_pos = best_before_pos
+            elif best_after_pos is not None:
+                # Any score after name (prefer natural reading order)
+                best_score_pos = best_after_pos
+            elif best_before_pos is not None:
+                # Fall back to score before name
+                best_score_pos = best_before_pos
             
             if best_score_pos is not None:
                 score = int(tokens[best_score_pos])

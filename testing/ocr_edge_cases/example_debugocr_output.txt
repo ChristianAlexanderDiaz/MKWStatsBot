@@ -1,0 +1,232 @@
+Debug OCR Scan | User: <redacted_user> | Limit: 5 | Started: 2026-01-25 19:30:45 UTC
+
+[Image 1/5: image.png]
+Dim: 1720x1040 | Format: large | Crop: (576, 100, 1068, 1040)
+OCR:
+Yukino 107 Moon 104 rx 97 Mwsr 87 Corbs 77 Demise 40 Luxitone 90 Mashi 84 Wisp 78 Dynamo 77 77 Zach Shadow 66
+Tokens[24]: ['Yukino', '107', 'Moon', '104', 'rx', '97', 'Mwsr', '87', 'Corbs', '77', 'Demise', '40', 'Luxitone', '90', 'Mashi', '84', 'Wisp', '78', 'Dynamo', '77', '77', 'Zach', 'Shadow', '66']
+Players[4]: Luxitone(90pts,12r) | Mashi(84pts,12r) | Wisp(78pts,12r) | Dynamo(77pts,12r)
+Valid: true | Errors: none | Warnings: none
+
+Processing Details:
+  🎯 Detected table format: Large Format (image: 1720x1040)
+  ✂️ Cropped image 1720x1040 to region (576,100) to (1068,1040) using Large Format
+  🔍 OCR tokens: ['Yukino', '107', 'Moon', '104', 'rx', '97', 'Mwsr', '87', 'Corbs', '77', 'Demise', '40', 'Luxitone', '90', 'Mashi', '84', 'Wisp', '78', 'Dynamo', '77', '77', 'Zach', 'Shadow', '66']
+  🔍 Skipping potential embedded score in 'Yukino' because followed by valid score '107'
+  📊 Found score: 107 at position 1
+  🔍 Skipping potential embedded score in 'Moon' because followed by valid score '104'
+  📊 Found score: 104 at position 3
+  🔍 Skipping potential embedded score in 'rx' because followed by valid score '97'
+  📊 Found score: 97 at position 5
+  🔍 Skipping potential embedded score in 'Mwsr' because followed by valid score '87'
+  📊 Found score: 87 at position 7
+  🔍 Skipping potential embedded score in 'Corbs' because followed by valid score '77'
+  📊 Found score: 77 at position 9
+  🔍 Skipping potential embedded score in 'Demise' because followed by valid score '40'
+  📊 Found score: 40 at position 11
+  🔍 Skipping potential embedded score in 'Luxitone' because followed by valid score '90'
+  📊 Found score: 90 at position 13
+  🔍 Skipping potential embedded score in 'Mashi' because followed by valid score '84'
+  📊 Found score: 84 at position 15
+  🔍 Skipping potential embedded score in 'Wisp' because followed by valid score '78'
+  📊 Found score: 78 at position 17
+  🔍 Skipping potential embedded score in 'Dynamo' because followed by valid score '77'
+  📊 Found score: 77 at position 19
+  📊 Found score: 77 at position 20
+  🔍 Skipping potential embedded score in 'Shadow' because followed by valid score '66'
+  📊 Found score: 66 at position 23
+  🔍 Database lookup ready: 44 guild members, 47 nicknames
+  ✅ Found 1-word name: 'Luxitone' → 'Luxitone' at position 12 (12 races)
+  ✅ Found 1-word name: 'Mashi' → 'Mashi' at position 14 (12 races)
+  ✅ Found 1-word name: 'Wisp' → 'Wisp' at position 16 (12 races)
+  ✅ Found 1-word name: 'Dynamo' → 'Dynamo' at position 18 (12 races)
+  ✅ Found 1-word name: 'Zach' → 'Carrie' at position 21 (12 races)
+  ✅ Found 1-word name: 'Shadow' → 'shadowww' at position 22 (12 races)
+  🎯 Paired 'Luxitone' (raw: 'Luxitone') at pos 12 with score 90 at pos 13 (12 races)
+  🎯 Paired 'Mashi' (raw: 'Mashi') at pos 14 with score 84 at pos 15 (12 races)
+  🎯 Paired 'Wisp' (raw: 'Wisp') at pos 16 with score 78 at pos 17 (12 races)
+  🎯 Paired 'Dynamo' (raw: 'Dynamo') at pos 18 with score 77 at pos 19 (12 races)
+  🎯 Paired 'Carrie' (raw: 'Zach') at pos 21 with score 66 at pos 23 (12 races)
+  🎯 Paired 'shadowww' (raw: 'Shadow') at pos 22 with score 77 at pos 20 (12 races)
+  🔀 Team Split Detection: 12 players, 6 guild members
+  🔀 Starting dynamic team split for 12 players
+  ⚠️ Could not map shadowww to position - defaulting to 0
+  🏆 Split Result: Last 6 (4 guild) vs First 6 (2 guild)
+  ✅ Winner (last 6): Luxitone, Mashi, Wisp, Dynamo
+  ❌ Excluded: Carrie, shadowww
+  🎯 OCR Results: 4 guild players found, 8 opponent players detected
+  Your team: Luxitone 90, Mashi 84, Wisp 78, Dynamo 77
+  🔍 Validation complete: 0 errors, 0 warnings
+
+[Image 2/5: Table12.png]
+Dim: 1720x1040 | Format: large | Crop: (576, 100, 1068, 1040)
+OCR:
+Cynical (5) 69 vee 92 RIC69 kyle christian (7) 78 Snowy 84 Ben 71
+Tokens[12]: ['Cynical', '(5)', '69', 'vee', '92', 'RIC69', 'kyle', 'christian', '(7)', '78', 'Snowy', '84', 'Ben', '71']
+Players[5]: Cynical(69pts,5r) | vee(92pts,12r) | kyle christian(78pts,7r) | Snowy(84pts,12r) | Ben(71pts,12r)
+Valid: true | Errors: none | Warnings: Player count is 5, expected 6 for standard 6v6 format
+
+Processing Details:
+  🎯 Detected table format: Large Format (image: 1720x1040)
+  ✂️ Cropped image 1720x1040 to region (576,100) to (1068,1040) using Large Format
+  🔍 OCR tokens: ['Cynical', '(5)', '69', 'vee', '92', 'RIC69', 'kyle', 'christian', '(7)', '78', 'Snowy', '84', 'Ben', '71']
+  🏁 Extracted race count from token 'Cynical (5)': Cynical → 5 races
+  📊 Found score: 69 at position 2
+  🔍 Skipping potential embedded score in 'vee' because followed by valid score '92'
+  📊 Found score: 92 at position 4
+  📊 Found embedded score: 69 in token 'RIC69' at position 5
+  🏁 Extracted race count from token 'kyle christian (7)': kyle christian → 7 races
+  📊 Found score: 78 at position 9
+  🔍 Skipping potential embedded score in 'Snowy' because followed by valid score '84'
+  📊 Found score: 84 at position 11
+  🔍 Skipping potential embedded score in 'Ben' because followed by valid score '71'
+  📊 Found score: 71 at position 13
+  🔍 Database lookup ready: 44 guild members, 47 nicknames
+  ✅ Found 1-word name: 'Cynical' → 'Cynical' at position 0 (5 races)
+  ✅ Found 1-word name: 'vee' → 'vee' at position 3 (12 races)
+  ✅ Found 2-word name: 'kyle christian' → 'kyle christian' at position 6 (7 races)
+  ✅ Found 1-word name: 'Snowy' → 'Snowy' at position 10 (12 races)
+  ✅ Found 1-word name: 'Ben' → 'Ben' at position 12 (12 races)
+  🎯 Paired 'Cynical' (raw: 'Cynical') at pos 0 with score 69 at pos 2 (5 races)
+  🎯 Paired 'vee' (raw: 'vee') at pos 3 with score 92 at pos 4 (12 races)
+  🎯 Used embedded score: 'RIC' (raw: 'RIC69') with embedded score 69 (12 races)
+  🎯 Paired 'kyle christian' (raw: 'kyle christian') at pos 6 with score 78 at pos 9 (7 races)
+  🎯 Paired 'Snowy' (raw: 'Snowy') at pos 10 with score 84 at pos 11 (12 races)
+  🎯 Paired 'Ben' (raw: 'Ben') at pos 12 with score 71 at pos 13 (12 races)
+  🔀 Starting 6v6 team splitting analysis
+  📊 Extracted 5 total players from OCR tokens
+  🎯 Cynical found at position 0
+  🎯 vee found at position 3
+  🎯 kyle christian found at position 6
+  🎯 Snowy found at position 10
+  🎯 Ben found at position 12
+  🏁 Team split - First 3: 3 guild members (Cynical, vee, kyle christian)
+  🏁 Team split - Last 2: 2 guild members (Snowy, Ben)
+  🏆 6v6 Result - Team 1 selected: Cynical, vee, kyle christian
+  ❌ Excluded opposing team: Snowy, Ben
+  🎯 OCR Results: 5 guild players found, 0 opponent players detected
+  Your team: Cynical 69, vee 92, kyle christian 78
+  🔍 Validation complete: 0 errors, 1 warnings
+
+[Image 3/5: image35.png]
+Dim: 1920x1080 | Format: large | Crop: (640, 120, 1280, 1080)
+OCR:
+Player193 Jake Beam88 Matt Frost Lux1tone Shadow77 RIC Adam69 TKbro Yoshi
+Tokens[11]: ['Player193', 'Jake', 'Beam88', 'Matt', 'Frost', 'Lux1tone', 'Shadow77', 'RIC', 'Adam69', 'TKbro', 'Yoshi']
+Players[2]: Luxitone(88pts,12r) | shadowww(77pts,12r)
+Valid: true | Errors: none | Warnings: Player count is 2, expected 6 for standard 6v6 format, Score extraction incomplete - found 2 valid scores but expected more
+
+Processing Details:
+  🎯 Detected table format: Large Format (image: 1920x1080)
+  ✂️ Cropped image 1920x1080 to region (640,120) to (1280,1080) using Large Format
+  🔍 OCR tokens: ['Player193', 'Jake', 'Beam88', 'Matt', 'Frost', 'Lux1tone', 'Shadow77', 'RIC', 'Adam69', 'TKbro', 'Yoshi']
+  📊 Found embedded score: 93 in token 'Player193' at position 0
+  📊 Found embedded score: 88 in token 'Beam88' at position 2
+  📊 Found embedded score: 77 in token 'Shadow77' at position 6
+  📊 Found embedded score: 69 in token 'Adam69' at position 8
+  🔍 Database lookup ready: 44 guild members, 47 nicknames
+  🔍 Multi-token corrupted sequence detected: 'Lux1tone' contains potential match
+  🔍 Substring match: Found 'Luxitone' (via 'Luxitone') in corrupted token 'Lux1tone'
+  ✅ Found substring match: 'Lux1tone' contains 'Luxitone' at position 5 (12 races)
+  🔍 Substring match: Found 'shadowww' (via 'Shadow') in corrupted token 'Shadow77'
+  ✅ Found substring match: 'Shadow77' contains 'shadowww' at position 6 (12 races)
+  🎯 Used embedded score: 'Luxitone' (raw: 'Lux1tone') with embedded score 88 (12 races)
+  🎯 Used embedded score: 'shadowww' (raw: 'Shadow77') with embedded score 77 (12 races)
+  🔀 Team Split Detection: 4 players, 2 guild members
+  🔀 Starting dynamic team split for 4 players
+  🎯 Luxitone mapped to position 5
+  🎯 shadowww mapped to position 6
+  🏆 Split Result: Last 2 (2 guild) vs First 2 (0 guild)
+  ✅ Winner (last 2): Luxitone, shadowww
+  🎯 OCR Results: 2 guild players found, 2 opponent players detected
+  Your team: Luxitone 88, shadowww 77
+  🔍 Validation complete: 0 errors, 2 warnings
+
+[Image 4/5: Table54.png]
+Dim: 1720x1040 | Format: large | Crop: (576, 100, 1068, 1040)
+OCR:
+Mashi 102 Wisp 95 Dynamo 88 Luxitone 84 vee 79 Cynical 73 opponent1 98 opponent2 91 opponent3 85 opponent4 80 opponent5 76 opponent6 70
+Tokens[24]: ['Mashi', '102', 'Wisp', '95', 'Dynamo', '88', 'Luxitone', '84', 'vee', '79', 'Cynical', '73', 'opponent1', '98', 'opponent2', '91', 'opponent3', '85', 'opponent4', '80', 'opponent5', '76', 'opponent6', '70']
+Players[6]: Mashi(102pts,12r) | Wisp(95pts,12r) | Dynamo(88pts,12r) | Luxitone(84pts,12r) | vee(79pts,12r) | Cynical(73pts,12r)
+Valid: true | Errors: none | Warnings: none
+
+Processing Details:
+  🎯 Detected table format: Large Format (image: 1720x1040)
+  ✂️ Cropped image 1720x1040 to region (576,100) to (1068,1040) using Large Format
+  🔍 OCR tokens: ['Mashi', '102', 'Wisp', '95', 'Dynamo', '88', 'Luxitone', '84', 'vee', '79', 'Cynical', '73', 'opponent1', '98', 'opponent2', '91', 'opponent3', '85', 'opponent4', '80', 'opponent5', '76', 'opponent6', '70']
+  🔍 Skipping potential embedded score in 'Mashi' because followed by valid score '102'
+  📊 Found score: 102 at position 1
+  🔍 Skipping potential embedded score in 'Wisp' because followed by valid score '95'
+  📊 Found score: 95 at position 3
+  🔍 Skipping potential embedded score in 'Dynamo' because followed by valid score '88'
+  📊 Found score: 88 at position 5
+  🔍 Skipping potential embedded score in 'Luxitone' because followed by valid score '84'
+  📊 Found score: 84 at position 7
+  🔍 Skipping potential embedded score in 'vee' because followed by valid score '79'
+  📊 Found score: 79 at position 9
+  🔍 Skipping potential embedded score in 'Cynical' because followed by valid score '73'
+  📊 Found score: 73 at position 11
+  📊 Found score: 98 at position 13
+  📊 Found score: 91 at position 15
+  📊 Found score: 85 at position 17
+  📊 Found score: 80 at position 19
+  📊 Found score: 76 at position 21
+  📊 Found score: 70 at position 23
+  🔍 Database lookup ready: 44 guild members, 47 nicknames
+  ✅ Found 1-word name: 'Mashi' → 'Mashi' at position 0 (12 races)
+  ✅ Found 1-word name: 'Wisp' → 'Wisp' at position 2 (12 races)
+  ✅ Found 1-word name: 'Dynamo' → 'Dynamo' at position 4 (12 races)
+  ✅ Found 1-word name: 'Luxitone' → 'Luxitone' at position 6 (12 races)
+  ✅ Found 1-word name: 'vee' → 'vee' at position 8 (12 races)
+  ✅ Found 1-word name: 'Cynical' → 'Cynical' at position 10 (12 races)
+  🎯 Paired 'Mashi' (raw: 'Mashi') at pos 0 with score 102 at pos 1 (12 races)
+  🎯 Paired 'Wisp' (raw: 'Wisp') at pos 2 with score 95 at pos 3 (12 races)
+  🎯 Paired 'Dynamo' (raw: 'Dynamo') at pos 4 with score 88 at pos 5 (12 races)
+  🎯 Paired 'Luxitone' (raw: 'Luxitone') at pos 6 with score 84 at pos 7 (12 races)
+  🎯 Paired 'vee' (raw: 'vee') at pos 8 with score 79 at pos 9 (12 races)
+  🎯 Paired 'Cynical' (raw: 'Cynical') at pos 10 with score 73 at pos 11 (12 races)
+  🔀 Starting 6v6 team splitting analysis
+  📊 Extracted 12 total players from OCR tokens
+  🎯 Mashi found at position 0
+  🎯 Wisp found at position 2
+  🎯 Dynamo found at position 4
+  🎯 Luxitone found at position 6
+  🎯 vee found at position 8
+  🎯 Cynical found at position 10
+  🏁 Team split - First 6: 6 guild members (Mashi, Wisp, Dynamo, Luxitone, vee, Cynical)
+  🏁 Team split - Last 6: 0 guild members
+  🏆 6v6 Result - Team 1 selected: Mashi, Wisp, Dynamo, Luxitone, vee, Cynical
+  🎯 OCR Results: 6 guild players found, 6 opponent players detected
+  Your team: Mashi 102, Wisp 95, Dynamo 88, Luxitone 84, vee 79, Cynical 73
+  🔍 Validation complete: 0 errors, 0 warnings
+
+[Image 5/5: image96.png]
+Dim: 1280x720 | Format: medium | Crop: (420, 80, 860, 720)
+OCR:
+Ma5hi Wisp89 Dynamo Kyle vee78
+Tokens[5]: ['Ma5hi', 'Wisp89', 'Dynamo', 'Kyle', 'vee78']
+Players[0]: none
+Valid: false | Errors: no results | Warnings: none
+
+Processing Details:
+  🎯 Detected table format: Medium Format (image: 1280x720)
+  ✂️ Cropped image 1280x720 to region (420,80) to (860,720) using Medium Format
+  🔍 OCR tokens: ['Ma5hi', 'Wisp89', 'Dynamo', 'Kyle', 'vee78']
+  📊 Found embedded score: 89 in token 'Wisp89' at position 1
+  📊 Found embedded score: 78 in token 'vee78' at position 4
+  🔍 Database lookup ready: 44 guild members, 47 nicknames
+  🔍 Substring match: Found 'Mashi' (via 'Mashi') in corrupted token 'Ma5hi'
+  ✅ Found substring match: 'Ma5hi' contains 'Mashi' at position 0 (12 races)
+  ✅ Found 1-word name: 'Dynamo' → 'Dynamo' at position 2 (12 races)
+  🔍 Substring match: Found 'vee' (via 'vee') in corrupted token 'vee78'
+  ✅ Found substring match: 'vee78' contains 'vee' at position 4 (12 races)
+  ⚠️ Could not pair 'Mashi' - no valid adjacent score found
+  🎯 Used embedded score: 'Wisp' (raw: 'Wisp89') with embedded score 89 (12 races)
+  ⚠️ Could not pair 'Dynamo' - no valid adjacent score found
+  🎯 Used embedded score: 'vee' (raw: 'vee78') with embedded score 78 (12 races)
+  🔍 Extracted 2 player-score pairs: ['Wisp:89', 'vee:78']
+  🔀 Team Split Detection: 2 players, 2 guild members
+  ⚠️ Insufficient data for team splitting (need at least 4 total players)
+  🎯 OCR Results: 0 guild players found, 0 opponent players detected
+  ⚠️ No valid player-score pairs could be extracted
+  🔍 Validation complete: 0 errors, 0 warnings
