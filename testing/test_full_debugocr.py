@@ -67,7 +67,7 @@ def main():
     print(f"Image:    {image_path}")
     print(f"Guild ID: {guild_id}")
     print(f"Use GPU:  {use_gpu}")
-    print(f"Database: {os.getenv('DATABASE_URL', 'NOT SET')[:50]}...")
+    print(f"Database: {'SET' if os.getenv('DATABASE_URL') else 'NOT SET'}")
     print("=" * 80)
     print()
 

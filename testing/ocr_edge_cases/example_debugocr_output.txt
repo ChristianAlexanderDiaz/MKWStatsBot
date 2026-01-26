@@ -1,4 +1,4 @@
-Debug OCR Scan | User: classycynical | Limit: 5 | Started: 2026-01-25 19:30:45 UTC
+Debug OCR Scan | User: <redacted_user> | Limit: 5 | Started: 2026-01-25 19:30:45 UTC
 
 [Image 1/5: image.png]
 Dim: 1720x1040 | Format: large | Crop: (576, 100, 1068, 1040)
