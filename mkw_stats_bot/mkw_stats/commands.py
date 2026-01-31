@@ -3360,13 +3360,6 @@ class MarioKartCommands(commands.Cog):
             # This matches OCR behavior: if any player played 10 races, the war had 10 races
             actual_war_race_count = max(result['races_played'] for result in resolved_results)
 
-            # Recompute war_participation using actual_war_race_count instead of user-provided races
-            for result in resolved_results:
-                if actual_war_race_count > 0:  # Guard against division by zero
-                    result['war_participation'] = result['races_played'] / actual_war_race_count
-                else:
-                    result['war_participation'] = 0.0
-
             # Check for duplicate war before adding to database
             last_war_results = self.bot.db.get_last_war_for_duplicate_check(guild_id)
             is_duplicate = self.bot.db.check_for_duplicate_war(resolved_results, last_war_results)
