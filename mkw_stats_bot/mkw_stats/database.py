@@ -23,8 +23,20 @@ import os
 from contextlib import contextmanager
 from urllib.parse import urlparse
 
-# Bot owner ID - Master admin with global override (Cynical/Christian)
-BOT_OWNER_ID = 291621912914821120
+from .constants import (
+    BOT_OWNER_ID,
+    FORM_SCORE_DECAY_FACTOR,
+    FORM_SCORE_MIN_WARS,
+    CLOSE_WAR_THRESHOLD,
+    CLUTCH_ELITE_THRESHOLD,
+    CLUTCH_POSITIVE_THRESHOLD,
+    CLUTCH_NEUTRAL_THRESHOLD,
+    CLUTCH_SHAKY_THRESHOLD,
+    DB_POOL_MIN,
+    DB_POOL_MAX,
+    DB_STATEMENT_TIMEOUT,
+    DB_CONNECT_TIMEOUT,
+)
 
 # Excluded guilds (testing/dev guilds excluded from leaderboards)
 # Format: comma-separated guild IDs in EXCLUDED_GUILD_IDS environment variable
@@ -74,9 +86,6 @@ def _parse_excluded_guilds() -> List[int]:
 EXCLUDED_GUILD_IDS = _parse_excluded_guilds()
 
 class DatabaseManager:
-    # Form Score calculation constants
-    FORM_SCORE_DECAY_FACTOR = 0.85  # Exponential weight decay (recent wars weighted ~15% more)
-    FORM_SCORE_MIN_WARS = 10  # Minimum wars required for Form Score calculation
 
     def __init__(self, database_url: str = None):
         """
@@ -101,7 +110,7 @@ class DatabaseManager:
         # Create connection pool for better performance
         try:
             self.connection_pool = psycopg2.pool.SimpleConnectionPool(
-                1, 10,  # min=1, max=10 connections
+                DB_POOL_MIN, DB_POOL_MAX,
                 **self.connection_params
             )
             logging.info("✅ PostgreSQL connection pool created successfully")
@@ -133,11 +142,8 @@ class DatabaseManager:
             'port': parsed.port or 5432,
             'database': parsed.path[1:],  # Remove leading slash
             'user': parsed.username,
-            # Connection timeout: 10 seconds to establish connection
-            'connect_timeout': 10,
-            # Statement timeout: 30 seconds for query execution
-            # Prevents long-running queries from exhausting connection pool
-            'options': '-c statement_timeout=30000',
+            'connect_timeout': DB_CONNECT_TIMEOUT,
+            'options': f'-c statement_timeout={DB_STATEMENT_TIMEOUT}',
         }
 
         if parsed.password:
@@ -1753,11 +1759,11 @@ class DatabaseManager:
                     performances_used.append(normalized_score)
 
                     # Stop once we have enough valid performances
-                    if len(performances_used) >= self.FORM_SCORE_MIN_WARS:
+                    if len(performances_used) >= FORM_SCORE_MIN_WARS:
                         break
 
                 # Only calculate if player has at least 10 valid wars
-                if len(performances_used) < self.FORM_SCORE_MIN_WARS:
+                if len(performances_used) < FORM_SCORE_MIN_WARS:
                     return None
 
                 # Calculate exponentially weighted moving average
@@ -1766,7 +1772,7 @@ class DatabaseManager:
 
                 for i, normalized_score in enumerate(performances_used):
                     # Calculate weight: decay_factor^i (most recent = i=0, weight=1.0)
-                    weight = self.FORM_SCORE_DECAY_FACTOR ** i
+                    weight = FORM_SCORE_DECAY_FACTOR ** i
 
                     weighted_sum += normalized_score * weight
                     weight_sum += weight
@@ -1819,13 +1825,13 @@ class DatabaseManager:
         if clutch_factor is None:
             return None
 
-        if clutch_factor >= 0.45:
+        if clutch_factor >= CLUTCH_ELITE_THRESHOLD:
             return "Elite Clutch"
-        elif clutch_factor >= 0.14:
+        elif clutch_factor >= CLUTCH_POSITIVE_THRESHOLD:
             return "Clutch"
-        elif clutch_factor >= -0.30:
+        elif clutch_factor >= CLUTCH_NEUTRAL_THRESHOLD:
             return "Neutral"
-        elif clutch_factor >= -0.87:
+        elif clutch_factor >= CLUTCH_SHAKY_THRESHOLD:
             return "Shaky"
         else:
             return "Chokes"
@@ -1838,8 +1844,7 @@ class DatabaseManager:
         situations (close wars). Positive = clutch player, negative = chokes under pressure.
 
         Formula: (avg_score_close_wars - avg_score_all_wars) / stddev
-        where close wars = abs(team_differential) <= 38
-        (38 = very close war threshold, as minimum non-tie differential is ±2)
+        where close wars = abs(team_differential) <= CLOSE_WAR_THRESHOLD
 
         Args:
             player_name: Name of the player
@@ -1898,8 +1903,8 @@ class DatabaseManager:
                     normalized_score = score / war_participation_float
                     all_scores.append(normalized_score)
 
-                    # Check if close war (abs differential <= 38)
-                    if team_diff is not None and abs(team_diff) <= 38:
+                    # Check if close war
+                    if team_diff is not None and abs(team_diff) <= CLOSE_WAR_THRESHOLD:
                         close_war_scores.append(normalized_score)
 
                 # Validate sufficient data

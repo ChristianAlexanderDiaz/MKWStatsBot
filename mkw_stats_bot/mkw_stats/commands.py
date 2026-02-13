@@ -14,66 +14,30 @@ import traceback
 from typing import List, Dict, Any, Optional
 from . import config
 from .database import DatabaseManager
-# OCR processor initialized in bot.py at startup for instant response
+from .constants import (
+    SORT_DISPLAY_NAMES,
+    SORT_DESCRIPTIONS,
+    LEADERBOARD_PLAYERS_PER_PAGE,
+    CONFIRMATION_VIEW_TIMEOUT,
+    QUICK_CONFIRM_TIMEOUT,
+    COLOR_SUCCESS,
+    COLOR_ERROR,
+    COLOR_WARNING,
+    COLOR_INFO,
+    COLOR_PURPLE,
+    COLOR_DARK_EMBED,
+    MEMBER_STATUSES,
+    GLOBAL_SORT_TITLES,
+)
+from .utils.formatters import country_code_to_flag, get_player_display_name, format_error_for_user
+from .utils.validators import has_admin_permission
+from .utils.embed_builder import EmbedBuilder
 
 # Member status choices - centralized definition
 MEMBER_STATUS_CHOICES = [
-    app_commands.Choice(name="Member", value="member"),
-    app_commands.Choice(name="Trial", value="trial"),
-    app_commands.Choice(name="Ally", value="ally"),
-    app_commands.Choice(name="Kicked", value="kicked")
+    app_commands.Choice(name=status.capitalize(), value=status)
+    for status in MEMBER_STATUSES
 ]
-
-def country_code_to_flag(country_code: str) -> str:
-    """Convert 2-letter country code to flag emoji."""
-    if not country_code or len(country_code) != 2:
-        return ""
-
-    # Convert country code to regional indicator symbols
-    # A=🇦, B=🇧, etc. (Unicode offset: 127462 - 65 = 127397)
-    country_code = country_code.upper()
-    flag = ""
-    for char in country_code:
-        if 'A' <= char <= 'Z':
-            flag += chr(127462 + ord(char) - 65)
-    return flag
-
-
-def get_player_display_name(player_name: str, team_name: str, guild_id: int, db: "DatabaseManager", team_tags: Optional[Dict[str, str]] = None) -> str:
-    """Return player name with team tag prefix if tag exists.
-
-    Args:
-        player_name: Player's name
-        team_name: Player's team name
-        guild_id: Guild ID
-        db: Database manager instance
-        team_tags: Optional pre-fetched team tags dict to avoid DB calls
-
-    Returns:
-        str: 'TAG Playername' if tag exists, 'Playername' otherwise
-    """
-    if not team_name or team_name == 'Unassigned':
-        return player_name
-
-    # Use pre-fetched team_tags if provided, otherwise query DB
-    if team_tags is not None:
-        tag = team_tags.get(team_name)
-    else:
-        tag = db.get_team_tag(guild_id, team_name)
-
-    if tag:
-        return f"{tag} {player_name}"
-
-    return player_name
-
-
-def has_admin_permission(interaction: discord.Interaction) -> bool:
-    """Check if user has admin permission (server admin, server owner, or bot owner)."""
-    return (
-        interaction.user.guild_permissions.administrator or
-        interaction.user.id == interaction.guild.owner_id or
-        DatabaseManager.is_bot_owner(interaction.user.id)
-    )
 
 
 class LeaderboardView(discord.ui.View):
@@ -112,44 +76,12 @@ class LeaderboardView(discord.ui.View):
 
         # Dynamic title based on sort
         if self.sortby:
-            sort_names = {
-                "avg10": "Average 10",
-                "avgdiff": "Average Team Differential",
-                "clutch": "Clutch Factor",
-                "cv": "Consistency",
-                "form": "Form",
-                "highest": "Highest Score",
-                "hotstreak": "Hotstreak",
-                "lastwar": "Last War",
-                "lowest": "Lowest",
-                "potential": "Potential",
-                "totaldiff": "Total Differential",
-                "warcount": "Number of Wars",
-                "winrate": "Win Rate"
-            }
-            title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average 10')}"
+            title = f"📊 Player Statistics • Sorted by {SORT_DISPLAY_NAMES.get(self.sortby, 'Average 10')}"
         else:
             title = "📊 Player Statistics Leaderboard"
 
-        # Sort description mapping
-        sort_descriptions = {
-            'avg10': 'Recent form - average of your last 10 wars. Shows current performance vs all-time average.',
-            'avgdiff': 'Team differential per war - how much your team wins/loses by on average. Positive = helping your team, negative = holding team back.',
-            'clutch': 'Clutch factor - performance in close wars (differential ≤38) vs overall average. Categories: Elite Clutch (+0.45+), Clutch (+0.14 to +0.45), Neutral (-0.30 to +0.14), Shaky (-0.87 to -0.30), Chokes (-0.87 or lower).',
-            'cv': 'Consistency score (0-100%) - higher is more consistent. 90% = very steady, 50% = moderate variance, 0% = extremely inconsistent.',
-            'form': 'Soccer-style rating (0-10+) of recent performance. Exponentially weighted average of last 10-20 wars where recent matches count more heavily. 6.0=average, 9.0=excellent, 10.0+=elite.',
-            'highest': 'Personal best - the highest individual score you\'ve ever achieved in a single war.',
-            'hotstreak': 'Average of last 10 wars minus your career average. Positive = hot streak (beating your average), negative = slump (below your average).',
-            'lastwar': 'Most recent war - sorts by date so you see who played most recently. Useful for finding active players.',
-            'lowest': 'Personal worst - the lowest individual score you\'ve ever gotten in a single war.',
-            'potential': 'Performance ceiling - recent form (avg10) plus standard deviation. Estimates your upper capability range.',
-            'totaldiff': 'Career team differential - total points you\'ve helped/hurt your team across all wars. Your impact on team success.',
-            'warcount': 'Experience level - total number of wars played. Higher = more experience.',
-            'winrate': 'Team win percentage - % of wars where your team won. Shows if you\'re on winning teams.'
-        }
-
         # Get description for current sort
-        description = sort_descriptions.get(self.sortby) if self.sortby else 'Default ranking by average score'
+        description = SORT_DESCRIPTIONS.get(self.sortby) if self.sortby else 'Default ranking by average score'
 
         # Create embed
         embed = discord.Embed(
@@ -363,23 +295,8 @@ class GlobalLeaderboardView(discord.ui.View):
         page_players = self.all_players[start_idx:end_idx]
 
         # Title based on sortby
-        title_map = {
-            'avg': '🌍 Global Leaderboard - Average Score',
-            'avg10': '🌍 Global Leaderboard - Average 10',
-            'avgdiff': '🌍 Global Leaderboard - Average Differential',
-            'clutch': '🌍 Global Leaderboard - Clutch Factor',
-            'cv': '🌍 Global Leaderboard - Consistency',
-            'form': '🌍 Global Leaderboard - Form',
-            'highest': '🌍 Global Leaderboard - Highest Score',
-            'hotstreak': '🌍 Global Leaderboard - Hotstreak',
-            'lastwar': '🌍 Global Leaderboard - Last War',
-            'lowest': '🌍 Global Leaderboard - Lowest Score',
-            'potential': '🌍 Global Leaderboard - Potential',
-            'totaldiff': '🌍 Global Leaderboard - Total Differential',
-            'warcount': '🌍 Global Leaderboard - War Count',
-            'winrate': '🌍 Global Leaderboard - Win Rate',
-        }
-        title = title_map.get(self.sortby, '🌍 Global Leaderboard')
+        sort_label = GLOBAL_SORT_TITLES.get(self.sortby, "")
+        title = f"🌍 Global Leaderboard - {sort_label}" if sort_label else "🌍 Global Leaderboard"
 
         # Build numbered leaderboard
         leaderboard_text = []
