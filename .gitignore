@@ -61,6 +61,8 @@ out/
 *.png 
 
 node_modules/
+.next/
+next-env.d.ts
 
 # Claude Code config
 .claude/
