@@ -479,40 +479,17 @@ class AddPlayerToWarConfirmView(discord.ui.View):
         await interaction.response.edit_message(view=self)
 
         # Execute the war update
-        import datetime
-        current_date = datetime.datetime.now().strftime('%Y-%m-%d')
-
         success = self.commands_cog.bot.db.append_players_to_war_by_id(
             self.war_id, self.new_players, guild_id=self.guild_id
         )
 
         if success:
-            # Get the updated war to get the new team_differential
-            updated_war = self.commands_cog.bot.db.get_war_by_id(self.war_id, self.guild_id)
-            team_score = sum(p['score'] for p in updated_war.get('results', []))
-            race_count = updated_war.get('race_count', 12)
-            total_points = 82 * race_count
-            opponent_score = total_points - team_score
-            team_differential = team_score - opponent_score
-
-            # Add statistics for new players only
-            stats_added = []
-            stats_failed = []
-
-            for new_player in self.new_players:
-                stats_success = self.commands_cog.bot.db.update_player_stats(
-                    new_player['name'],
-                    new_player['score'],
-                    new_player['races_played'],
-                    new_player['war_participation'],
-                    current_date,
-                    self.guild_id,
-                    team_differential
-                )
-                if stats_success:
-                    stats_added.append(new_player['name'])
-                else:
-                    stats_failed.append(new_player['name'])
+            # Update stats for appended players via service
+            submission = self.commands_cog.bot.war_service.submit_appended_players(
+                self.war_id, self.new_players, self.guild_id
+            )
+            stats_added = submission.stats_updated or []
+            stats_failed = submission.stats_failed or []
 
             embed = discord.Embed(
                 title="✅ Players Added Successfully!",
@@ -3333,46 +3310,23 @@ class MarioKartCommands(commands.Cog):
                     await interaction.edit_original_response(embed=timeout_embed)
                     return
 
-            # Store war in database with actual race count (already calculated above)
-            war_id = self.bot.db.add_race_results(resolved_results, actual_war_race_count, guild_id=guild_id)
-            
-            if war_id is None:
-                await interaction.response.send_message("❌ Failed to add war to database. Check logs for details.", ephemeral=True)
-                return
-            
-            # Update player statistics
-            import datetime
-            current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+            # Submit war via service (single entry point)
+            submission = self.bot.war_service.submit_war(resolved_results, actual_war_race_count, guild_id)
 
-            # Calculate team differential for player stats using actual war race count
-            team_score = sum(r['score'] for r in resolved_results)
-            total_points = 82 * actual_war_race_count
-            opponent_score = total_points - team_score
-            team_differential = team_score - opponent_score
-
-            stats_updated = []
-            stats_failed = []
-
-            for result in resolved_results:
-                success = self.bot.db.update_player_stats(
-                    result['name'],
-                    result['score'],
-                    result['races_played'],
-                    result['war_participation'],
-                    current_date,
-                    guild_id,
-                    team_differential
-                )
-                if success:
-                    stats_updated.append(result['name'])
-                    logging.info(f"✅ Stats updated for {result['name']}")
+            if not submission.success:
+                error_msg = f"❌ Failed to add war to database. {submission.error or 'Check logs for details.'}"
+                if already_responded:
+                    await interaction.edit_original_response(content=error_msg)
                 else:
-                    stats_failed.append(result['name'])
-                    logging.error(f"❌ Stats update failed for {result['name']}")
+                    await interaction.response.send_message(error_msg, ephemeral=True)
+                return
+
+            stats_updated = submission.stats_updated or []
+            stats_failed = submission.stats_failed or []
 
             # Create success response
             embed = discord.Embed(
-                title=f"⚔️ War Added Successfully! (ID: {war_id})",
+                title=f"⚔️ War Added Successfully! (ID: {submission.war_id})",
                 color=0x00ff00
             )
 
@@ -3380,30 +3334,22 @@ class MarioKartCommands(commands.Cog):
             player_list = []
             for result in resolved_results:
                 if result['races_played'] == actual_war_race_count:
-                    # Full participation - no parentheses
                     player_list.append(f"**{result['name']}**: {result['score']} points")
                 else:
-                    # Substitution - show race count
                     player_list.append(f"**{result['name']}** ({result['races_played']}): {result['score']} points")
-            
+
             embed.add_field(
                 name="🏁 War Results",
                 value="\n".join(player_list),
                 inline=False
             )
-            
+
             embed.add_field(
                 name="📊 Stats Updated",
                 value=f"✅ {len(stats_updated)} players" + (f"\n❌ {len(stats_failed)} failed" if stats_failed else ""),
                 inline=True
             )
-            
-            embed.add_field(
-                name="📅 Date",
-                value=current_date,
-                inline=True
-            )
-            
+
             embed.set_footer(text="Player statistics have been automatically updated")
             
             # Send response using appropriate method based on whether we've already responded

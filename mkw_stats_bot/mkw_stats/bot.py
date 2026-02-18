@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from . import config
 from .database import DatabaseManager
 from .ocr_processor import OCRProcessor
+from .services import WarService
 from .logging_config import get_logger, log_discord_command, setup_logging
 from .ocr_modals import EditPlayerModal, AddPlayerModal, ReportIssueModal
 from .dashboard_client import dashboard_client
@@ -350,6 +351,8 @@ class MarioKartBot(commands.Bot):
         
         # Initialize the new v2 database system
         self.db = DatabaseManager()
+        # Initialize services
+        self.war_service = WarService(self.db)
         # Initialize OCR processor at startup for instant response across all guilds
         self.ocr = OCRProcessor(db_manager=self.db)
         # Initialize the pending confirmations dictionary
@@ -750,62 +753,16 @@ class MarioKartBot(commands.Bot):
             results = view.results
             guild_id = view.guild_id
 
-            # Get the commands cog
-            commands_cog = self.get_cog('MarioKartCommands')
-            if not commands_cog:
-                raise Exception("Commands cog not found")
-
-            # Use the detailed OCR results directly (preserving race counts)
-            from datetime import datetime
-            import pytz
-
-            # Process war submission using OCR results directly
-            parsed_results = []
-
-            for result in results:
-                player_name = result['name']
-                score = result['score']
-                race_count = result.get('races', 12)
-
-                parsed_results.append({
-                    'name': player_name,
-                    'original_name': result.get('raw_name', player_name),
-                    'score': score,
-                    'races': race_count,
-                    'date': datetime.now(pytz.UTC).strftime('%Y-%m-%d'),
-                    'time': datetime.now(pytz.UTC).strftime('%H:%M:%S'),
-                    'war_type': '6v6',
-                    'notes': 'Auto-processed via OCR'
-                })
-
-            if not parsed_results:
+            if not results:
                 raise Exception("No valid players found for war submission")
 
             # Calculate total race count for the war
-            total_race_count = max(result['races'] for result in parsed_results)
+            total_race_count = max(r.get('races', 12) for r in results)
 
-            # Add war to database
-            war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id=guild_id)
+            # Submit war via service (single entry point)
+            submission = self.war_service.submit_war(results, total_race_count, guild_id)
 
-            if war_id is not None:
-                # Calculate team differential for player stats
-                team_score = sum(r['score'] for r in parsed_results)
-                total_points = 82 * total_race_count
-                opponent_score = total_points - team_score
-                team_differential = team_score - opponent_score
-
-                # Update player statistics
-                for result in parsed_results:
-                    commands_cog.bot.db.update_player_stats(
-                        result['name'],
-                        result['score'],
-                        result['races'],
-                        result['races'] / total_race_count,
-                        datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                        guild_id,
-                        team_differential
-                    )
-
+            if submission.success:
                 # Add checkmark to original image message
                 try:
                     await view.original_message_obj.add_reaction("✅")
@@ -817,18 +774,17 @@ class MarioKartBot(commands.Bot):
                 # Create success embed
                 embed = discord.Embed(
                     title="✅ War Results Saved!",
-                    description=f"Successfully saved war results for {len(parsed_results)} players.",
+                    description=f"Successfully saved war results for {len(results)} players.",
                     color=0x00ff00
                 )
 
-                # Add player summary
                 results_text = "\n".join([
-                    f"**{result['name']}**: {result['score']} points"
-                    for result in parsed_results
+                    f"**{r['name']}**: {r['score']} points"
+                    for r in results
                 ])
 
                 embed.add_field(
-                    name=f"📊 War Results ({len(parsed_results)} players)",
+                    name=f"📊 War Results ({len(results)} players)",
                     value=results_text,
                     inline=False
                 )
@@ -842,7 +798,7 @@ class MarioKartBot(commands.Bot):
             else:
                 embed = discord.Embed(
                     title="❌ Database Error",
-                    description="Failed to save war to database. Please try manual submission.",
+                    description=f"Failed to save war to database. {submission.error or 'Please try manual submission.'}",
                     color=0xff0000
                 )
 
@@ -868,114 +824,53 @@ class MarioKartBot(commands.Bot):
             results = confirmation_data['results']
             guild_id = confirmation_data['guild_id']
             
-            # Get the commands cog to call addwar logic
-            commands_cog = self.get_cog('MarioKartCommands')
-            if not commands_cog:
-                raise Exception("Commands cog not found")
-            
-            # Use the detailed OCR results directly (preserving race counts)
-            from datetime import datetime
-            import pytz
-            
-            # Process war submission using OCR results directly
-            try:
-                # Use OCR results directly instead of re-parsing string
-                parsed_results = []
-                
-                for result in results:
-                    player_name = result['name']
-                    score = result['score']
-                    race_count = result.get('races', 12)  # Use extracted race count or default to 12
-                    
-                    # Results from OCR processor are already database-validated names
-                    parsed_results.append({
-                        'name': player_name,
-                        'original_name': result.get('raw_name', player_name),
-                        'score': score,
-                        'races': race_count,  # Use extracted race count
-                        'date': datetime.now(pytz.UTC).strftime('%Y-%m-%d'),
-                        'time': datetime.now(pytz.UTC).strftime('%H:%M:%S'),
-                        'war_type': '6v6',
-                        'notes': 'Auto-processed via OCR'
-                    })
-                
-                if not parsed_results:
-                    raise Exception("No valid players found for war submission")
-                
-                # Calculate total race count for the war (use max race count from all players)
-                total_race_count = max(result['races'] for result in parsed_results)
+            if not results:
+                raise Exception("No valid players found for war submission")
 
-                # Add war to database
-                war_id = commands_cog.bot.db.add_race_results(parsed_results, total_race_count, guild_id=guild_id)
+            # Calculate total race count for the war
+            total_race_count = max(r.get('races', 12) for r in results)
 
-                if war_id is not None:
-                    # Calculate team differential for player stats
-                    team_score = sum(r['score'] for r in parsed_results)
-                    total_points = 82 * total_race_count
-                    opponent_score = total_points - team_score
-                    team_differential = team_score - opponent_score
+            # Submit war via service (single entry point)
+            submission = self.war_service.submit_war(results, total_race_count, guild_id)
 
-                    # Update player statistics
-                    for result in parsed_results:
-                        commands_cog.bot.db.update_player_stats(
-                            result['name'],
-                            result['score'],
-                            result['races'],  # Use individual race count
-                            result['races'] / total_race_count,  # war_participation (races played / total races)
-                            datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                            guild_id,
-                            team_differential
-                        )
-                    
-                    # Add checkmark to original image message
-                    if 'original_message_obj' in confirmation_data:
-                        try:
-                            await confirmation_data['original_message_obj'].add_reaction("✅")
-                        except discord.errors.NotFound:
-                            # Message was deleted, skip adding reaction
-                            logger.debug(f"Skipping reaction for deleted message")
-                        except Exception as e:
-                            # Log other errors but continue processing
-                            logger.warning(f"Failed to add reaction to original message: {e}")
-                            pass
-                    
-                    # Create success embed
-                    embed = discord.Embed(
-                        title="✅ War Results Saved!",
-                        description=f"Successfully saved war results for {len(parsed_results)} players.",
-                        color=0x00ff00
-                    )
-                    
-                    # Add player summary
-                    results_text = "\n".join([
-                        f"**{result['name']}**: {result['score']} points" 
-                        for result in parsed_results
-                    ])
-                    
-                    embed.add_field(
-                        name=f"📊 War Results ({len(parsed_results)} players)", 
-                        value=results_text, 
-                        inline=False
-                    )
-                    embed.add_field(
-                        name="📈 Database Updated",
-                        value="Player statistics and averages have been updated.",
-                        inline=False
-                    )
-                    embed.set_footer(text=f"War added via OCR • Type: 6v6 • Races: {total_race_count}")
-                    
-                else:
-                    embed = discord.Embed(
-                        title="❌ Database Error",
-                        description="Failed to save war to database. Please try manual submission.",
-                        color=0xff0000
-                    )
-                
-            except Exception as parse_error:
-                logger.error(f"Error parsing OCR results for war submission: {parse_error}")
+            if submission.success:
+                # Add checkmark to original image message
+                if 'original_message_obj' in confirmation_data:
+                    try:
+                        await confirmation_data['original_message_obj'].add_reaction("✅")
+                    except discord.errors.NotFound:
+                        logger.debug(f"Skipping reaction for deleted message")
+                    except Exception as e:
+                        logger.warning(f"Failed to add reaction to original message: {e}")
+
+                # Create success embed
                 embed = discord.Embed(
-                    title="❌ Processing Error",
-                    description=f"Error processing OCR results: {str(parse_error)}",
+                    title="✅ War Results Saved!",
+                    description=f"Successfully saved war results for {len(results)} players.",
+                    color=0x00ff00
+                )
+
+                results_text = "\n".join([
+                    f"**{r['name']}**: {r['score']} points"
+                    for r in results
+                ])
+
+                embed.add_field(
+                    name=f"📊 War Results ({len(results)} players)",
+                    value=results_text,
+                    inline=False
+                )
+                embed.add_field(
+                    name="📈 Database Updated",
+                    value="Player statistics and averages have been updated.",
+                    inline=False
+                )
+                embed.set_footer(text=f"War added via OCR • Type: 6v6 • Races: {total_race_count}")
+
+            else:
+                embed = discord.Embed(
+                    title="❌ Database Error",
+                    description=f"Failed to save war to database. {submission.error or 'Please try manual submission.'}",
                     color=0xff0000
                 )
             
@@ -1336,55 +1231,33 @@ class MarioKartBot(commands.Bot):
             saved_wars = []
             save_failures = []
             
-            from datetime import datetime
-            import pytz
-            
             for war_info in successful_wars:
                 try:
-                    # Add war to database
-                    war_id = self.db.add_race_results(war_info['players'], war_info['total_race_count'], guild_id=guild_id)
+                    # Submit war via service (single entry point)
+                    submission = self.war_service.submit_war(
+                        war_info['players'], war_info['total_race_count'], guild_id
+                    )
 
-                    if war_id is not None:
-                        # Calculate team differential for player stats
-                        team_score = sum(p['score'] for p in war_info['players'])
-                        total_points = 82 * war_info['total_race_count']
-                        opponent_score = total_points - team_score
-                        team_differential = team_score - opponent_score
-
-                        # Update player statistics
-                        for result in war_info['players']:
-                            self.db.update_player_stats(
-                                result['name'],
-                                result['score'],
-                                result['races'],
-                                result['races'] / war_info['total_race_count'],
-                                datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                                guild_id,
-                                team_differential
-                            )
-                        
+                    if submission.success:
                         # Store successful save info
                         saved_wars.append({
                             'filename': war_info['filename'],
-                            'war_id': war_id,
+                            'war_id': submission.war_id,
                             'players': war_info['players'],
                             'total_race_count': war_info['total_race_count']
                         })
-                        
+
                         # Add checkmark to original image message
                         try:
                             await war_info['message'].add_reaction("✅")
                         except discord.errors.NotFound:
-                            # Message was deleted, skip adding reaction
                             logger.debug(f"Skipping reaction for deleted message during bulk scan")
                         except Exception as e:
-                            # Log other errors but continue processing
                             logger.warning(f"Failed to add reaction to message: {e}")
-                            pass
                     else:
                         save_failures.append({
                             'filename': war_info['filename'],
-                            'error': 'Database save failed'
+                            'error': submission.error or 'Database save failed'
                         })
                         
                 except Exception as e:
