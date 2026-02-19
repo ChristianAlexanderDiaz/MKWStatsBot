@@ -14,66 +14,30 @@ import traceback
 from typing import List, Dict, Any, Optional
 from . import config
 from .database import DatabaseManager
-# OCR processor initialized in bot.py at startup for instant response
+from .constants import (
+    SORT_DISPLAY_NAMES,
+    SORT_DESCRIPTIONS,
+    LEADERBOARD_PLAYERS_PER_PAGE,
+    CONFIRMATION_VIEW_TIMEOUT,
+    QUICK_CONFIRM_TIMEOUT,
+    COLOR_SUCCESS,
+    COLOR_ERROR,
+    COLOR_WARNING,
+    COLOR_INFO,
+    COLOR_PURPLE,
+    COLOR_DARK_EMBED,
+    MEMBER_STATUSES,
+    GLOBAL_SORT_TITLES,
+)
+from .utils.formatters import country_code_to_flag, get_player_display_name, format_error_for_user
+from .utils.validators import has_admin_permission
+from .utils.embed_builder import EmbedBuilder
 
 # Member status choices - centralized definition
 MEMBER_STATUS_CHOICES = [
-    app_commands.Choice(name="Member", value="member"),
-    app_commands.Choice(name="Trial", value="trial"),
-    app_commands.Choice(name="Ally", value="ally"),
-    app_commands.Choice(name="Kicked", value="kicked")
+    app_commands.Choice(name=status.capitalize(), value=status)
+    for status in MEMBER_STATUSES
 ]
-
-def country_code_to_flag(country_code: str) -> str:
-    """Convert 2-letter country code to flag emoji."""
-    if not country_code or len(country_code) != 2:
-        return ""
-
-    # Convert country code to regional indicator symbols
-    # A=🇦, B=🇧, etc. (Unicode offset: 127462 - 65 = 127397)
-    country_code = country_code.upper()
-    flag = ""
-    for char in country_code:
-        if 'A' <= char <= 'Z':
-            flag += chr(127462 + ord(char) - 65)
-    return flag
-
-
-def get_player_display_name(player_name: str, team_name: str, guild_id: int, db: "DatabaseManager", team_tags: Optional[Dict[str, str]] = None) -> str:
-    """Return player name with team tag prefix if tag exists.
-
-    Args:
-        player_name: Player's name
-        team_name: Player's team name
-        guild_id: Guild ID
-        db: Database manager instance
-        team_tags: Optional pre-fetched team tags dict to avoid DB calls
-
-    Returns:
-        str: 'TAG Playername' if tag exists, 'Playername' otherwise
-    """
-    if not team_name or team_name == 'Unassigned':
-        return player_name
-
-    # Use pre-fetched team_tags if provided, otherwise query DB
-    if team_tags is not None:
-        tag = team_tags.get(team_name)
-    else:
-        tag = db.get_team_tag(guild_id, team_name)
-
-    if tag:
-        return f"{tag} {player_name}"
-
-    return player_name
-
-
-def has_admin_permission(interaction: discord.Interaction) -> bool:
-    """Check if user has admin permission (server admin, server owner, or bot owner)."""
-    return (
-        interaction.user.guild_permissions.administrator or
-        interaction.user.id == interaction.guild.owner_id or
-        DatabaseManager.is_bot_owner(interaction.user.id)
-    )
 
 
 class LeaderboardView(discord.ui.View):
@@ -112,44 +76,12 @@ class LeaderboardView(discord.ui.View):
 
         # Dynamic title based on sort
         if self.sortby:
-            sort_names = {
-                "avg10": "Average 10",
-                "avgdiff": "Average Team Differential",
-                "clutch": "Clutch Factor",
-                "cv": "Consistency",
-                "form": "Form",
-                "highest": "Highest Score",
-                "hotstreak": "Hotstreak",
-                "lastwar": "Last War",
-                "lowest": "Lowest",
-                "potential": "Potential",
-                "totaldiff": "Total Differential",
-                "warcount": "Number of Wars",
-                "winrate": "Win Rate"
-            }
-            title = f"📊 Player Statistics • Sorted by {sort_names.get(self.sortby, 'Average 10')}"
+            title = f"📊 Player Statistics • Sorted by {SORT_DISPLAY_NAMES.get(self.sortby, 'Average 10')}"
         else:
             title = "📊 Player Statistics Leaderboard"
 
-        # Sort description mapping
-        sort_descriptions = {
-            'avg10': 'Recent form - average of your last 10 wars. Shows current performance vs all-time average.',
-            'avgdiff': 'Team differential per war - how much your team wins/loses by on average. Positive = helping your team, negative = holding team back.',
-            'clutch': 'Clutch factor - performance in close wars (differential ≤38) vs overall average. Categories: Elite Clutch (+0.45+), Clutch (+0.14 to +0.45), Neutral (-0.30 to +0.14), Shaky (-0.87 to -0.30), Chokes (-0.87 or lower).',
-            'cv': 'Consistency score (0-100%) - higher is more consistent. 90% = very steady, 50% = moderate variance, 0% = extremely inconsistent.',
-            'form': 'Soccer-style rating (0-10+) of recent performance. Exponentially weighted average of last 10-20 wars where recent matches count more heavily. 6.0=average, 9.0=excellent, 10.0+=elite.',
-            'highest': 'Personal best - the highest individual score you\'ve ever achieved in a single war.',
-            'hotstreak': 'Average of last 10 wars minus your career average. Positive = hot streak (beating your average), negative = slump (below your average).',
-            'lastwar': 'Most recent war - sorts by date so you see who played most recently. Useful for finding active players.',
-            'lowest': 'Personal worst - the lowest individual score you\'ve ever gotten in a single war.',
-            'potential': 'Performance ceiling - recent form (avg10) plus standard deviation. Estimates your upper capability range.',
-            'totaldiff': 'Career team differential - total points you\'ve helped/hurt your team across all wars. Your impact on team success.',
-            'warcount': 'Experience level - total number of wars played. Higher = more experience.',
-            'winrate': 'Team win percentage - % of wars where your team won. Shows if you\'re on winning teams.'
-        }
-
         # Get description for current sort
-        description = sort_descriptions.get(self.sortby) if self.sortby else 'Default ranking by average score'
+        description = SORT_DESCRIPTIONS.get(self.sortby) if self.sortby else 'Default ranking by average score'
 
         # Create embed
         embed = discord.Embed(
@@ -363,23 +295,8 @@ class GlobalLeaderboardView(discord.ui.View):
         page_players = self.all_players[start_idx:end_idx]
 
         # Title based on sortby
-        title_map = {
-            'avg': '🌍 Global Leaderboard - Average Score',
-            'avg10': '🌍 Global Leaderboard - Average 10',
-            'avgdiff': '🌍 Global Leaderboard - Average Differential',
-            'clutch': '🌍 Global Leaderboard - Clutch Factor',
-            'cv': '🌍 Global Leaderboard - Consistency',
-            'form': '🌍 Global Leaderboard - Form',
-            'highest': '🌍 Global Leaderboard - Highest Score',
-            'hotstreak': '🌍 Global Leaderboard - Hotstreak',
-            'lastwar': '🌍 Global Leaderboard - Last War',
-            'lowest': '🌍 Global Leaderboard - Lowest Score',
-            'potential': '🌍 Global Leaderboard - Potential',
-            'totaldiff': '🌍 Global Leaderboard - Total Differential',
-            'warcount': '🌍 Global Leaderboard - War Count',
-            'winrate': '🌍 Global Leaderboard - Win Rate',
-        }
-        title = title_map.get(self.sortby, '🌍 Global Leaderboard')
+        sort_label = GLOBAL_SORT_TITLES.get(self.sortby, "")
+        title = f"🌍 Global Leaderboard - {sort_label}" if sort_label else "🌍 Global Leaderboard"
 
         # Build numbered leaderboard
         leaderboard_text = []
@@ -562,40 +479,17 @@ class AddPlayerToWarConfirmView(discord.ui.View):
         await interaction.response.edit_message(view=self)
 
         # Execute the war update
-        import datetime
-        current_date = datetime.datetime.now().strftime('%Y-%m-%d')
-
         success = self.commands_cog.bot.db.append_players_to_war_by_id(
             self.war_id, self.new_players, guild_id=self.guild_id
         )
 
         if success:
-            # Get the updated war to get the new team_differential
-            updated_war = self.commands_cog.bot.db.get_war_by_id(self.war_id, self.guild_id)
-            team_score = sum(p['score'] for p in updated_war.get('results', []))
-            race_count = updated_war.get('race_count', 12)
-            total_points = 82 * race_count
-            opponent_score = total_points - team_score
-            team_differential = team_score - opponent_score
-
-            # Add statistics for new players only
-            stats_added = []
-            stats_failed = []
-
-            for new_player in self.new_players:
-                stats_success = self.commands_cog.bot.db.update_player_stats(
-                    new_player['name'],
-                    new_player['score'],
-                    new_player['races_played'],
-                    new_player['war_participation'],
-                    current_date,
-                    self.guild_id,
-                    team_differential
-                )
-                if stats_success:
-                    stats_added.append(new_player['name'])
-                else:
-                    stats_failed.append(new_player['name'])
+            # Update stats for appended players via service
+            submission = self.commands_cog.bot.war_service.submit_appended_players(
+                self.war_id, self.new_players, self.guild_id
+            )
+            stats_added = submission.stats_updated or []
+            stats_failed = submission.stats_failed or []
 
             embed = discord.Embed(
                 title="✅ Players Added Successfully!",
@@ -3416,46 +3310,23 @@ class MarioKartCommands(commands.Cog):
                     await interaction.edit_original_response(embed=timeout_embed)
                     return
 
-            # Store war in database with actual race count (already calculated above)
-            war_id = self.bot.db.add_race_results(resolved_results, actual_war_race_count, guild_id=guild_id)
-            
-            if war_id is None:
-                await interaction.response.send_message("❌ Failed to add war to database. Check logs for details.", ephemeral=True)
-                return
-            
-            # Update player statistics
-            import datetime
-            current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+            # Submit war via service (single entry point)
+            submission = self.bot.war_service.submit_war(resolved_results, actual_war_race_count, guild_id)
 
-            # Calculate team differential for player stats using actual war race count
-            team_score = sum(r['score'] for r in resolved_results)
-            total_points = 82 * actual_war_race_count
-            opponent_score = total_points - team_score
-            team_differential = team_score - opponent_score
-
-            stats_updated = []
-            stats_failed = []
-
-            for result in resolved_results:
-                success = self.bot.db.update_player_stats(
-                    result['name'],
-                    result['score'],
-                    result['races_played'],
-                    result['war_participation'],
-                    current_date,
-                    guild_id,
-                    team_differential
-                )
-                if success:
-                    stats_updated.append(result['name'])
-                    logging.info(f"✅ Stats updated for {result['name']}")
+            if not submission.success:
+                error_msg = f"❌ Failed to add war to database. {submission.error or 'Check logs for details.'}"
+                if already_responded:
+                    await interaction.edit_original_response(content=error_msg)
                 else:
-                    stats_failed.append(result['name'])
-                    logging.error(f"❌ Stats update failed for {result['name']}")
+                    await interaction.response.send_message(error_msg, ephemeral=True)
+                return
+
+            stats_updated = submission.stats_updated or []
+            stats_failed = submission.stats_failed or []
 
             # Create success response
             embed = discord.Embed(
-                title=f"⚔️ War Added Successfully! (ID: {war_id})",
+                title=f"⚔️ War Added Successfully! (ID: {submission.war_id})",
                 color=0x00ff00
             )
 
@@ -3463,30 +3334,22 @@ class MarioKartCommands(commands.Cog):
             player_list = []
             for result in resolved_results:
                 if result['races_played'] == actual_war_race_count:
-                    # Full participation - no parentheses
                     player_list.append(f"**{result['name']}**: {result['score']} points")
                 else:
-                    # Substitution - show race count
                     player_list.append(f"**{result['name']}** ({result['races_played']}): {result['score']} points")
-            
+
             embed.add_field(
                 name="🏁 War Results",
                 value="\n".join(player_list),
                 inline=False
             )
-            
+
             embed.add_field(
                 name="📊 Stats Updated",
                 value=f"✅ {len(stats_updated)} players" + (f"\n❌ {len(stats_failed)} failed" if stats_failed else ""),
                 inline=True
             )
-            
-            embed.add_field(
-                name="📅 Date",
-                value=current_date,
-                inline=True
-            )
-            
+
             embed.set_footer(text="Player statistics have been automatically updated")
             
             # Send response using appropriate method based on whether we've already responded
