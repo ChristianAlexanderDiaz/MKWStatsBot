@@ -12,7 +12,18 @@ import tempfile
 import os
 import time
 import traceback
-from typing import Any, Callable, Coroutine, Dict, List, Optional, ParamSpec, TypeVar, Union, overload
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Dict,
+    List,
+    Optional,
+    ParamSpec,
+    TypeVar,
+    Union,
+    overload,
+)
 from . import config
 from .database import DatabaseManager
 
