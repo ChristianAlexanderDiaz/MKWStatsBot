@@ -10,11 +10,25 @@ import aiofiles
 import aiofiles.os
 import tempfile
 import os
+import time
 import traceback
-from typing import List, Dict, Any, Optional
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Dict,
+    List,
+    Optional,
+    ParamSpec,
+    TypeVar,
+    Union,
+    overload,
+)
 from . import config
 from .database import DatabaseManager
-# OCR processor initialized in bot.py at startup for instant response
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 # Member status choices - centralized definition
 MEMBER_STATUS_CHOICES = [
@@ -772,19 +786,70 @@ def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Em
 
 # OCR processor is now initialized in bot.py at startup
 
-def require_guild_setup(func):
-    """Decorator to ensure guild is initialized before running slash commands."""
-    @functools.wraps(func)
-    async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
-        guild_id = self.get_guild_id_from_interaction(interaction)
-        if not self.is_guild_initialized(guild_id):
-            await interaction.response.send_message(
-                "❌ Guild not set up! Please run `/setup` first to initialize your clan.",
-                ephemeral=True
-            )
-            return
-        return await func(self, interaction, *args, **kwargs)
-    return wrapper
+@overload
+def require_guild_setup(
+    func: Callable[..., Coroutine[Any, Any, R]],
+) -> Callable[..., Coroutine[Any, Any, R]]: ...
+
+
+@overload
+def require_guild_setup(
+    func: None = None,
+    *,
+    defer: bool = ...,
+) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]: ...
+
+
+def require_guild_setup(
+    func: Optional[Callable[P, Coroutine[Any, Any, R]]] = None,
+    *,
+    defer: bool = False,
+) -> Union[
+    Callable[..., Coroutine[Any, Any, R]],
+    Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]],
+]:
+    """Decorator to ensure guild is initialized before running slash commands.
+
+    Usage:
+        @require_guild_setup              # no defer (light commands)
+        @require_guild_setup(defer=True)  # defer first (heavy DB commands)
+
+    When defer=True, calls interaction.response.defer() BEFORE the guild check DB call,
+    so the 3-second Discord deadline is met. All responses must then use followup.send().
+    """
+    def decorator(fn: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
+        @functools.wraps(fn)
+        async def wrapper(self, interaction: discord.Interaction, *args: P.args, **kwargs: P.kwargs) -> R:
+            start = time.monotonic()
+            cmd_name = fn.__name__
+            if defer:
+                await interaction.response.defer()
+            guild_id = self.get_guild_id_from_interaction(interaction)
+            if not self.is_guild_initialized(guild_id):
+                if defer:
+                    await interaction.followup.send(
+                        "❌ Guild not set up! Please run `/setup` first to initialize your clan.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "❌ Guild not set up! Please run `/setup` first to initialize your clan.",
+                        ephemeral=True
+                    )
+                return  # type: ignore[return-value]
+            setup_ms = (time.monotonic() - start) * 1000
+            result = await fn(self, interaction, *args, **kwargs)
+            total_ms = (time.monotonic() - start) * 1000
+            deferred_tag = " [deferred]" if defer else ""
+            logging.info(f"⏱️ /{cmd_name}: guild_check={setup_ms:.0f}ms total={total_ms:.0f}ms{deferred_tag}")
+            return result
+        return wrapper  # type: ignore[return-value]
+
+    if func is not None:
+        # Called as @require_guild_setup (no parentheses)
+        return decorator(func)
+    # Called as @require_guild_setup(defer=True)
+    return decorator
 
 
 def require_moderator():
@@ -1435,7 +1500,7 @@ class MarioKartCommands(commands.Cog):
         # Footer
         embed.set_footer(text=f"Guild-Specific {scope_text}")
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     async def _display_leaderboard(self, interaction: discord.Interaction, guild_id: int, member_stats: list, sortby: str):
         """Display leaderboard with pagination for all members.
@@ -1499,7 +1564,7 @@ class MarioKartCommands(commands.Cog):
         view = LeaderboardView(all_players, sortby, len(all_players), self.bot, guild_id)
         embed = view.create_embed()
 
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="stats", description="View player statistics or leaderboard")
     @app_commands.describe(
@@ -1531,7 +1596,7 @@ class MarioKartCommands(commands.Cog):
             app_commands.Choice(name="Last 100 Wars", value=100)
         ]
     )
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def stats_slash(
         self,
         interaction: discord.Interaction,
@@ -1558,8 +1623,8 @@ class MarioKartCommands(commands.Cog):
                     if result:
                         player = result[0]
                     else:
-                        await interaction.response.send_message(
-                            f"❌ You're not linked to a player in this guild. Ask an admin to add you with `/addplayer`.",
+                        await interaction.followup.send(
+                            "❌ You're not linked to a player in this guild. Ask an admin to add you with `/addplayer`.",
                             ephemeral=True
                         )
                         return
@@ -1568,24 +1633,24 @@ class MarioKartCommands(commands.Cog):
                 # Resolve nickname to actual player name first
                 resolved_player = self.bot.db.resolve_player_name(player, guild_id)
                 if not resolved_player:
-                    await interaction.response.send_message(f"❌ No player found with name or nickname: {player}", ephemeral=True)
+                    await interaction.followup.send(f"❌ No player found with name or nickname: {player}", ephemeral=True)
                     return
 
                 # Handle lastxwars parameter validation and stats retrieval
                 if lastxwars is not None:
                     # Validate lastxwars parameter
                     if lastxwars < 1:
-                        await interaction.response.send_message("❌ Must be at least 1 war.", ephemeral=True)
+                        await interaction.followup.send("❌ Must be at least 1 war.", ephemeral=True)
                         return
 
                     # Get player's distinct war count for validation
                     distinct_wars = self.bot.db.get_player_distinct_war_count(resolved_player, guild_id)
                     if distinct_wars == 0:
-                        await interaction.response.send_message(f"❌ {resolved_player} hasn't participated in any wars yet.", ephemeral=True)
+                        await interaction.followup.send(f"❌ {resolved_player} hasn't participated in any wars yet.", ephemeral=True)
                         return
 
                     if lastxwars > distinct_wars:
-                        await interaction.response.send_message(f"❌ {resolved_player} has only participated in {distinct_wars} wars, can't show last {lastxwars}.", ephemeral=True)
+                        await interaction.followup.send(f"❌ {resolved_player} has only participated in {distinct_wars} wars, can't show last {lastxwars}.", ephemeral=True)
                         return
 
                     # Get stats for last X wars
@@ -1615,9 +1680,9 @@ class MarioKartCommands(commands.Cog):
                         embed.add_field(name="Wars Played", value="0", inline=True)
                         embed.set_footer(text="Use /addwar to add this player to a war")
 
-                        await interaction.response.send_message(embed=embed)
+                        await interaction.followup.send(embed=embed)
                     else:
-                        await interaction.response.send_message(f"❌ No stats found for player: {player}", ephemeral=True)
+                        await interaction.followup.send(f"❌ No stats found for player: {player}", ephemeral=True)
             else:
                 # Get all player statistics from players table
                 roster_stats = self.bot.db.get_all_players_stats(guild_id)
@@ -1629,7 +1694,7 @@ class MarioKartCommands(commands.Cog):
                 member_stats = self._filter_active_members(roster_stats, interaction, role_config)
 
                 if not member_stats:
-                    await interaction.response.send_message("❌ No members found with the Member role in Discord.", ephemeral=True)
+                    await interaction.followup.send("❌ No members found with the Member role in Discord.", ephemeral=True)
                     return
 
                 # Display leaderboard
@@ -1637,10 +1702,7 @@ class MarioKartCommands(commands.Cog):
 
         except Exception as e:
             logging.error(f"Error in stats command: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ An error occurred while retrieving stats.", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ An error occurred while retrieving stats.", ephemeral=True)
+            await interaction.followup.send("❌ An error occurred while retrieving stats.", ephemeral=True)
 
     @app_commands.command(
         name="leaderboard",
@@ -1780,17 +1842,17 @@ class MarioKartCommands(commands.Cog):
 
 
     @app_commands.command(name="roster", description="Show complete guild roster organized by teams")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_full_roster(self, interaction: discord.Interaction):
         """Show the complete clan roster organized by teams."""
         try:
-            # Get guild id 
+            # Get guild id
             guild_id = self.get_guild_id(interaction)
             # Get all players with their team and nickname info
             all_players = self.bot.db.get_all_players_stats(guild_id)
-            
+
             if not all_players:
-                await interaction.response.send_message("❌ No players found in players table. Use `/addplayer <player>` to add players.")
+                await interaction.followup.send("❌ No players found in players table. Use `/addplayer <player>` to add players.")
                 return
             
             embed = discord.Embed(
@@ -1827,14 +1889,11 @@ class MarioKartCommands(commands.Cog):
             
             embed.set_footer(text="Use /showallteams for detailed team view | Only results for these players will be saved from war images.")
             
-            await interaction.response.send_message(embed=embed)
-            
+            await interaction.followup.send(embed=embed)
+
         except Exception as e:
             logging.error(f"Error showing roster: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving roster", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
 
     @app_commands.command(name="addplayer", description="Add a player to the clan roster")
     @app_commands.describe(
@@ -2874,17 +2933,17 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send("❌ Error unassigning player from team", ephemeral=True)
 
     @app_commands.command(name="showallteams", description="Show all players organized by member status")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_teams(self, interaction: discord.Interaction):
         """Show all players organized by member status."""
         try:
             guild_id = self.get_guild_id(interaction)
-            
+
             # Get all active players (excluding kicked)
             all_players = self.bot.db.get_all_players_stats(guild_id)
-            
+
             if not all_players:
-                await interaction.response.send_message("❌ No players found in players table. Use `/addplayer` to add players.")
+                await interaction.followup.send("❌ No players found in players table. Use `/addplayer` to add players.")
                 return
             
             # Filter out kicked players and organize by member status
@@ -2936,28 +2995,25 @@ class MarioKartCommands(commands.Cog):
                     total_players += len(players)
             
             embed.set_footer(text=f"Total active players: {total_players} | Use /setmemberstatus to change player status")
-            await interaction.response.send_message(embed=embed)
-            
+            await interaction.followup.send(embed=embed)
+
         except Exception as e:
             logging.error(f"Error showing player rosters: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving player information", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving player information", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving player information", ephemeral=True)
 
     @app_commands.command(name="showspecificteamroster", description="Show roster for a specific team")
     @app_commands.describe(team_name="Name of the team to show roster for")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_team_roster(self, interaction: discord.Interaction, team_name: str):
         """Show roster for a specific team."""
         try:
             guild_id = self.get_guild_id(interaction)
-            
+
             # Validate team name
             valid_teams = self.bot.db.get_guild_team_names(guild_id)
             valid_teams.append('Unassigned')  # Always allow Unassigned
             if team_name not in valid_teams:
-                await interaction.response.send_message(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/showallteams` to see available teams.")
+                await interaction.followup.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/showallteams` to see available teams.")
                 return
             
             team_players = self.bot.db.get_team_roster(team_name, guild_id)
@@ -2995,14 +3051,11 @@ class MarioKartCommands(commands.Cog):
                 )
             
             embed.set_footer(text=f"Use /assignplayerstoteam <players> {team_name} to assign players to this team")
-            await interaction.response.send_message(embed=embed)
-            
+            await interaction.followup.send(embed=embed)
+
         except Exception as e:
             logging.error(f"Error showing team roster: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving team roster", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving team roster", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving team roster", ephemeral=True)
 
     @app_commands.command(name="addnickname", description="Add a nickname to a player for OCR recognition")
     @app_commands.describe(player_name="Player to add nickname for", nickname="Nickname to add")
@@ -3157,12 +3210,12 @@ class MarioKartCommands(commands.Cog):
                 await interaction.followup.send("❌ Error setting member status", ephemeral=True)
 
     @app_commands.command(name="showtrials", description="Show all trial members")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_trials(self, interaction: discord.Interaction):
         """Show all trial members."""
         try:
             guild_id = self.get_guild_id(interaction)
-            
+
             # Get trial members
             trials = self.bot.db.get_players_by_member_status('trial', guild_id)
             
@@ -3192,22 +3245,19 @@ class MarioKartCommands(commands.Cog):
                 embed.description = "No trial members found."
             
             embed.set_footer(text="Use /setmemberstatus <player> Member to promote trial members")
-            await interaction.response.send_message(embed=embed)
-            
+            await interaction.followup.send(embed=embed)
+
         except Exception as e:
             logging.error(f"Error showing trials: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving trial members", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving trial members", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving trial members", ephemeral=True)
 
     @app_commands.command(name="showkicked", description="Show all kicked members")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_kicked(self, interaction: discord.Interaction):
         """Show all kicked members."""
         try:
             guild_id = self.get_guild_id(interaction)
-            
+
             # Get kicked members
             kicked = self.bot.db.get_players_by_member_status('kicked', guild_id)
             
@@ -3234,14 +3284,11 @@ class MarioKartCommands(commands.Cog):
                 embed.description = "No kicked members found."
             
             embed.set_footer(text="Use /setmemberstatus <player> Member to reinstate kicked members")
-            await interaction.response.send_message(embed=embed)
-            
+            await interaction.followup.send(embed=embed)
+
         except Exception as e:
             logging.error(f"Error showing kicked members: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving kicked members", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving kicked members", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving kicked members", ephemeral=True)
 
     @app_commands.command(name="addwar", description="Add a war with player scores")
     @app_commands.describe(
@@ -3508,7 +3555,7 @@ class MarioKartCommands(commands.Cog):
 
     @app_commands.command(name="wars", description="Show recent wars")
     @app_commands.describe(limit="Number of wars to show (default: 10, max: 50)")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_all_wars(self, interaction: discord.Interaction, limit: int = 10):
         """Show all wars with pagination."""
         try:
@@ -3516,14 +3563,14 @@ class MarioKartCommands(commands.Cog):
 
             # Validate limit
             if limit < 1 or limit > 50:
-                await interaction.response.send_message("❌ Limit must be between 1 and 50.", ephemeral=True)
+                await interaction.followup.send("❌ Limit must be between 1 and 50.", ephemeral=True)
                 return
 
             # Get wars from database
             wars = self.bot.db.get_all_wars(limit, guild_id)
 
             if not wars:
-                await interaction.response.send_message("❌ No wars found.", ephemeral=True)
+                await interaction.followup.send("❌ No wars found.", ephemeral=True)
                 return
 
             embed = discord.Embed(
@@ -3569,14 +3616,11 @@ class MarioKartCommands(commands.Cog):
                 )
 
             embed.set_footer(text=f"Showing {len(wars)} wars")
-            await interaction.response.send_message(embed=embed)
-            
+            await interaction.followup.send(embed=embed)
+
         except Exception as e:
             logging.error(f"Error showing all wars: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving wars", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving wars", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving wars", ephemeral=True)
 
     @app_commands.command(name="addplayertowar", description="Add new players to an existing war")
     @app_commands.describe(
