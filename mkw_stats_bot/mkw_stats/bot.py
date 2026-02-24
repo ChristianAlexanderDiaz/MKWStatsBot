@@ -421,12 +421,19 @@ class MarioKartBot(commands.Bot):
 
 
 async def setup_bot():
-    """Setup function that creates the bot and loads the commands cog."""
+    """Setup function that creates the bot and loads all domain cogs."""
     bot = MarioKartBot()
 
-    # Load the commands cog
-    from .commands import MarioKartCommands
-    await bot.add_cog(MarioKartCommands(bot))
+    # Load all domain cogs
+    from .cogs import GuildCog, PlayerCog, WarCog, StatsCog, TeamCog, NicknameCog, MemberCog, OCRCog
+    await bot.add_cog(GuildCog(bot))
+    await bot.add_cog(PlayerCog(bot))
+    await bot.add_cog(WarCog(bot))
+    await bot.add_cog(StatsCog(bot))
+    await bot.add_cog(TeamCog(bot))
+    await bot.add_cog(NicknameCog(bot))
+    await bot.add_cog(MemberCog(bot))
+    await bot.add_cog(OCRCog(bot))
 
     return bot
 
