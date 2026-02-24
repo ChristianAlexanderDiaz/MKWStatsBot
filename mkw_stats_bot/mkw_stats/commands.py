@@ -10,11 +10,14 @@ import aiofiles
 import aiofiles.os
 import tempfile
 import os
+import time
 import traceback
-from typing import List, Dict, Any, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional, ParamSpec, TypeVar, Union, overload
 from . import config
 from .database import DatabaseManager
-# OCR processor initialized in bot.py at startup for instant response
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 # Member status choices - centralized definition
 MEMBER_STATUS_CHOICES = [
@@ -772,7 +775,28 @@ def create_duplicate_war_embed(resolved_results: list, races: int) -> discord.Em
 
 # OCR processor is now initialized in bot.py at startup
 
-def require_guild_setup(func=None, *, defer=False):
+@overload
+def require_guild_setup(
+    func: Callable[..., Coroutine[Any, Any, R]],
+) -> Callable[..., Coroutine[Any, Any, R]]: ...
+
+
+@overload
+def require_guild_setup(
+    func: None = None,
+    *,
+    defer: bool = ...,
+) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]: ...
+
+
+def require_guild_setup(
+    func: Optional[Callable[P, Coroutine[Any, Any, R]]] = None,
+    *,
+    defer: bool = False,
+) -> Union[
+    Callable[..., Coroutine[Any, Any, R]],
+    Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]],
+]:
     """Decorator to ensure guild is initialized before running slash commands.
 
     Usage:
@@ -782,10 +806,9 @@ def require_guild_setup(func=None, *, defer=False):
     When defer=True, calls interaction.response.defer() BEFORE the guild check DB call,
     so the 3-second Discord deadline is met. All responses must then use followup.send().
     """
-    def decorator(fn):
+    def decorator(fn: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
         @functools.wraps(fn)
-        async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
-            import time
+        async def wrapper(self, interaction: discord.Interaction, *args: P.args, **kwargs: P.kwargs) -> R:
             start = time.monotonic()
             cmd_name = fn.__name__
             if defer:
@@ -802,14 +825,14 @@ def require_guild_setup(func=None, *, defer=False):
                         "❌ Guild not set up! Please run `/setup` first to initialize your clan.",
                         ephemeral=True
                     )
-                return
+                return  # type: ignore[return-value]
             setup_ms = (time.monotonic() - start) * 1000
             result = await fn(self, interaction, *args, **kwargs)
             total_ms = (time.monotonic() - start) * 1000
             deferred_tag = " [deferred]" if defer else ""
             logging.info(f"⏱️ /{cmd_name}: guild_check={setup_ms:.0f}ms total={total_ms:.0f}ms{deferred_tag}")
             return result
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     if func is not None:
         # Called as @require_guild_setup (no parentheses)
