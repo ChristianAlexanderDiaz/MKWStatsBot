@@ -823,9 +823,18 @@ def require_guild_setup(
             start = time.monotonic()
             cmd_name = fn.__name__
             if defer:
-                await interaction.response.defer()
+                try:
+                    await interaction.response.defer()
+                except discord.errors.NotFound:
+                    logging.warning(
+                        f"⚠️ /{cmd_name}: interaction expired before defer() — "
+                        "event loop was blocked by a synchronous call"
+                    )
+                    return  # type: ignore[return-value]
             guild_id = self.get_guild_id_from_interaction(interaction)
-            if not self.is_guild_initialized(guild_id):
+            loop = asyncio.get_running_loop()
+            initialized = await loop.run_in_executor(None, self.is_guild_initialized, guild_id)
+            if not initialized:
                 if defer:
                     await interaction.followup.send(
                         "❌ Guild not set up! Please run `/setup` first to initialize your clan.",
