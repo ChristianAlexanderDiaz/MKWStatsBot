@@ -452,8 +452,9 @@ class MarioKartBot(commands.Bot):
             # Use bot's OCR processor (initialized at startup)
             ocr = self.ocr
             
-            # Perform OCR (raw results)
-            ocr_result = ocr.perform_ocr_on_file(temp_path)
+            # Perform OCR (raw results) — offload to thread so event loop stays free
+            loop = asyncio.get_running_loop()
+            ocr_result = await loop.run_in_executor(None, ocr.perform_ocr_on_file, temp_path)
             
             if not ocr_result["success"]:
                 embed = discord.Embed(
