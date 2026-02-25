@@ -214,8 +214,8 @@ export function WarResultCard({
                       <div className="flex items-center gap-2 mr-2">
                         <span className="font-semibold">{player.score}</span>
                         <span className="text-xs text-muted-foreground">
-                          ({player.races_played || result.race_count || 12}/
-                          {result.race_count || 12} races)
+                          ({player.races_played ?? result.race_count ?? 12}/
+                          {result.race_count ?? 12} races)
                         </span>
                       </div>
 
@@ -277,9 +277,13 @@ export function WarResultCard({
                                   <button
                                     key={name}
                                     className="w-full px-3 py-2 text-left text-sm hover:bg-muted border-b last:border-b-0"
-                                    onClick={() =>
-                                      onLinkPlayer(result.id, idx, player.name, name)
-                                    }
+                                    onClick={async () => {
+                                      try {
+                                        await onLinkPlayer(result.id, idx, player.name, name)
+                                      } catch (err) {
+                                        console.error("Failed to link player:", err)
+                                      }
+                                    }}
                                   >
                                     {name}
                                   </button>

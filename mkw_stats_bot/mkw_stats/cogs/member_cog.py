@@ -2,6 +2,7 @@
 
 import logging
 import discord
+from discord.ext import commands
 from discord import app_commands
 
 from .base_cog import BaseCog, require_guild_setup, MEMBER_STATUS_CHOICES
@@ -18,7 +19,7 @@ class MemberCog(BaseCog):
     )
     @app_commands.choices(member_status=MEMBER_STATUS_CHOICES)
     @require_guild_setup
-    async def set_member_status(self, interaction: discord.Interaction, player_name: str, member_status: str):
+    async def set_member_status(self, interaction: discord.Interaction, player_name: str, member_status: str) -> None:
         """Set the member status for a player."""
         try:
             guild_id = self.get_guild_id(interaction)
@@ -50,7 +51,7 @@ class MemberCog(BaseCog):
 
     @app_commands.command(name="showtrials", description="Show all trial members")
     @require_guild_setup
-    async def show_trials(self, interaction: discord.Interaction):
+    async def show_trials(self, interaction: discord.Interaction) -> None:
         """Show all trial members."""
         try:
             guild_id = self.get_guild_id(interaction)
@@ -93,7 +94,7 @@ class MemberCog(BaseCog):
 
     @app_commands.command(name="showkicked", description="Show all kicked members")
     @require_guild_setup
-    async def show_kicked(self, interaction: discord.Interaction):
+    async def show_kicked(self, interaction: discord.Interaction) -> None:
         """Show all kicked members."""
         try:
             guild_id = self.get_guild_id(interaction)
@@ -110,7 +111,7 @@ class MemberCog(BaseCog):
                 for player in kicked:
                     nickname_count = len(player.get('nicknames', []))
                     nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
-                    team_text = f" - {player['team']}" if player['team'] != 'Unassigned' else ""
+                    team_text = f" - {player.get('team', 'Unassigned')}" if player.get('team', 'Unassigned') != 'Unassigned' else ""
                     kicked_list.append(f"• **{player['player_name']}**{team_text}{nickname_text}")
 
                 embed.description = "\n".join(kicked_list)
@@ -133,5 +134,5 @@ class MemberCog(BaseCog):
                 await interaction.followup.send("❌ Error retrieving kicked members", ephemeral=True)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(MemberCog(bot))

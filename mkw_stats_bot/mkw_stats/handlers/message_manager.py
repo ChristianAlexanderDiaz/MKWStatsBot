@@ -33,14 +33,15 @@ class MessageManager:
         for remaining in range(countdown_seconds, 0, -1):
             await asyncio.sleep(1)
             if remaining <= 5:
+                unit = "second" if remaining == 1 else "seconds"
                 try:
-                    await message.edit(embed=embed, content=f"Disappearing in {remaining} seconds...")
-                except:
+                    await message.edit(embed=embed, content=f"Disappearing in {remaining} {unit}...")
+                except Exception:
                     pass
 
         try:
             await message.delete()
-        except:
+        except Exception:
             pass
 
     async def countdown_and_delete_interaction(
@@ -53,15 +54,20 @@ class MessageManager:
         for remaining in range(countdown_seconds, 0, -1):
             await asyncio.sleep(1)
             if remaining <= 5:
+                unit = "second" if remaining == 1 else "seconds"
                 try:
                     await interaction.edit_original_response(
                         embed=embed,
-                        content=f"Disappearing in {remaining} seconds...",
+                        content=f"Disappearing in {remaining} {unit}...",
                     )
-                except:
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
                     pass
 
         try:
             await interaction.delete_original_response()
-        except:
+        except asyncio.CancelledError:
+            raise
+        except Exception:
             pass

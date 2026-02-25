@@ -53,15 +53,15 @@ export function ReviewHeader({
           <div className="flex items-center gap-4">
             {/* Per-status badges */}
             <div className="flex items-center gap-2 text-sm">
-              <Badge variant="success" className="gap-1">
+              <Badge variant="success" className="gap-1" aria-label={`Approved: ${approvedCount}`}>
                 <CheckCircle2 className="h-3 w-3" />
                 {approvedCount}
               </Badge>
-              <Badge variant="secondary" className="gap-1">
+              <Badge variant="secondary" className="gap-1" aria-label={`Pending: ${pendingCount}`}>
                 <Clock className="h-3 w-3" />
                 {pendingCount}
               </Badge>
-              <Badge variant="destructive" className="gap-1">
+              <Badge variant="destructive" className="gap-1" aria-label={`Rejected: ${rejectedCount}`}>
                 <X className="h-3 w-3" />
                 {rejectedCount}
               </Badge>
@@ -97,7 +97,7 @@ export function ReviewHeader({
       {/* Secondary actions bar */}
       <div className="border-b bg-muted/50">
         <div className="max-w-[1400px] mx-auto px-6 py-2 flex items-center gap-4">
-          <Button variant="outline" size="sm" onClick={onApproveAll}>
+          <Button variant="outline" size="sm" onClick={onApproveAll} disabled={isSaving || pendingCount === 0}>
             <Check className="mr-2 h-4 w-4" />
             Approve All Pending
           </Button>

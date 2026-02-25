@@ -190,7 +190,7 @@ class OCRConfirmationView(discord.ui.View):
 
         try:
             await self.original_message_obj.add_reaction("❌")
-        except:
+        except Exception:
             pass
 
         embed = discord.Embed(
@@ -250,7 +250,8 @@ class OCRConfirmationView(discord.ui.View):
                 )
                 await self.message.edit(embed=embed, view=None)
 
-                asyncio.create_task(self.bot.messages.countdown_and_delete_message(self.message, embed, 30))
+                task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(self.message, embed, 30))
+                task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
             except discord.NotFound:
                 pass
             except discord.Forbidden:

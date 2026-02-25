@@ -150,11 +150,16 @@ class GuildCog(BaseCog):
                     added_players.append(player_name)
                     role_detection.append(f"{player_name} → {role_name}")
 
-                conn.commit()
+                ocr_success = self.bot.db.guilds.set_ocr_channel(guild_id, results_channel.id)
+                if not ocr_success:
+                    conn.rollback()
+                    await interaction.response.send_message(
+                        "❌ Failed to set OCR channel during setup. Please try again.",
+                        ephemeral=True
+                    )
+                    return
 
-            ocr_success = self.bot.db.guilds.set_ocr_channel(guild_id, results_channel.id)
-            if not ocr_success:
-                logging.warning(f"Failed to set OCR channel during setup for guild {guild_id}")
+                conn.commit()
 
             embed = discord.Embed(
                 title="🚀 Guild Setup Complete!",
@@ -217,7 +222,7 @@ class GuildCog(BaseCog):
     async def set_roles(self, interaction: discord.Interaction, role_member: discord.Role, role_trial: discord.Role, role_ally: discord.Role):
         """Configure roles for existing guild."""
         try:
-            guild_id = self.get_guild_id(interaction)
+            guild_id = self.get_guild_id_from_interaction(interaction)
 
             success = self.bot.db.guilds.set_guild_role_config(
                 guild_id=guild_id,
@@ -318,8 +323,8 @@ class GuildCog(BaseCog):
                 await interaction.response.send_message("❌ Failed to set OCR channel. Please try again.", ephemeral=True)
 
         except Exception as e:
-            logging.error(f"Error setting OCR channel: {e}")
-            await interaction.response.send_message(f"❌ Error setting OCR channel: {str(e)}", ephemeral=True)
+            logging.exception(f"Error setting OCR channel for guild")
+            await interaction.response.send_message("❌ Error setting OCR channel. Please try again.", ephemeral=True)
 
     @app_commands.command(name="checkpermissions", description="Check bot permissions in a channel for OCR functionality")
     @app_commands.describe(channel="Channel to check permissions for (defaults to current channel)")

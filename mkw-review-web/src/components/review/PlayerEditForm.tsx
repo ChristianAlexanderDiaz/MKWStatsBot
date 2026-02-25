@@ -67,6 +67,7 @@ export function PlayerEditForm({
             size="icon"
             onClick={() => setEditedPlayers(editedPlayers.filter((_, i) => i !== idx))}
             title="Remove player"
+            aria-label={`Remove player ${player.name || idx + 1}`}
           >
             <Trash2 className="h-4 w-4" />
           </Button>

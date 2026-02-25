@@ -78,7 +78,7 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
   const refreshRosterPlayers = async () => {
     if (!data?.session?.guild_id) return
     try {
-      const result = await api.getAllPlayers(data.session.guild_id.toString())
+      const result = await api.getAllPlayers(data.session.guild_id)
       setRosterPlayers(result.players.map((p) => p.name))
     } catch (err) {
       console.error("Failed to fetch players:", err)
@@ -121,6 +121,10 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bulk-review", token] })
     },
+    onError: (err) => {
+      console.error("Failed to update result:", err)
+      queryClient.invalidateQueries({ queryKey: ["bulk-review", token] })
+    },
   })
 
   // Finalise the session: creates wars from all approved results
@@ -149,6 +153,10 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
       queryClient.invalidateQueries({ queryKey: ["bulk-review", token] })
       setEditingFailure(null)
       setFailureEditedPlayers([])
+    },
+    onError: (err) => {
+      console.error("Failed to convert failure:", err)
+      queryClient.invalidateQueries({ queryKey: ["bulk-review", token] })
     },
   })
 
@@ -206,16 +214,17 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
 
   // Approve every pending result at once
   const handleApproveAll = () => {
-    results
-      .filter((r) => r.review_status === "pending")
-      .forEach((r) => {
-        const corrected = editingResult === r.id ? editedPlayers : undefined
-        updateResultMutation.mutate({ resultId: r.id, status: "approved", corrected })
-      })
-    if (editingResult !== null) {
-      setEditingResult(null)
-      setEditedPlayers([])
-    }
+    const pending = results.filter((r) => r.review_status === "pending")
+    const mutations = pending.map((r) => {
+      const corrected = editingResult === r.id ? editedPlayers : undefined
+      return updateResultMutation.mutateAsync({ resultId: r.id, status: "approved", corrected })
+    })
+    Promise.allSettled(mutations).then(() => {
+      if (editingResult !== null) {
+        setEditingResult(null)
+        setEditedPlayers([])
+      }
+    })
   }
 
   // ---- Failure-image handlers ----
@@ -271,12 +280,18 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     setIsSaving(true)
     try {
       // Create all staged players first (they were queued locally, not yet in DB)
+      const failedPlayers: string[] = []
       for (const player of stagedPlayers) {
-        await api.addPlayer(
-          data.session.guild_id.toString(),
-          player.name,
-          player.memberStatus
-        )
+        try {
+          await api.addPlayer(data.session.guild_id, player.name, player.memberStatus)
+        } catch (err) {
+          console.error(`Failed to add staged player ${player.name}:`, err)
+          failedPlayers.push(player.name)
+        }
+      }
+      if (failedPlayers.length > 0) {
+        alert(`Failed to add some players: ${failedPlayers.join(", ")}. Please retry.`)
+        return
       }
       // Then finalise the session (creates wars from approved results)
       await confirmMutation.mutateAsync()
@@ -306,7 +321,7 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
       // Only call the addNickname API for already-saved roster players
       if (!isStagedPlayer) {
         success = await api.addNickname(
-          data.session.guild_id.toString(),
+          data.session.guild_id,
           rosterPlayerName,
           detectedName
         )

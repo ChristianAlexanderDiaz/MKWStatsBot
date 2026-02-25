@@ -154,7 +154,7 @@ export const api = {
   },
 
   getGuild: async (guildId: string): Promise<{ config: GuildConfig; overview: GuildOverview } | null> => {
-    return fetchApi(`/api/guilds/${guildId}`)
+    return fetchApi<{ config: GuildConfig; overview: GuildOverview }>(`/api/guilds/${guildId}`)
   },
 
   // Players
@@ -214,7 +214,7 @@ export const api = {
     const result = await fetchApi<WarListResponse>(
       `/api/guilds/${guildId}/wars?page=${page}&limit=${limit}`
     )
-    return result || { wars: [], page: 1, limit: 20, total: 0, pages: 0 }
+    return result || { wars: [], page, limit, total: 0, pages: 0 }
   },
 
   getWar: async (guildId: string, warId: number): Promise<War | null> => {

@@ -20,7 +20,7 @@ import psycopg2
 import psycopg2.pool
 import psycopg2.errors
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import os
 from contextlib import contextmanager
 from urllib.parse import urlparse
@@ -90,7 +90,7 @@ class DatabaseManager:
     while organizing logic into focused repositories (db.players, db.wars, etc.).
     """
 
-    def __init__(self, database_url: str = None):
+    def __init__(self, database_url: Optional[str] = None):
         """
         Initialize PostgreSQL database connection.
 
@@ -112,7 +112,7 @@ class DatabaseManager:
 
         # Create connection pool for better performance
         try:
-            self.connection_pool = psycopg2.pool.SimpleConnectionPool(
+            self.connection_pool = psycopg2.pool.ThreadedConnectionPool(
                 DB_POOL_MIN, DB_POOL_MAX,
                 **self.connection_params
             )
@@ -143,7 +143,7 @@ class DatabaseManager:
         else:
             return f"postgresql://{user}@{host}:{port}/{database}"
 
-    def _parse_database_url(self, url: str) -> Dict:
+    def _parse_database_url(self, url: str) -> Dict[str, Any]:
         """Parse DATABASE_URL into connection parameters with timeouts."""
         parsed = urlparse(url)
         params = {

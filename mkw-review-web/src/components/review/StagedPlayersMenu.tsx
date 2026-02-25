@@ -32,6 +32,15 @@ export function StagedPlayersMenu({
         variant="outline"
         className="gap-1 border-blue-500 text-blue-600 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
         onClick={() => setShowStagedMenu(!showStagedMenu)}
+        role="button"
+        tabIndex={0}
+        aria-expanded={showStagedMenu}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            setShowStagedMenu(!showStagedMenu)
+          }
+        }}
       >
         <UserPlus className="h-3 w-3" />
         {stagedPlayers.length} staged
@@ -69,6 +78,7 @@ export function StagedPlayersMenu({
                 variant="ghost"
                 size="sm"
                 className="h-6 w-6 p-0 -mt-1"
+                aria-label="Close staged players menu"
                 onClick={(e) => {
                   e.stopPropagation()
                   setShowStagedMenu(false)
@@ -101,7 +111,7 @@ export function StagedPlayersMenu({
                       className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
                       onClick={(e) => {
                         e.stopPropagation()
-                        onRemoveStagedPlayer(player.name)
+                        onRemoveStagedPlayer(player.name).catch((err) => console.error("Failed to remove staged player:", err))
                       }}
                       title="Remove from staged"
                     >

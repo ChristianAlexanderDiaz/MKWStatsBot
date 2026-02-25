@@ -2,6 +2,7 @@
 
 import logging
 import discord
+from discord.ext import commands
 from discord import app_commands
 
 from .base_cog import BaseCog, require_guild_setup
@@ -13,13 +14,13 @@ class NicknameCog(BaseCog):
     @app_commands.command(name="addnickname", description="Add a nickname to a player for OCR recognition")
     @app_commands.describe(player_name="Player to add nickname for", nickname="Nickname to add")
     @require_guild_setup
-    async def add_nickname(self, interaction: discord.Interaction, player_name: str, nickname: str):
+    async def add_nickname(self, interaction: discord.Interaction, player_name: str, nickname: str) -> None:
         """Add a single nickname to a player."""
         try:
             guild_id = self.get_guild_id(interaction)
             resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table. Use `/addplayer {player_name}` to add them first.")
+                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table. Use `/addplayer {player_name}` to add them first.", ephemeral=True)
                 return
 
             if nickname.lower() == resolved_player.lower():
@@ -53,13 +54,13 @@ class NicknameCog(BaseCog):
     @app_commands.command(name="removenickname", description="Remove a nickname from a player")
     @app_commands.describe(player_name="Player to remove nickname from", nickname="Nickname to remove")
     @require_guild_setup
-    async def remove_nickname(self, interaction: discord.Interaction, player_name: str, nickname: str):
+    async def remove_nickname(self, interaction: discord.Interaction, player_name: str, nickname: str) -> None:
         """Remove a nickname from a player."""
         try:
             guild_id = self.get_guild_id(interaction)
             resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.")
+                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.", ephemeral=True)
                 return
 
             success = self.bot.db.players.remove_nickname(resolved_player, nickname, guild_id)
@@ -72,7 +73,7 @@ class NicknameCog(BaseCog):
                 )
                 await interaction.response.send_message(embed=embed)
             else:
-                await interaction.response.send_message(f"❌ Nickname **{nickname}** not found for **{resolved_player}** or couldn't be removed.")
+                await interaction.response.send_message(f"❌ Nickname **{nickname}** not found for **{resolved_player}** or couldn't be removed.", ephemeral=True)
 
         except Exception as e:
             logging.error(f"Error removing nickname: {e}")
@@ -84,13 +85,13 @@ class NicknameCog(BaseCog):
     @app_commands.command(name="nicknamesfor", description="Show all nicknames for a player")
     @app_commands.describe(player_name="Player to show nicknames for")
     @require_guild_setup
-    async def show_nicknames(self, interaction: discord.Interaction, player_name: str):
+    async def show_nicknames(self, interaction: discord.Interaction, player_name: str) -> None:
         """Show all nicknames for a player."""
         try:
             guild_id = self.get_guild_id(interaction)
             resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.")
+                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.", ephemeral=True)
                 return
 
             nicknames = self.bot.db.players.get_player_nicknames(resolved_player, guild_id)
@@ -116,5 +117,5 @@ class NicknameCog(BaseCog):
                 await interaction.followup.send("❌ Error retrieving nicknames", ephemeral=True)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(NicknameCog(bot))

@@ -7,12 +7,15 @@ connection pool access and common validation helpers.
 
 import logging
 from contextlib import contextmanager
+from typing import Any, Generator
+
+logger = logging.getLogger(__name__)
 
 
 class BaseRepository:
     """Base class for all repositories. Provides connection pool access."""
 
-    def __init__(self, db_manager):
+    def __init__(self, db_manager: Any) -> None:
         """
         Args:
             db_manager: DatabaseManager instance (provides connection pool)
@@ -20,7 +23,7 @@ class BaseRepository:
         self._db = db_manager
 
     @contextmanager
-    def get_connection(self):
+    def get_connection(self) -> Generator:
         """Delegate to DatabaseManager's connection pool."""
         with self._db.get_connection() as conn:
             yield conn
@@ -29,5 +32,5 @@ class BaseRepository:
         """Validate guild_id to prevent cross-guild data contamination."""
         if guild_id <= 0:
             error_msg = f"Invalid guild_id={guild_id} for {operation_name}. Guild ID must be positive."
-            logging.error(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
             raise ValueError(error_msg)

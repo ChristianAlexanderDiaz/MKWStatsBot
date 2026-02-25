@@ -5,7 +5,7 @@ Eliminates duplicated embed patterns across bot.py, commands.py, and handlers.
 """
 
 import discord
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from ..constants import (
     COLOR_SUCCESS,
@@ -19,12 +19,14 @@ from ..constants import (
     SORT_DESCRIPTIONS,
 )
 
+EXPIRED_MESSAGE = "The confirmation period has expired. Results were not saved."
+
 
 class EmbedBuilder:
     """Static factory methods for creating consistently-styled Discord embeds."""
 
     @staticmethod
-    def success(title: str, description: str = "", **kwargs) -> discord.Embed:
+    def success(title: str, description: str = "", **kwargs: Any) -> discord.Embed:
         return discord.Embed(
             title=f"✅ {title}",
             description=description,
@@ -33,7 +35,7 @@ class EmbedBuilder:
         )
 
     @staticmethod
-    def error(title: str, description: str = "", **kwargs) -> discord.Embed:
+    def error(title: str, description: str = "", **kwargs: Any) -> discord.Embed:
         return discord.Embed(
             title=f"❌ {title}",
             description=description,
@@ -42,7 +44,7 @@ class EmbedBuilder:
         )
 
     @staticmethod
-    def warning(title: str, description: str = "", **kwargs) -> discord.Embed:
+    def warning(title: str, description: str = "", **kwargs: Any) -> discord.Embed:
         return discord.Embed(
             title=f"⚠️ {title}",
             description=description,
@@ -51,7 +53,7 @@ class EmbedBuilder:
         )
 
     @staticmethod
-    def info(title: str, description: str = "", **kwargs) -> discord.Embed:
+    def info(title: str, description: str = "", **kwargs: Any) -> discord.Embed:
         return discord.Embed(
             title=title,
             description=description,
@@ -60,7 +62,7 @@ class EmbedBuilder:
         )
 
     @staticmethod
-    def purple(title: str, description: str = "", **kwargs) -> discord.Embed:
+    def purple(title: str, description: str = "", **kwargs: Any) -> discord.Embed:
         return discord.Embed(
             title=title,
             description=description,
@@ -69,7 +71,7 @@ class EmbedBuilder:
         )
 
     @staticmethod
-    def dark(title: str, description: str = "", **kwargs) -> discord.Embed:
+    def dark(title: str, description: str = "", **kwargs: Any) -> discord.Embed:
         return discord.Embed(
             title=title,
             description=description,
@@ -78,7 +80,7 @@ class EmbedBuilder:
         )
 
     @staticmethod
-    def expired(message: str = "The confirmation period has expired. Results were not saved.") -> discord.Embed:
+    def expired(message: str = EXPIRED_MESSAGE) -> discord.Embed:
         return discord.Embed(
             title="⏰ Confirmation Expired",
             description=message,
@@ -87,7 +89,7 @@ class EmbedBuilder:
 
     @staticmethod
     def war_saved(
-        resolved_results: List[Dict],
+        resolved_results: List[Dict[str, Any]],
         race_count: int,
         team_score: int,
         opponent_score: int,
@@ -95,7 +97,12 @@ class EmbedBuilder:
         war_id: Optional[int] = None,
     ) -> discord.Embed:
         """Build the standard war-saved embed used by OCR and manual addwar flows."""
-        result_emoji = "🏆" if differential > 0 else ("🤝" if differential == 0 else "😢")
+        if differential > 0:
+            result_emoji = "🏆"
+        elif differential == 0:
+            result_emoji = "🤝"
+        else:
+            result_emoji = "😢"
 
         title = f"{result_emoji} War Results Saved!"
         description = (
@@ -103,7 +110,7 @@ class EmbedBuilder:
             f"**Races:** {race_count}\n"
             f"**Players:** {len(resolved_results)}"
         )
-        if war_id:
+        if war_id is not None:
             description += f"\n**War ID:** {war_id}"
 
         embed = discord.Embed(title=title, description=description, color=COLOR_SUCCESS)
@@ -126,7 +133,7 @@ class EmbedBuilder:
 
     @staticmethod
     def ocr_results(
-        results: List[Dict],
+        results: List[Dict[str, Any]],
         filename: str,
         race_count: int = 12,
         warnings: Optional[List[str]] = None,

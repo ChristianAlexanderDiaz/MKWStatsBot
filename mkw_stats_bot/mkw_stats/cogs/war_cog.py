@@ -243,6 +243,7 @@ class WarCog(BaseCog):
                         name = name.strip()
                         original_name = name
                         score_str = score_str.strip()
+                        base_name = name
 
                         individual_races = races
                         if '(' in name and ')' in name:
@@ -407,7 +408,8 @@ class WarCog(BaseCog):
             else:
                 await interaction.response.send_message(embed=embed)
 
-            asyncio.create_task(self.bot._countdown_and_delete_interaction(interaction, embed))
+            task = asyncio.create_task(self.bot._countdown_and_delete_interaction(interaction, embed))
+            task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
         except Exception as e:
             logging.error(f"Error adding war: {e}")

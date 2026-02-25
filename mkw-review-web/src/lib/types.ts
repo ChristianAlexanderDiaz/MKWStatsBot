@@ -4,8 +4,8 @@
 
 export interface BulkSession {
   id: number
-  guild_id: number
-  created_by_user_id: number
+  guild_id: string
+  created_by_user_id: string
   status: string
   total_images: number
   created_at: string
@@ -38,7 +38,7 @@ export interface BulkFailure {
   image_url: string | null
   error_message: string
   message_timestamp: string | null
-  discord_message_id: number | null
+  discord_message_id: string | null
   created_at: string
 }
 

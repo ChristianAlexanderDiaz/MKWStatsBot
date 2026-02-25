@@ -5,7 +5,7 @@ import logging
 import discord
 from discord.ext import commands
 from discord import app_commands
-from typing import Optional
+from typing import Optional, cast
 
 from ..constants import MEMBER_STATUSES
 
@@ -42,7 +42,8 @@ def require_moderator():
     async def predicate(interaction: discord.Interaction) -> bool:
         if not interaction.guild:
             return False
-        perms = interaction.user.guild_permissions
+        member = cast(discord.Member, interaction.user)
+        perms = member.guild_permissions
         return perms.administrator or perms.manage_guild or perms.manage_channels
     return app_commands.check(predicate)
 
@@ -52,7 +53,8 @@ def require_admin():
     async def predicate(interaction: discord.Interaction) -> bool:
         if not interaction.guild:
             return False
-        perms = interaction.user.guild_permissions
+        member = cast(discord.Member, interaction.user)
+        perms = member.guild_permissions
         return perms.administrator or perms.manage_guild
     return app_commands.check(predicate)
 
@@ -60,8 +62,8 @@ def require_admin():
 class BaseCog(commands.Cog):
     """Base cog with shared helpers used by all domain cogs."""
 
-    def __init__(self, bot):
-        self.bot = bot
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot: commands.Bot = bot
 
     def get_guild_id(self, ctx_or_interaction) -> int:
         """Helper method to get guild ID from context or interaction."""

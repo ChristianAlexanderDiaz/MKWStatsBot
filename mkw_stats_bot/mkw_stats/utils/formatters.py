@@ -17,10 +17,11 @@ def country_code_to_flag(country_code: str) -> str:
     if not country_code or len(country_code) != 2:
         return ""
     country_code = country_code.upper()
+    if not all("A" <= char <= "Z" for char in country_code):
+        return ""
     flag = ""
     for char in country_code:
-        if "A" <= char <= "Z":
-            flag += chr(UNICODE_REGIONAL_INDICATOR_OFFSET + ord(char) - 65)
+        flag += chr(UNICODE_REGIONAL_INDICATOR_OFFSET + ord(char) - 65)
     return flag
 
 

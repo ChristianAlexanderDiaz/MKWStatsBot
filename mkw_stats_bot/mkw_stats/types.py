@@ -65,7 +65,7 @@ class PlayerStats(TypedDict, total=False):
     player_name: str
     total_score: int
     total_races: int
-    war_count: float
+    war_count: int
     average_score: float
     highest_score: int
     lowest_score: int
@@ -106,11 +106,17 @@ class TeamDifferential:
     differential: int
 
     @classmethod
-    def from_results(cls, results: List[PlayerResult], race_count: int) -> TeamDifferential:
+    def from_results(
+        cls,
+        results: List[PlayerResult],
+        race_count: int,
+    ) -> "TeamDifferential":
         """Calculate team differential from player results and race count.
 
         Uses TOTAL_POINTS_PER_RACE (82) * race_count for total possible points.
         """
+        if race_count <= 0:
+            raise ValueError(f"race_count must be positive, got {race_count}")
         from .constants import TOTAL_POINTS_PER_RACE
         team_score = sum(r["score"] for r in results)
         total_points = TOTAL_POINTS_PER_RACE * race_count

@@ -4,15 +4,11 @@ Validation utility functions.
 Extracted from commands.py to eliminate duplication across cogs and services.
 """
 
-from typing import Tuple, TYPE_CHECKING
+from typing import Tuple
 
 import discord
 
-from ..constants import BOT_OWNER_ID
 from .. import config
-
-if TYPE_CHECKING:
-    from ..database import DatabaseManager
 
 
 def validate_score(score: int, races: int) -> Tuple[bool, str]:
@@ -43,6 +39,8 @@ def validate_race_count(races: int) -> Tuple[bool, str]:
 def has_admin_permission(interaction: discord.Interaction) -> bool:
     """Check if user has admin permission (server admin, server owner, or bot owner)."""
     from ..database import DatabaseManager
+    if not interaction.guild:
+        return DatabaseManager.is_bot_owner(interaction.user.id)
     return (
         interaction.user.guild_permissions.administrator
         or interaction.user.id == interaction.guild.owner_id

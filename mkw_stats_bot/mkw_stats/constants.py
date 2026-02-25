@@ -26,7 +26,8 @@ DB_STATEMENT_TIMEOUT: int = 30000  # milliseconds
 # Form Score Calculation
 # =============================================================================
 
-FORM_SCORE_DECAY_FACTOR: float = 0.85  # Exponential weight decay (recent wars weighted ~15% more)
+# Exponential weight decay (recent wars weighted ~15% more)
+FORM_SCORE_DECAY_FACTOR: float = 0.85
 FORM_SCORE_MIN_WARS: int = 10  # Minimum wars required for Form Score calculation
 FORM_AVERAGE_SCORE: int = 84  # Average score baseline for form rating
 FORM_GOLDEN_SCORE: int = 100  # Golden score threshold
@@ -129,4 +130,4 @@ GLOBAL_SORT_TITLES: Dict[str, str] = {
 # Member Status
 # =============================================================================
 
-MEMBER_STATUSES = ["member", "trial", "ally", "kicked"]
+MEMBER_STATUSES: list[str] = ["member", "trial", "ally", "kicked"]

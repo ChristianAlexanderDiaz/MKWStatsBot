@@ -97,7 +97,7 @@ export default function BulkReviewPage() {
     )
   }
 
-  const { session, results, failures = [] } = data
+  const { session, results = [], failures = [] } = data
 
   return (
     <div className="min-h-screen bg-background">
@@ -169,7 +169,13 @@ export default function BulkReviewPage() {
                   onAddPlayer={handleAddFailurePlayer}
                   onRemovePlayer={handleRemoveFailurePlayer}
                   onSaveFailure={handleSaveFailure}
-                  convertIsPending={convertFailureMutation.isPending}
+                  pendingStatus={
+                    convertFailureMutation.isPending
+                      ? convertFailureMutation.variables?.status === "pending" ? "pending"
+                        : convertFailureMutation.variables?.status === "approved" ? "approved"
+                        : null
+                      : null
+                  }
                 />
               ))}
             </div>

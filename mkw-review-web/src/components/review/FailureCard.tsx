@@ -6,6 +6,7 @@
  *   by manually typing names/scores, then save as pending or approved.
  */
 
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,8 +24,8 @@ interface FailureCardProps {
   onAddPlayer: () => void
   onRemovePlayer: (index: number) => void
   onSaveFailure: (failureId: number, status: "pending" | "approved" | "rejected") => void
-  /** Forwarded from the convertFailureMutation so we can show a spinner */
-  convertIsPending: boolean
+  /** Which specific save action is currently pending (null = no pending action) */
+  pendingStatus: "pending" | "approved" | null
 }
 
 export function FailureCard({
@@ -37,9 +38,14 @@ export function FailureCard({
   onAddPlayer,
   onRemovePlayer,
   onSaveFailure,
-  convertIsPending,
+  pendingStatus,
 }: FailureCardProps) {
   const isEditingThis = editingFailure === failure.id
+  const [imageFailed, setImageFailed] = useState(false)
+
+  const isPendingAction = pendingStatus === "pending"
+  const isApproveAction = pendingStatus === "approved"
+  const isAnyPending = pendingStatus !== null
 
   return (
     <Card className="border-red-500/30 bg-red-50/30 dark:bg-red-950/10">
@@ -69,11 +75,12 @@ export function FailureCard({
         <div className="flex flex-col md:flex-row gap-6">
           {/* Preview image (or placeholder) */}
           <div className="w-full md:w-[600px] flex-shrink-0">
-            {failure.image_url ? (
+            {failure.image_url && !imageFailed ? (
               <img
                 src={failure.image_url}
                 alt="Failed"
                 className="w-full h-auto rounded-md border border-red-300"
+                onError={() => setImageFailed(true)}
               />
             ) : (
               <div className="w-full aspect-video bg-muted rounded-md flex items-center justify-center border border-red-300">
@@ -144,9 +151,9 @@ export function FailureCard({
                   <Button
                     size="sm"
                     onClick={() => onSaveFailure(failure.id, "pending")}
-                    disabled={convertIsPending}
+                    disabled={isAnyPending}
                   >
-                    {convertIsPending ? (
+                    {isPendingAction ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-1" />
                     ) : (
                       <Save className="h-4 w-4 mr-1" />
@@ -158,9 +165,13 @@ export function FailureCard({
                     variant="default"
                     className="bg-green-600 hover:bg-green-700"
                     onClick={() => onSaveFailure(failure.id, "approved")}
-                    disabled={convertIsPending}
+                    disabled={isAnyPending}
                   >
-                    <Check className="h-4 w-4 mr-1" />
+                    {isApproveAction ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    ) : (
+                      <Check className="h-4 w-4 mr-1" />
+                    )}
                     Save & Approve
                   </Button>
                 </div>
@@ -192,7 +203,7 @@ export function FailureCard({
                     size="sm"
                     className="text-red-600 hover:text-red-700"
                     onClick={() => onSaveFailure(failure.id, "rejected")}
-                    disabled={convertIsPending}
+                    disabled={isAnyPending}
                   >
                     <X className="h-4 w-4 mr-1" />
                     Reject
