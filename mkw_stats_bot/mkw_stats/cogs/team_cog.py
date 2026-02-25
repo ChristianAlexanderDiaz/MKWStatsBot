@@ -162,7 +162,7 @@ class TeamCog(BaseCog):
                 await interaction.followup.send("❌ Error unassigning player from team", ephemeral=True)
 
     @app_commands.command(name="showallteams", description="Show all players organized by member status")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_teams(self, interaction: discord.Interaction):
         """Show all players organized by member status."""
         try:
@@ -171,7 +171,7 @@ class TeamCog(BaseCog):
             all_players = self.bot.db.players.get_all_players_stats(guild_id)
 
             if not all_players:
-                await interaction.response.send_message("❌ No players found in players table. Use `/addplayer` to add players.")
+                await interaction.followup.send("❌ No players found in players table. Use `/addplayer` to add players.")
                 return
 
             status_groups = {}
@@ -218,18 +218,15 @@ class TeamCog(BaseCog):
                     total_players += len(players)
 
             embed.set_footer(text=f"Total active players: {total_players} | Use /setmemberstatus to change player status")
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error showing player rosters: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving player information", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving player information", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving player information", ephemeral=True)
 
     @app_commands.command(name="showspecificteamroster", description="Show roster for a specific team")
     @app_commands.describe(team_name="Name of the team to show roster for")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_team_roster(self, interaction: discord.Interaction, team_name: str):
         """Show roster for a specific team."""
         try:
@@ -238,7 +235,7 @@ class TeamCog(BaseCog):
             valid_teams = self.bot.db.guilds.get_guild_team_names(guild_id)
             valid_teams.append('Unassigned')
             if team_name not in valid_teams:
-                await interaction.response.send_message(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/showallteams` to see available teams.")
+                await interaction.followup.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/showallteams` to see available teams.")
                 return
 
             team_players = self.bot.db.players.get_team_roster(team_name, guild_id)
@@ -274,14 +271,11 @@ class TeamCog(BaseCog):
                 )
 
             embed.set_footer(text=f"Use /assignplayerstoteam <players> {team_name} to assign players to this team")
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error showing team roster: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving team roster", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving team roster", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving team roster", ephemeral=True)
 
     @app_commands.command(name="addteam", description="Add a new team to the clan")
     @app_commands.describe(team_name="Name of the team to create (1W-50 characters, cannot be 'Unassigned')")

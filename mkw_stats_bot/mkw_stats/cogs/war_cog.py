@@ -420,20 +420,20 @@ class WarCog(BaseCog):
 
     @app_commands.command(name="wars", description="Show recent wars")
     @app_commands.describe(limit="Number of wars to show (default: 10, max: 50)")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_all_wars(self, interaction: discord.Interaction, limit: int = 10):
         """Show all wars with pagination."""
         try:
             guild_id = self.get_guild_id(interaction)
 
             if limit < 1 or limit > 50:
-                await interaction.response.send_message("❌ Limit must be between 1 and 50.", ephemeral=True)
+                await interaction.followup.send("❌ Limit must be between 1 and 50.", ephemeral=True)
                 return
 
             wars = self.bot.db.wars.get_all_wars(limit, guild_id)
 
             if not wars:
-                await interaction.response.send_message("❌ No wars found.", ephemeral=True)
+                await interaction.followup.send("❌ No wars found.", ephemeral=True)
                 return
 
             embed = discord.Embed(
@@ -477,14 +477,11 @@ class WarCog(BaseCog):
                 )
 
             embed.set_footer(text=f"Showing {len(wars)} wars")
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error showing all wars: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving wars", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving wars", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving wars", ephemeral=True)
 
     @app_commands.command(name="addplayertowar", description="Add new players to an existing war")
     @app_commands.describe(

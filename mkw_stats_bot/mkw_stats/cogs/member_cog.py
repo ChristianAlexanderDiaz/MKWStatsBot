@@ -50,7 +50,7 @@ class MemberCog(BaseCog):
                 await interaction.followup.send("❌ Error setting member status", ephemeral=True)
 
     @app_commands.command(name="showtrials", description="Show all trial members")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_trials(self, interaction: discord.Interaction) -> None:
         """Show all trial members."""
         try:
@@ -83,17 +83,14 @@ class MemberCog(BaseCog):
                 embed.description = "No trial members found."
 
             embed.set_footer(text="Use /setmemberstatus <player> Member to promote trial members")
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error showing trials: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving trial members", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving trial members", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving trial members", ephemeral=True)
 
     @app_commands.command(name="showkicked", description="Show all kicked members")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_kicked(self, interaction: discord.Interaction) -> None:
         """Show all kicked members."""
         try:
@@ -124,14 +121,11 @@ class MemberCog(BaseCog):
                 embed.description = "No kicked members found."
 
             embed.set_footer(text="Use /setmemberstatus <player> Member to reinstate kicked members")
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error showing kicked members: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving kicked members", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving kicked members", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving kicked members", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

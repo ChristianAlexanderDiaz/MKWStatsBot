@@ -719,7 +719,7 @@ class StatsCog(BaseCog):
         # Footer
         embed.set_footer(text=f"Guild-Specific {scope_text}")
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     async def _display_leaderboard(self, interaction: discord.Interaction, guild_id: int, member_stats: list, sortby: str):
         """Display leaderboard with pagination for all members."""
@@ -775,7 +775,7 @@ class StatsCog(BaseCog):
         view = LeaderboardView(all_players, sortby, len(all_players), self.bot, guild_id)
         embed = view.create_embed()
 
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="stats", description="View player statistics or leaderboard")
     @app_commands.describe(
@@ -807,7 +807,7 @@ class StatsCog(BaseCog):
             app_commands.Choice(name="Last 100 Wars", value=100)
         ]
     )
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def stats_slash(
         self,
         interaction: discord.Interaction,
@@ -834,8 +834,8 @@ class StatsCog(BaseCog):
                     if result:
                         player = result[0]
                     else:
-                        await interaction.response.send_message(
-                            f"❌ You're not linked to a player in this guild. Ask an admin to add you with `/addplayer`.",
+                        await interaction.followup.send(
+                            "❌ You're not linked to a player in this guild. Ask an admin to add you with `/addplayer`.",
                             ephemeral=True
                         )
                         return
@@ -844,22 +844,22 @@ class StatsCog(BaseCog):
                 # Resolve nickname to actual player name first
                 resolved_player = self.bot.db.players.resolve_player_name(player, guild_id)
                 if not resolved_player:
-                    await interaction.response.send_message(f"❌ No player found with name or nickname: {player}", ephemeral=True)
+                    await interaction.followup.send(f"❌ No player found with name or nickname: {player}", ephemeral=True)
                     return
 
                 # Handle lastxwars parameter validation and stats retrieval
                 if lastxwars is not None:
                     if lastxwars < 1:
-                        await interaction.response.send_message("❌ Must be at least 1 war.", ephemeral=True)
+                        await interaction.followup.send("❌ Must be at least 1 war.", ephemeral=True)
                         return
 
                     distinct_wars = self.bot.db.stats.get_player_distinct_war_count(resolved_player, guild_id)
                     if distinct_wars == 0:
-                        await interaction.response.send_message(f"❌ {resolved_player} hasn't participated in any wars yet.", ephemeral=True)
+                        await interaction.followup.send(f"❌ {resolved_player} hasn't participated in any wars yet.", ephemeral=True)
                         return
 
                     if lastxwars > distinct_wars:
-                        await interaction.response.send_message(f"❌ {resolved_player} has only participated in {distinct_wars} wars, can't show last {lastxwars}.", ephemeral=True)
+                        await interaction.followup.send(f"❌ {resolved_player} has only participated in {distinct_wars} wars, can't show last {lastxwars}.", ephemeral=True)
                         return
 
                     stats = self.bot.db.stats.get_player_stats_last_x_wars(resolved_player, lastxwars, guild_id)
@@ -886,9 +886,9 @@ class StatsCog(BaseCog):
                         embed.add_field(name="Wars Played", value="0", inline=True)
                         embed.set_footer(text="Use /addwar to add this player to a war")
 
-                        await interaction.response.send_message(embed=embed)
+                        await interaction.followup.send(embed=embed)
                     else:
-                        await interaction.response.send_message(f"❌ No stats found for player: {player}", ephemeral=True)
+                        await interaction.followup.send(f"❌ No stats found for player: {player}", ephemeral=True)
             else:
                 # Get all player statistics from players table
                 roster_stats = self.bot.db.players.get_all_players_stats(guild_id)
@@ -900,7 +900,7 @@ class StatsCog(BaseCog):
                 member_stats = self._filter_active_members(roster_stats, interaction, role_config)
 
                 if not member_stats:
-                    await interaction.response.send_message("❌ No members found with the Member role in Discord.", ephemeral=True)
+                    await interaction.followup.send("❌ No members found with the Member role in Discord.", ephemeral=True)
                     return
 
                 # Display leaderboard
@@ -908,10 +908,7 @@ class StatsCog(BaseCog):
 
         except Exception as e:
             logging.error(f"Error in stats command: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ An error occurred while retrieving stats.", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ An error occurred while retrieving stats.", ephemeral=True)
+            await interaction.followup.send("❌ An error occurred while retrieving stats.", ephemeral=True)
 
     @app_commands.command(
         name="leaderboard",

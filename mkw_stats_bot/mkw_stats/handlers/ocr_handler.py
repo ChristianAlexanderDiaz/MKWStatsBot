@@ -37,7 +37,9 @@ class OCRHandler:
         try:
             ocr = self.bot.ocr
 
-            ocr_result = ocr.perform_ocr_on_file(temp_path)
+            # Offload blocking OCR (500ms–5s) to thread pool so event loop stays free
+            loop = asyncio.get_running_loop()
+            ocr_result = await loop.run_in_executor(None, ocr.perform_ocr_on_file, temp_path)
 
             if not ocr_result["success"]:
                 embed = discord.Embed(

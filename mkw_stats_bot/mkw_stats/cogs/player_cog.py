@@ -34,7 +34,7 @@ class PlayerCog(BaseCog):
             return []
 
     @app_commands.command(name="roster", description="Show complete guild roster organized by teams")
-    @require_guild_setup
+    @require_guild_setup(defer=True)
     async def show_full_roster(self, interaction: discord.Interaction):
         """Show the complete clan roster organized by teams."""
         try:
@@ -42,7 +42,7 @@ class PlayerCog(BaseCog):
             all_players = self.bot.db.players.get_all_players_stats(guild_id)
 
             if not all_players:
-                await interaction.response.send_message("❌ No players found in players table. Use `/addplayer <player>` to add players.")
+                await interaction.followup.send("❌ No players found in players table. Use `/addplayer <player>` to add players.")
                 return
 
             embed = discord.Embed(
@@ -76,14 +76,11 @@ class PlayerCog(BaseCog):
 
             embed.set_footer(text="Use /showallteams for detailed team view | Only results for these players will be saved from war images.")
 
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error showing roster: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving roster", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving roster", ephemeral=True)
 
     @app_commands.command(name="addplayer", description="Add a player to the clan roster")
     @app_commands.describe(
