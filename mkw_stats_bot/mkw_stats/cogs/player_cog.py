@@ -39,7 +39,7 @@ class PlayerCog(BaseCog):
         """Show the complete clan roster organized by teams."""
         try:
             guild_id = self.get_guild_id(interaction)
-            all_players = self.bot.db.get_all_players_stats(guild_id)
+            all_players = self.bot.db.players.get_all_players_stats(guild_id)
 
             if not all_players:
                 await interaction.response.send_message("❌ No players found in players table. Use `/addplayer <player>` to add players.")
@@ -97,7 +97,7 @@ class PlayerCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            role_config = self.bot.db.get_guild_role_config(guild_id)
+            role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
                 await interaction.response.send_message(
                     "❌ Guild roles are not configured. Please run `/setup` first to configure Member, Trial, and Ally roles.",
@@ -138,7 +138,7 @@ class PlayerCog(BaseCog):
 
             player_name = ingame_name if ingame_name else user.display_name
 
-            success = self.bot.db.add_roster_player_with_discord(
+            success = self.bot.db.players.add_roster_player_with_discord(
                 discord_user_id=user.id,
                 player_name=player_name,
                 display_name=user.display_name,
@@ -185,7 +185,7 @@ class PlayerCog(BaseCog):
         """Remove a player from the clan roster."""
         try:
             guild_id = self.get_guild_id(interaction)
-            success = self.bot.db.remove_roster_player(player_name, guild_id)
+            success = self.bot.db.players.remove_roster_player(player_name, guild_id)
 
             if success:
                 embed = discord.Embed(
@@ -220,7 +220,7 @@ class PlayerCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            role_config = self.bot.db.get_guild_role_config(guild_id)
+            role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
                 await interaction.response.send_message(
                     "❌ Guild roles are not configured. Please run `/setup` first.",
@@ -247,7 +247,7 @@ class PlayerCog(BaseCog):
                 )
                 return
 
-            success = self.bot.db.link_player_to_discord_user(
+            success = self.bot.db.players.link_player_to_discord_user(
                 player_name=player_name,
                 discord_user_id=user.id,
                 display_name=user.display_name,
@@ -284,7 +284,7 @@ class PlayerCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            unlinked_players = self.bot.db.get_unlinked_players(guild_id)
+            unlinked_players = self.bot.db.players.get_unlinked_players(guild_id)
 
             if not unlinked_players:
                 embed = discord.Embed(
@@ -341,7 +341,7 @@ class PlayerCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            role_config = self.bot.db.get_guild_role_config(guild_id)
+            role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
                 await interaction.response.send_message(
                     "❌ Guild roles are not configured. Please run `/setup` first.",
@@ -349,7 +349,7 @@ class PlayerCog(BaseCog):
                 )
                 return
 
-            all_players = self.bot.db.get_all_players_stats(guild_id)
+            all_players = self.bot.db.players.get_all_players_stats(guild_id)
             linked_players = [p for p in all_players if p.get('discord_user_id')]
 
             if not linked_players:
@@ -387,12 +387,12 @@ class PlayerCog(BaseCog):
                     role_name = "Ally"
 
                 if new_status and new_status != current_status:
-                    self.bot.db.sync_player_role(discord_user_id, new_status, guild_id)
-                    self.bot.db.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
+                    self.bot.db.players.sync_player_role(discord_user_id, new_status, guild_id)
+                    self.bot.db.players.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
                     changes.append(f"• **{player['player_name']}**: {current_status.title()} → {role_name}")
                     synced += 1
                 elif new_status:
-                    self.bot.db.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
+                    self.bot.db.players.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
                     synced += 1
 
             embed = discord.Embed(

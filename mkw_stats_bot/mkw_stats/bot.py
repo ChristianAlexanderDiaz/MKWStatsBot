@@ -49,7 +49,7 @@ class OCRConfirmationView(discord.ui.View):
             return False
 
         # Get guild role configuration
-        role_config = self.bot.db.get_guild_role_config(self.guild_id)
+        role_config = self.bot.db.guilds.get_guild_role_config(self.guild_id)
 
         # If no role config is set, prompt user to set it up
         if not role_config or not role_config.get('role_member_id'):
@@ -379,7 +379,7 @@ class MarioKartBot(commands.Bot):
             if not guild_id:
                 return
 
-            configured_channel_id = self.db.get_ocr_channel(guild_id)
+            configured_channel_id = self.db.guilds.get_ocr_channel(guild_id)
             if not configured_channel_id or message.channel.id != configured_channel_id:
                 return
 

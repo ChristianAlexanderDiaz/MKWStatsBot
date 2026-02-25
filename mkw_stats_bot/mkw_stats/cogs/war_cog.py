@@ -70,7 +70,7 @@ class AddPlayerToWarConfirmView(discord.ui.View):
 
         await interaction.response.edit_message(view=self)
 
-        success = self.cog.bot.db.append_players_to_war_by_id(
+        success = self.cog.bot.db.wars.append_players_to_war_by_id(
             self.war_id, self.new_players, guild_id=self.guild_id
         )
 
@@ -164,7 +164,7 @@ class RemoveWarConfirmView(discord.ui.View):
 
         await interaction.response.edit_message(view=self)
 
-        stats_reverted = self.cog.bot.db.remove_war_by_id(self.war_id, guild_id=self.guild_id)
+        stats_reverted = self.cog.bot.db.wars.remove_war_by_id(self.war_id, guild_id=self.guild_id)
 
         if stats_reverted is not None:
             war_date = self.war.get('war_date')
@@ -297,7 +297,7 @@ class WarCog(BaseCog):
             failed_players = []
 
             for result in results:
-                resolved_player = self.bot.db.resolve_player_name(result['name'], guild_id)
+                resolved_player = self.bot.db.players.resolve_player_name(result['name'], guild_id)
                 logging.info(f"Player resolution: '{result['name']}' -> {resolved_player}")
                 if resolved_player:
                     resolved_results.append({
@@ -322,8 +322,8 @@ class WarCog(BaseCog):
                 else:
                     result['war_participation'] = 0.0
 
-            last_war_results = self.bot.db.get_last_war_for_duplicate_check(guild_id)
-            is_duplicate = self.bot.db.check_for_duplicate_war(resolved_results, last_war_results)
+            last_war_results = self.bot.db.wars.get_last_war_for_duplicate_check(guild_id)
+            is_duplicate = self.bot.db.wars.check_for_duplicate_war(resolved_results, last_war_results)
 
             already_responded = False
 
@@ -428,7 +428,7 @@ class WarCog(BaseCog):
                 await interaction.response.send_message("❌ Limit must be between 1 and 50.", ephemeral=True)
                 return
 
-            wars = self.bot.db.get_all_wars(limit, guild_id)
+            wars = self.bot.db.wars.get_all_wars(limit, guild_id)
 
             if not wars:
                 await interaction.response.send_message("❌ No wars found.", ephemeral=True)
@@ -495,7 +495,7 @@ class WarCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            existing_war = self.bot.db.get_war_by_id(war_id, guild_id)
+            existing_war = self.bot.db.wars.get_war_by_id(war_id, guild_id)
             if not existing_war:
                 await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return
@@ -535,7 +535,7 @@ class WarCog(BaseCog):
                             await interaction.response.send_message(f"❌ {name}: {score} points invalid for {individual_races} races.", ephemeral=True)
                             return
 
-                        resolved_player = self.bot.db.resolve_player_name(name, guild_id)
+                        resolved_player = self.bot.db.players.resolve_player_name(name, guild_id)
                         if not resolved_player:
                             await interaction.response.send_message(f"❌ Player **{name}** not found in players table.", ephemeral=True)
                             return
@@ -620,7 +620,7 @@ class WarCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            war = self.bot.db.get_war_by_id(war_id, guild_id)
+            war = self.bot.db.wars.get_war_by_id(war_id, guild_id)
             if not war:
                 await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return

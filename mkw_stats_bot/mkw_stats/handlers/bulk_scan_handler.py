@@ -186,7 +186,7 @@ class BulkScanHandler:
         try:
             api_results = []
             for war in successful_wars:
-                roster_players = self.bot.db.get_roster_players(guild_id)
+                roster_players = self.bot.db.players.get_roster_players(guild_id)
                 roster_names = [p.lower() for p in roster_players] if roster_players else []
 
                 players_with_roster_check = []

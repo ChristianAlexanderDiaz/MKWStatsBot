@@ -70,7 +70,7 @@ class ConfirmationManager:
                 await message.channel.send("\u274c **Error:** Could not determine guild ID.")
                 return
 
-            success = self.bot.db.add_race_results(results, guild_id=guild_id)
+            success = self.bot.db.wars.add_race_results(results, guild_id=guild_id)
 
             if success:
                 embed = discord.Embed(

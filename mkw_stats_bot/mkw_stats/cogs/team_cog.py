@@ -17,7 +17,7 @@ class TeamCog(BaseCog):
         """Autocomplete callback for player names."""
         try:
             guild_id = self.get_guild_id(interaction)
-            all_players = self.bot.db.get_all_players_stats(guild_id)
+            all_players = self.bot.db.players.get_all_players_stats(guild_id)
 
             filtered = [p['player_name'] for p in all_players if current.lower() in p['player_name'].lower()]
 
@@ -30,7 +30,7 @@ class TeamCog(BaseCog):
         """Autocomplete callback for team names."""
         try:
             guild_id = self.get_guild_id(interaction)
-            team_names = self.bot.db.get_guild_team_names(guild_id)
+            team_names = self.bot.db.guilds.get_guild_team_names(guild_id)
             team_names.append('Unassigned')
 
             filtered = [name for name in team_names if current.lower() in name.lower()]
@@ -44,7 +44,7 @@ class TeamCog(BaseCog):
         """Autocomplete callback for teams that have tags set."""
         try:
             guild_id = self.get_guild_id(interaction)
-            team_tags = self.bot.db.get_all_team_tags(guild_id)
+            team_tags = self.bot.db.guilds.get_all_team_tags(guild_id)
 
             teams_with_tags = list(team_tags.keys())
 
@@ -69,7 +69,7 @@ class TeamCog(BaseCog):
                 await interaction.response.send_message("❌ Please provide at least one player name. Use commas to separate multiple players.")
                 return
 
-            valid_teams = self.bot.db.get_guild_team_names(guild_id)
+            valid_teams = self.bot.db.guilds.get_guild_team_names(guild_id)
             valid_teams.append('Unassigned')
             if team_name not in valid_teams:
                 await interaction.response.send_message(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/showallteams` to see available teams or `/addteam` to create new teams.")
@@ -79,7 +79,7 @@ class TeamCog(BaseCog):
             failed_players = []
 
             for player_name in player_names:
-                resolved = self.bot.db.resolve_player_name(player_name, guild_id)
+                resolved = self.bot.db.players.resolve_player_name(player_name, guild_id)
                 if resolved:
                     resolved_players.append(resolved)
                 else:
@@ -93,7 +93,7 @@ class TeamCog(BaseCog):
             failed_assignments = []
 
             for player in resolved_players:
-                success = self.bot.db.set_player_team(player, team_name, guild_id)
+                success = self.bot.db.players.set_player_team(player, team_name, guild_id)
                 if success:
                     successful_assignments.append(player)
                 else:
@@ -142,12 +142,12 @@ class TeamCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
+            resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.")
                 return
 
-            success = self.bot.db.set_player_team(resolved_player, 'Unassigned', guild_id)
+            success = self.bot.db.players.set_player_team(resolved_player, 'Unassigned', guild_id)
 
             if success:
                 await interaction.response.send_message(f"✅ Set **{resolved_player}** to **Unassigned**!")
@@ -168,7 +168,7 @@ class TeamCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            all_players = self.bot.db.get_all_players_stats(guild_id)
+            all_players = self.bot.db.players.get_all_players_stats(guild_id)
 
             if not all_players:
                 await interaction.response.send_message("❌ No players found in players table. Use `/addplayer` to add players.")
@@ -235,13 +235,13 @@ class TeamCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            valid_teams = self.bot.db.get_guild_team_names(guild_id)
+            valid_teams = self.bot.db.guilds.get_guild_team_names(guild_id)
             valid_teams.append('Unassigned')
             if team_name not in valid_teams:
                 await interaction.response.send_message(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/showallteams` to see available teams.")
                 return
 
-            team_players = self.bot.db.get_team_roster(team_name, guild_id)
+            team_players = self.bot.db.players.get_team_roster(team_name, guild_id)
 
             embed = discord.Embed(
                 title=f"{team_name} Roster",
@@ -253,7 +253,7 @@ class TeamCog(BaseCog):
                 detailed_players = []
                 for player in team_players:
                     display_name = get_player_display_name(player, team_name, guild_id, self.bot.db)
-                    player_stats = self.bot.db.get_player_info(player, guild_id)
+                    player_stats = self.bot.db.players.get_player_info(player, guild_id)
                     if player_stats:
                         nicknames = player_stats.get('nicknames', [])
                         nickname_text = f" ({', '.join(nicknames)})" if nicknames else ""
@@ -290,7 +290,7 @@ class TeamCog(BaseCog):
         """Add a new team to the guild."""
         try:
             guild_id = self.get_guild_id(interaction)
-            success = self.bot.db.add_guild_team(guild_id, team_name)
+            success = self.bot.db.guilds.add_guild_team(guild_id, team_name)
 
             if success:
                 embed = discord.Embed(
@@ -327,14 +327,14 @@ class TeamCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            current_teams = self.bot.db.get_guild_team_names(guild_id)
+            current_teams = self.bot.db.guilds.get_guild_team_names(guild_id)
             team_exists = any(team.lower() == team_name.lower() for team in current_teams)
 
             if not team_exists:
                 await interaction.response.send_message(f"❌ Team '{team_name}' not found. Use `/showallteams` to see available teams.")
                 return
 
-            teams_with_counts = self.bot.db.get_guild_teams_with_counts(guild_id)
+            teams_with_counts = self.bot.db.guilds.get_guild_teams_with_counts(guild_id)
             player_count = 0
             actual_team_name = team_name
 
@@ -363,7 +363,7 @@ class TeamCog(BaseCog):
                 reaction, _ = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
 
                 if str(reaction.emoji) == "✅":
-                    success = self.bot.db.remove_guild_team(guild_id, actual_team_name)
+                    success = self.bot.db.guilds.remove_guild_team(guild_id, actual_team_name)
 
                     if success:
                         embed = discord.Embed(
@@ -403,7 +403,7 @@ class TeamCog(BaseCog):
         """Rename a team in the guild."""
         try:
             guild_id = self.get_guild_id(interaction)
-            success = self.bot.db.rename_guild_team(guild_id, old_name, new_name)
+            success = self.bot.db.guilds.rename_guild_team(guild_id, old_name, new_name)
 
             if success:
                 embed = discord.Embed(
@@ -455,7 +455,7 @@ class TeamCog(BaseCog):
                 )
                 return
 
-            success = self.bot.db.set_team_tag(guild_id, team_name, tag)
+            success = self.bot.db.guilds.set_team_tag(guild_id, team_name, tag)
 
             if success:
                 embed = discord.Embed(
@@ -497,7 +497,7 @@ class TeamCog(BaseCog):
                 )
                 return
 
-            success = self.bot.db.remove_team_tag(guild_id, team_name)
+            success = self.bot.db.guilds.remove_team_tag(guild_id, team_name)
 
             if success:
                 embed = discord.Embed(
@@ -528,14 +528,14 @@ class TeamCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            all_teams = self.bot.db.get_guild_team_names(guild_id)
+            all_teams = self.bot.db.guilds.get_guild_team_names(guild_id)
 
             if not all_teams:
                 await interaction.response.send_message("❌ No teams found. Use `/addteam` to create teams.", ephemeral=True)
                 return
 
             all_teams.append('Unassigned')
-            team_tags = self.bot.db.get_all_team_tags(guild_id)
+            team_tags = self.bot.db.guilds.get_all_team_tags(guild_id)
 
             embed = discord.Embed(
                 title="🏷️ Team Tags",

@@ -30,7 +30,7 @@ class LeaderboardView(discord.ui.View):
         self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
 
         # Cache team tags to reduce DB calls during pagination
-        self.team_tags = self.bot.db.get_all_team_tags(guild_id)
+        self.team_tags = self.bot.db.guilds.get_all_team_tags(guild_id)
 
         # Update button states
         self.update_buttons()
@@ -254,7 +254,7 @@ class GlobalLeaderboardView(discord.ui.View):
 
         # Fetch team tags for each guild
         for guild_id in guild_ids:
-            self.all_team_tags[guild_id] = self.bot.db.get_all_team_tags(guild_id)
+            self.all_team_tags[guild_id] = self.bot.db.guilds.get_all_team_tags(guild_id)
 
     def update_buttons(self):
         """Enable/disable buttons based on current page."""
@@ -585,7 +585,7 @@ class StatsCog(BaseCog):
 
         if lastxwars == 10:
             avg10_score = avg_score
-            overall_stats = self.bot.db.get_player_stats(player_name, guild_id)
+            overall_stats = self.bot.db.stats.get_player_stats(player_name, guild_id)
             if overall_stats:
                 fetched_avg = overall_stats.get('average_score')
                 if fetched_avg is not None and fetched_avg > 0:
@@ -594,8 +594,8 @@ class StatsCog(BaseCog):
             avg10_score = stats.get('avg10_score')
             war_count = stats.get('war_count', 0)
             if avg10_score is None and war_count >= 10:
-                self.bot.db._refresh_volatile_metrics(player_name, guild_id)
-                updated_stats = self.bot.db.get_player_stats(player_name, guild_id)
+                self.bot.db.stats._refresh_volatile_metrics(player_name, guild_id)
+                updated_stats = self.bot.db.stats.get_player_stats(player_name, guild_id)
                 if updated_stats:
                     avg10_score = updated_stats.get('avg10_score')
                     form_score = updated_stats.get('form_score')
@@ -646,7 +646,7 @@ class StatsCog(BaseCog):
         # Clutch Factor (performance in close wars)
         clutch_factor = stats.get('clutch_factor')
         if clutch_factor is None and float(stats.get('war_count', 0)) >= 2:
-            clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
+            clutch_factor = self.bot.db.stats.get_player_clutch_factor(player_name, guild_id)
             if clutch_factor is not None:
                 stats['clutch_factor'] = clutch_factor
 
@@ -703,7 +703,7 @@ class StatsCog(BaseCog):
         embed.add_field(name="📅 Activity", value=activity_text, inline=True)
 
         # Last 10 War Scores
-        last_scores = self.bot.db.get_player_last_war_scores(player_name, limit=10, guild_id=guild_id)
+        last_scores = self.bot.db.stats.get_player_last_war_scores(player_name, limit=10, guild_id=guild_id)
         if last_scores:
             scores_list = []
             for score in last_scores:
@@ -728,7 +728,7 @@ class StatsCog(BaseCog):
         players_without_stats = []
 
         for roster_player in member_stats:
-            war_stats = self.bot.db.get_player_stats(roster_player['player_name'], guild_id)
+            war_stats = self.bot.db.stats.get_player_stats(roster_player['player_name'], guild_id)
             if war_stats:
                 # For volatile metrics that need refreshing (first access after war change)
                 if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
@@ -748,17 +748,17 @@ class StatsCog(BaseCog):
 
                     # If metric is NULL but player has enough wars, refresh cache
                     if metric_key and war_stats.get(metric_key) is None and war_count >= min_wars:
-                        self.bot.db._refresh_volatile_metrics(player_name, guild_id)
-                        war_stats = self.bot.db.get_player_stats(player_name, guild_id)
+                        self.bot.db.stats._refresh_volatile_metrics(player_name, guild_id)
+                        war_stats = self.bot.db.stats.get_player_stats(player_name, guild_id)
 
                     # Fetch clutch factor for Clutch sorting
                     if sortby == 'clutch':
-                        clutch_factor = self.bot.db.get_player_clutch_factor(player_name, guild_id)
+                        clutch_factor = self.bot.db.stats.get_player_clutch_factor(player_name, guild_id)
                         war_stats['clutch_factor'] = clutch_factor
 
                     # Fetch potential for Potential sorting
                     if sortby == 'potential':
-                        potential = self.bot.db.get_player_potential(player_name, guild_id)
+                        potential = self.bot.db.stats.get_player_potential(player_name, guild_id)
                         war_stats['potential'] = potential
 
                 players_with_stats.append(war_stats)
@@ -842,7 +842,7 @@ class StatsCog(BaseCog):
 
             if player:
                 # Resolve nickname to actual player name first
-                resolved_player = self.bot.db.resolve_player_name(player, guild_id)
+                resolved_player = self.bot.db.players.resolve_player_name(player, guild_id)
                 if not resolved_player:
                     await interaction.response.send_message(f"❌ No player found with name or nickname: {player}", ephemeral=True)
                     return
@@ -853,7 +853,7 @@ class StatsCog(BaseCog):
                         await interaction.response.send_message("❌ Must be at least 1 war.", ephemeral=True)
                         return
 
-                    distinct_wars = self.bot.db.get_player_distinct_war_count(resolved_player, guild_id)
+                    distinct_wars = self.bot.db.stats.get_player_distinct_war_count(resolved_player, guild_id)
                     if distinct_wars == 0:
                         await interaction.response.send_message(f"❌ {resolved_player} hasn't participated in any wars yet.", ephemeral=True)
                         return
@@ -862,14 +862,14 @@ class StatsCog(BaseCog):
                         await interaction.response.send_message(f"❌ {resolved_player} has only participated in {distinct_wars} wars, can't show last {lastxwars}.", ephemeral=True)
                         return
 
-                    stats = self.bot.db.get_player_stats_last_x_wars(resolved_player, lastxwars, guild_id)
+                    stats = self.bot.db.stats.get_player_stats_last_x_wars(resolved_player, lastxwars, guild_id)
                 else:
-                    stats = self.bot.db.get_player_stats(resolved_player, guild_id)
+                    stats = self.bot.db.stats.get_player_stats(resolved_player, guild_id)
 
                 if stats:
                     await self._display_player_stats(interaction, resolved_player, stats, lastxwars, guild_id)
                 else:
-                    roster_stats = self.bot.db.get_player_info(resolved_player, guild_id)
+                    roster_stats = self.bot.db.players.get_player_info(resolved_player, guild_id)
                     if roster_stats:
                         embed = discord.Embed(
                             title=f"📊 Stats for {roster_stats['player_name']}",
@@ -891,10 +891,10 @@ class StatsCog(BaseCog):
                         await interaction.response.send_message(f"❌ No stats found for player: {player}", ephemeral=True)
             else:
                 # Get all player statistics from players table
-                roster_stats = self.bot.db.get_all_players_stats(guild_id)
+                roster_stats = self.bot.db.players.get_all_players_stats(guild_id)
 
                 # Get guild role configuration to check actual Discord roles
-                role_config = self.bot.db.get_guild_role_config(guild_id)
+                role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
 
                 # Filter for active members
                 member_stats = self._filter_active_members(roster_stats, interaction, role_config)
@@ -953,7 +953,7 @@ class StatsCog(BaseCog):
 
         try:
             # Get all players across all guilds (excludes testing guilds via env var)
-            all_players_basic = self.bot.db.get_all_players_stats_global()
+            all_players_basic = self.bot.db.players.get_all_players_stats_global()
 
             if not all_players_basic:
                 await interaction.followup.send(
@@ -969,7 +969,7 @@ class StatsCog(BaseCog):
                 guild_id = player_basic['guild_id']
 
                 # Get full stats including cached metrics
-                stats = self.bot.db.get_player_stats(player_name, guild_id)
+                stats = self.bot.db.stats.get_player_stats(player_name, guild_id)
                 if stats and stats.get('war_count', 0) >= MIN_WARS_FOR_LEADERBOARD:
                     # Add guild_id to stats for guild identification
                     stats['guild_id'] = guild_id
@@ -994,12 +994,12 @@ class StatsCog(BaseCog):
 
                 for stats in players_with_stats:
                     if stats.get(metric_key) is None and stats.get('war_count', 0) >= MIN_WARS_FOR_LEADERBOARD:
-                        self.bot.db._refresh_volatile_metrics(
+                        self.bot.db.stats._refresh_volatile_metrics(
                             stats['player_name'],
                             stats['guild_id']
                         )
                         # Re-fetch stats
-                        refreshed = self.bot.db.get_player_stats(
+                        refreshed = self.bot.db.stats.get_player_stats(
                             stats['player_name'],
                             stats['guild_id']
                         )
@@ -1008,7 +1008,7 @@ class StatsCog(BaseCog):
 
                         # Explicitly populate clutch_factor and potential if needed
                         if sortby == 'clutch' and stats.get('clutch_factor') is None:
-                            clutch = self.bot.db.get_player_clutch_factor(
+                            clutch = self.bot.db.stats.get_player_clutch_factor(
                                 stats['player_name'],
                                 stats['guild_id']
                             )
@@ -1016,7 +1016,7 @@ class StatsCog(BaseCog):
                                 stats['clutch_factor'] = clutch
 
                         if sortby == 'potential' and stats.get('potential') is None:
-                            potential = self.bot.db.get_player_potential(
+                            potential = self.bot.db.stats.get_player_potential(
                                 stats['player_name'],
                                 stats['guild_id']
                             )

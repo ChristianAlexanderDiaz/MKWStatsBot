@@ -109,7 +109,7 @@ class OCRCog(BaseCog):
             logging.info(f"🔍 Starting manual image scan for user {interaction.user.name}")
 
             # Check if an OCR channel is configured for this guild
-            configured_channel_id = self.bot.db.get_ocr_channel(guild_id)
+            configured_channel_id = self.bot.db.guilds.get_ocr_channel(guild_id)
             if not configured_channel_id:
                 embed = discord.Embed(
                     title="❌ No OCR Channel Set",
@@ -234,7 +234,7 @@ class OCRCog(BaseCog):
             logging.info(f"🔍 Starting bulk image scan for user {interaction.user.name} with limit: {limit}")
 
             # Check if an OCR channel is configured for this guild
-            configured_channel_id = self.bot.db.get_ocr_channel(guild_id)
+            configured_channel_id = self.bot.db.guilds.get_ocr_channel(guild_id)
             if not configured_channel_id:
                 embed = discord.Embed(
                     title="❌ No OCR Channel Set",
@@ -385,7 +385,7 @@ class OCRCog(BaseCog):
             logging.info(f"[DEBUG-OCR] Debug scan started by {interaction.user.name} (limit: {limit})")
 
             # Check if an OCR channel is configured for this guild
-            configured_channel_id = self.bot.db.get_ocr_channel(guild_id)
+            configured_channel_id = self.bot.db.guilds.get_ocr_channel(guild_id)
             if not configured_channel_id:
                 embed = discord.Embed(
                     title="❌ No OCR Channel Set",

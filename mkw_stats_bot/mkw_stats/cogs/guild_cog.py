@@ -152,7 +152,7 @@ class GuildCog(BaseCog):
 
                 conn.commit()
 
-            ocr_success = self.bot.db.set_ocr_channel(guild_id, results_channel.id)
+            ocr_success = self.bot.db.guilds.set_ocr_channel(guild_id, results_channel.id)
             if not ocr_success:
                 logging.warning(f"Failed to set OCR channel during setup for guild {guild_id}")
 
@@ -219,7 +219,7 @@ class GuildCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            success = self.bot.db.set_guild_role_config(
+            success = self.bot.db.guilds.set_guild_role_config(
                 guild_id=guild_id,
                 role_member_id=role_member.id,
                 role_trial_id=role_trial.id,
@@ -295,7 +295,7 @@ class GuildCog(BaseCog):
                 )
                 return
 
-            success = self.bot.db.set_ocr_channel(guild_id, channel.id)
+            success = self.bot.db.guilds.set_ocr_channel(guild_id, channel.id)
 
             if success:
                 embed = discord.Embed(
@@ -396,7 +396,7 @@ class GuildCog(BaseCog):
 
         guild_id = self.get_guild_id(interaction)
 
-        role_config = self.bot.db.get_guild_role_config(guild_id)
+        role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
 
         debug_lines = []
         debug_lines.append("=== ROLE CONFIGURATION ===")
@@ -415,7 +415,7 @@ class GuildCog(BaseCog):
 
         debug_lines.append("\n=== LINKED PLAYERS ===")
 
-        roster_stats = self.bot.db.get_all_players_stats(guild_id)
+        roster_stats = self.bot.db.players.get_all_players_stats(guild_id)
 
         linked_players = [p for p in roster_stats if p.get('discord_user_id')]
         debug_lines.append(f"Total linked players: {len(linked_players)}\n")

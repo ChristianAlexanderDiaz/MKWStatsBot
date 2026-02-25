@@ -23,12 +23,12 @@ class MemberCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            resolved_player = self.bot.db.resolve_player_name(player_name, guild_id)
+            resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.")
                 return
 
-            success = self.bot.db.set_player_member_status(resolved_player, member_status, guild_id)
+            success = self.bot.db.players.set_player_member_status(resolved_player, member_status, guild_id)
 
             if success:
                 status_display = member_status.title()
@@ -55,7 +55,7 @@ class MemberCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            trials = self.bot.db.get_players_by_member_status('trial', guild_id)
+            trials = self.bot.db.players.get_players_by_member_status('trial', guild_id)
 
             embed = discord.Embed(
                 title="🔍 Trial Members",
@@ -98,7 +98,7 @@ class MemberCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            kicked = self.bot.db.get_players_by_member_status('kicked', guild_id)
+            kicked = self.bot.db.players.get_players_by_member_status('kicked', guild_id)
 
             embed = discord.Embed(
                 title="🚫 Kicked Members",

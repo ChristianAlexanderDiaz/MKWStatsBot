@@ -119,7 +119,7 @@ class OCRHandler:
                     await processing_msg.edit(content="\u274c **Error:** Could not determine guild ID.")
                     return
 
-                configured_channel_id = self.bot.db.get_ocr_channel(guild_id)
+                configured_channel_id = self.bot.db.guilds.get_ocr_channel(guild_id)
                 if not configured_channel_id:
                     embed = discord.Embed(
                         title="\u274c No OCR Channel Set",
