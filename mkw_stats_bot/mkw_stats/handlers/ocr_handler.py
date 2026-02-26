@@ -3,6 +3,8 @@
 import asyncio
 import os
 import tempfile
+import aiofiles
+import aiofiles.tempfile
 import discord
 from typing import Optional, Dict, List, Tuple, Union
 
@@ -110,11 +112,11 @@ class OCRHandler:
         try:
             processing_msg = await message.channel.send("\U0001f50d Processing race results image...")
 
-            temp_file = None
+            temp_file_path = None
             try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                    await attachment.save(temp_file.name)
+                async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
                     temp_file_path = temp_file.name
+                await attachment.save(temp_file_path)
 
                 guild_id = message.guild.id if message.guild else None
                 if not guild_id:
@@ -164,7 +166,8 @@ class OCRHandler:
 
                 if not success:
                     await processing_msg.edit(content="", embed=embed)
-                    asyncio.create_task(self.bot.messages.countdown_and_delete_message(processing_msg, embed, 5))
+                    _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(processing_msg, embed, 5))
+                    _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
                     return
 
                 # Success - create interactive view for confirmation
@@ -183,7 +186,7 @@ class OCRHandler:
                 await processing_msg.edit(content="", embed=embed, view=view)
 
             finally:
-                if temp_file and os.path.exists(temp_file_path):
+                if temp_file_path and os.path.exists(temp_file_path):
                     os.unlink(temp_file_path)
         except Exception as e:
             logger.error(f"Error processing race results image: {e}")
@@ -241,7 +244,8 @@ class OCRHandler:
                 )
 
             await interaction.edit_original_response(embed=embed, view=None)
-            asyncio.create_task(self.bot.messages.countdown_and_delete_message(view.message, embed))
+            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(view.message, embed))
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
         except Exception as e:
             logger.error(f"Error handling OCR war submission from view: {e}")
@@ -251,7 +255,8 @@ class OCRHandler:
                 color=0xff0000,
             )
             await interaction.edit_original_response(embed=embed, view=None)
-            asyncio.create_task(self.bot.messages.countdown_and_delete_message(view.message, embed))
+            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(view.message, embed))
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
     async def handle_war_submission(self, message: discord.Message, confirmation_data: Dict):
         """Handle OCR war submission to database (reaction-based flow)."""
@@ -310,7 +315,8 @@ class OCRHandler:
                 pass
 
             self.bot.confirmations.cleanup(str(message.id))
-            asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
         except Exception as e:
             logger.error(f"Error in OCR war submission: {e}")
@@ -325,7 +331,8 @@ class OCRHandler:
             except discord.errors.Forbidden:
                 pass
             self.bot.confirmations.cleanup(str(message.id))
-            asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
     async def send_report(
         self,

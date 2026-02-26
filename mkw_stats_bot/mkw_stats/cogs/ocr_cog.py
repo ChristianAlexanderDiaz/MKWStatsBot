@@ -7,6 +7,7 @@ import tempfile
 import traceback
 
 import aiofiles
+import aiofiles.tempfile
 import aiohttp
 import discord
 from discord import app_commands
@@ -75,7 +76,7 @@ class OCRCog(BaseCog):
                 except (discord.errors.NotFound, discord.errors.Forbidden, discord.errors.HTTPException) as e:
                     logging.debug(f"Failed to update expired confirmation: {e}")
         except asyncio.CancelledError:
-            pass
+            raise
 
     async def _countdown_and_delete_confirmation(self, message: discord.Message, embed: discord.Embed, countdown_seconds: int = 60):
         """Countdown and delete confirmation message for bulk scan."""
@@ -172,10 +173,10 @@ class OCRCog(BaseCog):
                             await interaction.followup.send(f"❌ Failed to download image: HTTP {response.status}")
                             return
 
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                        async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
                             temp_path = temp_file.name
                             image_data = await response.read()
-                            temp_file.write(image_data)
+                            await temp_file.write(image_data)
                             logging.info(f"✅ Image downloaded to: {temp_path}")
             except Exception as e:
                 await interaction.followup.send(f"❌ Failed to download image: {str(e)}")
@@ -191,7 +192,8 @@ class OCRCog(BaseCog):
 
                 if not success:
                     error_msg = await interaction.followup.send(embed=embed)
-                    asyncio.create_task(self.bot._countdown_and_delete_message(error_msg, embed, 5))
+                    _task = asyncio.create_task(self.bot._countdown_and_delete_message(error_msg, embed, 5))
+                    _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
                     return
 
                 # Success - create interactive view for confirmation

@@ -3,6 +3,8 @@
 import asyncio
 import os
 import tempfile
+import aiofiles
+import aiofiles.tempfile
 import aiohttp
 import discord
 from typing import Dict, List
@@ -70,10 +72,10 @@ class BulkScanHandler:
                         async with aiohttp.ClientSession() as session:
                             async with session.get(image_data['attachment'].url) as response:
                                 if response.status == 200:
-                                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                                    async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
                                         temp_file_path = temp_file.name
                                         image_bytes = await response.read()
-                                        temp_file.write(image_bytes)
+                                        await temp_file.write(image_bytes)
                                 else:
                                     raise Exception(f"Failed to download: HTTP {response.status}")
 
@@ -161,7 +163,8 @@ class BulkScanHandler:
                 )
                 await message.edit(embed=embed)
                 self.bot.confirmations.cleanup(str(message.id))
-                asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed, 30))
+                _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed, 30))
+                _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
         except Exception as e:
             logger.error(f"Error in bulk scan processing: {e}")
@@ -462,7 +465,8 @@ class BulkScanHandler:
             except Exception as e:
                 logger.error(f"Failed to send bulk scan completion DM: {e}")
 
-        asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed, 60))
+        _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed, 60))
+        _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
     async def create_confirmation_embed(
         self,
@@ -500,7 +504,8 @@ class BulkScanHandler:
 
             await message.edit(embed=embed)
             self.bot.confirmations.cleanup(str(message.id))
-            asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed, 60))
+            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed, 60))
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
             return
 
         embed = discord.Embed(
@@ -609,6 +614,7 @@ class BulkScanHandler:
             await message.edit(embed=timeout_embed)
             await message.clear_reactions()
 
-            asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, timeout_embed, 30))
+            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, timeout_embed, 30))
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
         except:
             pass

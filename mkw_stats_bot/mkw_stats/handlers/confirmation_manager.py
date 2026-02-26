@@ -99,7 +99,8 @@ class ConfirmationManager:
                 pass
 
             self.cleanup(str(message.id))
-            asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
         except Exception as e:
             logger.error(f"Error handling confirmation accept: {e}")
@@ -109,7 +110,8 @@ class ConfirmationManager:
                 color=0xff0000,
             )
             await message.edit(embed=embed)
-            asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+            _task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
     async def handle_reject(self, message: discord.Message, confirmation_data: Dict):
         """Handle rejected confirmation."""
