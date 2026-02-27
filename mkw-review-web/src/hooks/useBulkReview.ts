@@ -8,7 +8,7 @@
  * was previously an inline function in page.tsx lives here instead.
  */
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime"
 import { api } from "@/lib/api"
@@ -56,6 +56,15 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
   const [editingFailure, setEditingFailure] = useState<number | null>(null)
   const [failureEditedPlayers, setFailureEditedPlayers] = useState<BulkPlayer[]>([])
 
+  // ---- Inline notifications (replaces browser alert() calls) ----
+  const [notification, setNotification] = useState<{
+    type: "success" | "error" | "warning"
+    message: string
+  } | null>(null)
+  const notify = (type: "success" | "error" | "warning", message: string) =>
+    setNotification({ type, message })
+  const clearNotification = () => setNotification(null)
+
   // Close the staged-players dropdown on Escape
   useEffect(() => {
     if (!showStagedMenu) return
@@ -75,7 +84,7 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
   })
 
   // Fetch all roster players once we know the guild_id from the session
-  const refreshRosterPlayers = async () => {
+  const refreshRosterPlayers = useCallback(async () => {
     if (!data?.session?.guild_id) return
     try {
       const result = await api.getAllPlayers(data.session.guild_id)
@@ -83,11 +92,11 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     } catch (err) {
       console.error("Failed to fetch players:", err)
     }
-  }
+  }, [data?.session?.guild_id])
 
   useEffect(() => {
     refreshRosterPlayers()
-  }, [data?.session?.guild_id])
+  }, [refreshRosterPlayers])
 
   // ---- Derived values ----
 
@@ -132,8 +141,7 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     mutationFn: () => api.confirmBulkSession(token),
     onSuccess: (result) => {
       if (result) {
-        alert(`Successfully created ${result.wars_created} wars!`)
-        router.push("/dashboard")
+        router.push(`/dashboard?wars_created=${result.wars_created}`)
       }
     },
   })
@@ -267,7 +275,7 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
   ) => {
     const validPlayers = failureEditedPlayers.filter((p) => p.name.trim() !== "")
     if (validPlayers.length === 0 && status !== "rejected") {
-      alert("Please add at least one player")
+      notify("error", "Please add at least one player")
       return
     }
     convertFailureMutation.mutate({ failureId, players: validPlayers, status })
@@ -290,14 +298,14 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
         }
       }
       if (failedPlayers.length > 0) {
-        alert(`Failed to add some players: ${failedPlayers.join(", ")}. Please retry.`)
+        notify("error", `Failed to add some players: ${failedPlayers.join(", ")}. Please retry.`)
         return
       }
       // Then finalise the session (creates wars from approved results)
       await confirmMutation.mutateAsync()
     } catch (err) {
       console.error("Error confirming session:", err)
-      alert("Error saving wars. Please try again.")
+      notify("error", "Error saving wars. Please try again.")
     } finally {
       setIsSaving(false)
     }
@@ -341,7 +349,8 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
             corrected: updatedPlayers,
           })
         }
-        alert(
+        notify(
+          "success",
           isStagedPlayer
             ? `Linked "${detectedName}" to staged player ${rosterPlayerName}`
             : `Linked "${detectedName}" as nickname to ${rosterPlayerName}`
@@ -349,11 +358,11 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
         setLinkingPlayer(null)
         setLinkSearchQuery("")
       } else {
-        alert("Failed to link player. Please try again.")
+        notify("error", "Failed to link player. Please try again.")
       }
     } catch (err) {
       console.error("Error linking player:", err)
-      alert("Error linking player. Please try again.")
+      notify("error", "Error linking player. Please try again.")
     }
   }
 
@@ -370,7 +379,7 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     const isInRoster = rosterPlayers.some((p) => p.toLowerCase() === name.toLowerCase())
     const isStaged = stagedPlayers.some((p) => p.name.toLowerCase() === name.toLowerCase())
     if (isInRoster || isStaged) {
-      alert("Player already exists. Try linking instead.")
+      notify("warning", "Player already exists. Try linking instead.")
       return
     }
     setStagedPlayers((prev) => [...prev, { name, memberStatus }])
@@ -416,7 +425,8 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
       console.error("Failed to remove staged player:", error)
       setStagedPlayers(prevStagedPlayers)
       setNewlyAddedPlayers(prevNewlyAddedPlayers)
-      alert(
+      notify(
+        "error",
         `Failed to remove staged player: ${error instanceof Error ? error.message : "Unknown error"}`
       )
     }
@@ -427,6 +437,9 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     data,
     isLoading,
     error,
+    // Notification state
+    notification,
+    clearNotification,
     // Status counts
     approvedCount,
     pendingCount,

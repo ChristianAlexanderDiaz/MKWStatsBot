@@ -1,3 +1,4 @@
+import aiohttp
 import discord
 from discord.ext import commands
 import asyncio
@@ -315,6 +316,9 @@ class MarioKartBot(commands.Bot):
         self.war_service = WarService(self.db)
         self.ocr = OCRProcessor(db_manager=self.db)
 
+        # Shared HTTP client (created in setup_hook after the event loop is running)
+        self.http_session: Optional[aiohttp.ClientSession] = None
+
         # Confirmation state (accessed directly by commands.py)
         self.pending_confirmations = {}  # message_id -> confirmation_data
         self.timeout_tasks = {}  # message_id -> asyncio.Task
@@ -325,6 +329,18 @@ class MarioKartBot(commands.Bot):
         self.confirmations = ConfirmationManager(self)
         self.ocr_handler = OCRHandler(self)
         self.bulk_scan_handler = BulkScanHandler(self)
+
+    async def setup_hook(self) -> None:
+        """Create shared aiohttp session after login, before gateway connection."""
+        self.http_session = aiohttp.ClientSession()
+
+    async def close(self) -> None:
+        """Clean up shared resources on shutdown."""
+        if self.http_session and not self.http_session.closed:
+            await self.http_session.close()
+        from .dashboard_client import dashboard_client
+        await dashboard_client.close()
+        await super().close()
 
     async def on_ready(self) -> None:
         """Event handler called when bot is ready."""

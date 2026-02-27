@@ -5,7 +5,6 @@ import os
 import tempfile
 import aiofiles
 import aiofiles.tempfile
-import aiohttp
 import discord
 from typing import Dict, List
 
@@ -16,8 +15,11 @@ logger = get_logger(__name__)
 
 
 def _log_task_error(t: asyncio.Task) -> None:
-    if not t.cancelled() and (exc := t.exception()):
-        logger.debug(f"Background task failed: {exc}")
+    if t.cancelled():
+        return
+    exc = t.exception()
+    if exc:
+        logger.error("Background task failed", exc_info=exc)
 
 
 class BulkScanHandler:
@@ -74,15 +76,14 @@ class BulkScanHandler:
 
                     temp_file_path = None
                     try:
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(image_data['attachment'].url) as response:
-                                if response.status == 200:
-                                    async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                                        temp_file_path = temp_file.name
-                                        image_bytes = await response.read()
-                                        await temp_file.write(image_bytes)
-                                else:
-                                    raise Exception(f"Failed to download: HTTP {response.status}")
+                        async with self.bot.http_session.get(image_data['attachment'].url) as response:
+                            if response.status == 200:
+                                async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                                    temp_file_path = temp_file.name
+                                    image_bytes = await response.read()
+                                    await temp_file.write(image_bytes)
+                            else:
+                                raise Exception(f"Failed to download: HTTP {response.status}")
 
                         if hasattr(self.bot.ocr, 'process_image_async'):
                             result = await self.bot.ocr.process_image_async(
@@ -133,7 +134,7 @@ class BulkScanHandler:
                         if temp_file_path and os.path.exists(temp_file_path):
                             try:
                                 os.unlink(temp_file_path)
-                            except:
+                            except OSError:
                                 pass
 
                     await asyncio.sleep(1)
@@ -568,7 +569,7 @@ class BulkScanHandler:
 
         try:
             await message.delete()
-        except:
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
 
         confirmation_msg = await message.channel.send(embed=embed)
@@ -584,42 +585,6 @@ class BulkScanHandler:
             'user_id': user_id,
         }
 
-        if str(message.id) in self.bot.pending_confirmations:
-            del self.bot.pending_confirmations[str(message.id)]
-
+        self.bot.pending_confirmations.pop(str(message.id), None)
         self.bot.pending_confirmations[str(confirmation_msg.id)] = bulk_results_data
 
-    async def countdown_and_delete_confirmation(
-        self,
-        message: discord.Message,
-        embed: discord.Embed,
-        countdown_seconds: int = 60,
-    ):
-        """Countdown and delete confirmation for bulk results."""
-        for remaining in range(countdown_seconds, 0, -1):
-            await asyncio.sleep(1)
-            if remaining <= 5:
-                try:
-                    embed_copy = embed.copy()
-                    embed_copy.set_footer(text=f"Review the OCR results carefully \u2022 Expires in {remaining} seconds")
-                    await message.edit(embed=embed_copy)
-                except:
-                    pass
-
-        try:
-            message_id = str(message.id)
-            if message_id in self.bot.pending_confirmations:
-                del self.bot.pending_confirmations[message_id]
-
-            timeout_embed = discord.Embed(
-                title="\u23f0 Confirmation Expired",
-                description="Bulk scan results were not saved due to timeout. Use `/bulkscanimage` again if needed.",
-                color=0x999999,
-            )
-            await message.edit(embed=timeout_embed)
-            await message.clear_reactions()
-
-            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, timeout_embed, 30))
-            _task.add_done_callback(_log_task_error)
-        except:
-            pass

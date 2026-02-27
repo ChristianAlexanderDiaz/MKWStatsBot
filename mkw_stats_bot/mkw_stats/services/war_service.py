@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Dict, Optional
 
-from ..constants import TOTAL_POINTS_PER_RACE
+from ..constants import TOTAL_POINTS_PER_RACE, EASTERN_TZ
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class WarService:
             team_differential = team_score - opponent_score
 
             # Step 3: Update player statistics
-            current_date = self._get_eastern_date()
+            current_date = datetime.now(EASTERN_TZ).strftime('%Y-%m-%d')
             stats_updated = []
             stats_failed = []
 
@@ -161,7 +161,7 @@ class WarService:
             opponent_score = total_points - team_score
             team_differential = team_score - opponent_score
 
-            current_date = self._get_eastern_date()
+            current_date = datetime.now(EASTERN_TZ).strftime('%Y-%m-%d')
             stats_updated = []
             stats_failed = []
 
@@ -253,13 +253,3 @@ class WarService:
 
         return normalized
 
-    @staticmethod
-    def _get_eastern_date() -> str:
-        """Get current date in Eastern Time as ISO string."""
-        try:
-            import zoneinfo
-            eastern_tz = zoneinfo.ZoneInfo('America/New_York')
-            return datetime.now(eastern_tz).strftime('%Y-%m-%d')
-        except (ImportError, KeyError):
-            import pytz
-            return datetime.now(pytz.timezone('America/New_York')).strftime('%Y-%m-%d')

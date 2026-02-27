@@ -8,7 +8,6 @@ import traceback
 
 import aiofiles
 import aiofiles.tempfile
-import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -18,8 +17,11 @@ from ..database import DatabaseManager
 
 
 def _log_task_error(t: asyncio.Task) -> None:
-    if not t.cancelled() and (exc := t.exception()):
-        logging.debug(f"Background task failed: {exc}")
+    if t.cancelled():
+        return
+    exc = t.exception()
+    if exc:
+        logging.error("Background task failed", exc_info=exc)
 
 
 class OCRCog(BaseCog):
@@ -30,10 +32,6 @@ class OCRCog(BaseCog):
         try:
             await message.add_reaction("✅")
             await message.add_reaction("❌")
-
-            # Store pending confirmation data
-            if not hasattr(self.bot, 'pending_confirmations'):
-                self.bot.pending_confirmations = {}
 
             confirmation_data = {
                 'type': 'ocr_war_submission',
@@ -98,8 +96,7 @@ class OCRCog(BaseCog):
         # Clean up and delete
         try:
             message_id = str(message.id)
-            if message_id in self.bot.pending_confirmations:
-                del self.bot.pending_confirmations[message_id]
+            self.bot.pending_confirmations.pop(message_id, None)
             await message.delete()
         except (discord.errors.NotFound, discord.errors.Forbidden, discord.errors.HTTPException) as e:
             logging.debug(f"Failed to delete message: {e}")
@@ -172,17 +169,16 @@ class OCRCog(BaseCog):
 
             # Download image
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(recent_image.url) as response:
-                        if response.status != 200:
-                            await interaction.followup.send(f"❌ Failed to download image: HTTP {response.status}")
-                            return
+                async with self.bot.http_session.get(recent_image.url) as response:
+                    if response.status != 200:
+                        await interaction.followup.send(f"❌ Failed to download image: HTTP {response.status}")
+                        return
 
-                        async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                            temp_path = temp_file.name
-                            image_data = await response.read()
-                            await temp_file.write(image_data)
-                            logging.info(f"✅ Image downloaded to: {temp_path}")
+                    async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                        temp_path = temp_file.name
+                        image_data = await response.read()
+                        await temp_file.write(image_data)
+                        logging.info(f"✅ Image downloaded to: {temp_path}")
             except Exception as e:
                 await interaction.followup.send(f"❌ Failed to download image: {str(e)}")
                 return
@@ -495,14 +491,13 @@ class OCRCog(BaseCog):
 
                 try:
                     # Download image to temp file
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(attachment.url) as resp:
-                            if resp.status == 200:
-                                suffix = os.path.splitext(attachment.filename)[1]
-                                fd, temp_path = tempfile.mkstemp(suffix=suffix)
-                                os.close(fd)
-                                async with aiofiles.open(temp_path, 'wb') as tmp_file:
-                                    await tmp_file.write(await resp.read())
+                    async with self.bot.http_session.get(attachment.url) as resp:
+                        if resp.status == 200:
+                            suffix = os.path.splitext(attachment.filename)[1]
+                            fd, temp_path = tempfile.mkstemp(suffix=suffix)
+                            os.close(fd)
+                            async with aiofiles.open(temp_path, 'wb') as tmp_file:
+                                await tmp_file.write(await resp.read())
 
                     if not temp_path:
                         error_msg = "Failed to download image"

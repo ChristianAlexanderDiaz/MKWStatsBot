@@ -98,9 +98,6 @@ class ConfirmationManager:
                 return
 
             # Standard race results handling
-            for result in results:
-                result['message_id'] = confirmation_data['original_message_id']
-
             guild_id = message.guild.id if message.guild else None
             if not guild_id:
                 logger.error("Cannot save race results: guild_id is None")
@@ -108,9 +105,9 @@ class ConfirmationManager:
                 return
 
             race_count = confirmation_data.get('race_count', 12)
-            success = self.bot.db.wars.add_race_results(results, race_count, guild_id=guild_id)
+            submission = self.bot.war_service.submit_war(results, race_count, guild_id)
 
-            if success:
+            if submission.success:
                 embed = discord.Embed(
                     title="\u2705 Results Saved Successfully!",
                     description=f"Saved results for {len(results)} clan members.",

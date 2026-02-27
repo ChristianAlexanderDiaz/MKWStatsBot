@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import traceback
 from typing import List, Dict, Any, Optional
 import discord
 from discord.ext import commands
@@ -1026,7 +1027,6 @@ class StatsCog(BaseCog):
 
         except Exception as e:
             logging.error(f"❌ Error in /leaderboard command: {e}")
-            import traceback
             logging.error(traceback.format_exc())
             await interaction.followup.send(
                 "❌ An error occurred while generating the leaderboard.",

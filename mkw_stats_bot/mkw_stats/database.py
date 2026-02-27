@@ -31,56 +31,9 @@ from .constants import (
     DB_POOL_MAX,
     DB_STATEMENT_TIMEOUT,
     DB_CONNECT_TIMEOUT,
+    EXCLUDED_GUILD_IDS,
 )
 from .repositories import PlayerRepository, WarRepository, StatsRepository, GuildRepository
-
-
-# Excluded guilds (testing/dev guilds excluded from leaderboards)
-# Format: comma-separated guild IDs in EXCLUDED_GUILD_IDS environment variable
-# If unset: uses default testing guild IDs
-# If empty string: disables exclusions (allows all guilds)
-# If set: parses comma-separated guild IDs
-def _parse_excluded_guilds() -> List[int]:
-    """Parse excluded guild IDs from environment variable.
-
-    - None/Unset: Returns default testing guild IDs
-    - Empty string: Returns [] (disables exclusions)
-    - CSV string: Parses and returns guild IDs (invalid tokens logged and skipped)
-    """
-    excluded_str = os.getenv('EXCLUDED_GUILD_IDS')
-
-    if excluded_str is None:
-        # Unset: use default testing guild exclusion
-        default_testing_guild = 1395476782312063096
-        logging.info(f"✅ EXCLUDED_GUILD_IDS not set, using default: {default_testing_guild}")
-        return [default_testing_guild]
-
-    if excluded_str == '':
-        # Explicitly empty: disable all exclusions
-        logging.info("✅ EXCLUDED_GUILD_IDS set to empty, disabling all exclusions")
-        return []
-
-    # Parse CSV guild IDs individually (keep valid, log invalid)
-    guild_ids = []
-    for token in excluded_str.split(','):
-        token = token.strip()
-        if not token:
-            continue
-        try:
-            guild_ids.append(int(token))
-        except ValueError:
-            logging.warning(f"⚠️ Invalid guild ID token '{token}' - skipping")
-
-    if guild_ids:
-        logging.info(f"✅ Excluding guilds: {guild_ids}")
-        return guild_ids
-    else:
-        # No valid IDs parsed - fall back to default testing guild
-        default_testing_guild = 1395476782312063096
-        logging.warning(f"⚠️ No valid guild IDs in EXCLUDED_GUILD_IDS, falling back to default: {default_testing_guild}")
-        return [default_testing_guild]
-
-EXCLUDED_GUILD_IDS = _parse_excluded_guilds()
 
 
 class DatabaseManager:

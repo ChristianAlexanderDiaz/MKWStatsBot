@@ -5,7 +5,63 @@ All magic numbers, thresholds, and configuration constants live here
 so they can be imported by any module without circular dependencies.
 """
 
-from typing import Dict
+import logging
+import os
+from typing import Dict, List
+
+# =============================================================================
+# Timezone
+# =============================================================================
+
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    EASTERN_TZ = _ZoneInfo('America/New_York')
+except ImportError:
+    from datetime import timezone, timedelta
+    EASTERN_TZ = timezone(timedelta(hours=-5))  # type: ignore[assignment]
+
+# =============================================================================
+# Guild Exclusions (testing/dev guilds excluded from global leaderboards)
+# =============================================================================
+
+def _parse_excluded_guilds() -> List[int]:
+    """Parse excluded guild IDs from the EXCLUDED_GUILD_IDS environment variable.
+
+    - Unset: returns the default testing guild ID
+    - Empty string: returns [] (disables all exclusions)
+    - CSV string: parses and returns guild IDs (invalid tokens logged and skipped)
+    """
+    excluded_str = os.getenv('EXCLUDED_GUILD_IDS')
+
+    if excluded_str is None:
+        default_testing_guild = 1395476782312063096
+        logging.info(f"✅ EXCLUDED_GUILD_IDS not set, using default: {default_testing_guild}")
+        return [default_testing_guild]
+
+    if excluded_str == '':
+        logging.info("✅ EXCLUDED_GUILD_IDS set to empty, disabling all exclusions")
+        return []
+
+    guild_ids = []
+    for token in excluded_str.split(','):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            guild_ids.append(int(token))
+        except ValueError:
+            logging.warning(f"⚠️ Invalid guild ID token '{token}' - skipping")
+
+    if guild_ids:
+        logging.info(f"✅ Excluding guilds: {guild_ids}")
+        return guild_ids
+
+    default_testing_guild = 1395476782312063096
+    logging.warning(f"⚠️ No valid guild IDs in EXCLUDED_GUILD_IDS, falling back to default: {default_testing_guild}")
+    return [default_testing_guild]
+
+
+EXCLUDED_GUILD_IDS: List[int] = _parse_excluded_guilds()
 
 # =============================================================================
 # Bot Identity

@@ -4,9 +4,11 @@ Player repository: CRUD operations for players, roster, nicknames, and Discord l
 
 import json
 import logging
+import traceback
 from typing import List, Dict, Optional
 
 from .base import BaseRepository
+from ..constants import EXCLUDED_GUILD_IDS
 
 
 class PlayerRepository(BaseRepository):
@@ -211,7 +213,6 @@ class PlayerRepository(BaseRepository):
         except Exception as e:
             if log_level == 'error':
                 logging.error(f"❌ Database error resolving player name '{name_or_nickname}' (guild: {guild_id}): {e}")
-                import traceback
                 logging.error(f"❌ Full traceback: {traceback.format_exc()}")
             elif log_level == 'debug':
                 logging.debug(f"🔍 Database lookup failed for '{name_or_nickname}' (expected if opponent): {e}")
@@ -287,7 +288,6 @@ class PlayerRepository(BaseRepository):
 
         Automatically excludes testing/dev guilds configured in EXCLUDED_GUILD_IDS env var.
         """
-        from ..database import EXCLUDED_GUILD_IDS
 
         try:
             with self.get_connection() as conn:

@@ -4,6 +4,7 @@ Stats repository: Player statistics, metrics calculation, and caching.
 
 import logging
 import statistics
+import traceback
 from typing import List, Dict, Optional
 
 from .base import BaseRepository
@@ -261,7 +262,6 @@ class StatsRepository(BaseRepository):
 
         except Exception as e:
             logging.error(f"❌ Error removing player stats with participation for {player_name}: {e}")
-            import traceback
             logging.error(f"❌ Full traceback: {traceback.format_exc()}")
             return False
 

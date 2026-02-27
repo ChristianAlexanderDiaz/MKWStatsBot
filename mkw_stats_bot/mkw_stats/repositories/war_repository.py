@@ -5,15 +5,10 @@ War repository: CRUD operations for wars, duplicate detection.
 import json
 import logging
 from typing import List, Dict, Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 from .base import BaseRepository
-
-try:
-    from zoneinfo import ZoneInfo as _ZoneInfo
-    EASTERN_TZ = _ZoneInfo('America/New_York')
-except ImportError:
-    EASTERN_TZ = timezone(timedelta(hours=-5))
+from ..constants import TOTAL_POINTS_PER_RACE, EASTERN_TZ
 
 
 class WarRepository(BaseRepository):
@@ -43,7 +38,7 @@ class WarRepository(BaseRepository):
 
                 # Calculate team score and differential
                 team_score = sum(result.get('score', 0) for result in results)
-                total_points = 82 * race_count
+                total_points = TOTAL_POINTS_PER_RACE * race_count
                 opponent_score = total_points - team_score
                 team_differential = team_score - opponent_score
 
@@ -264,14 +259,14 @@ class WarRepository(BaseRepository):
                 race_count = row[2] or 12
                 players_data = session_data.get('results', [])
                 team_differential = row[6] if row[6] is not None else 0
-                logging.info(f"🔍 War {war_id} retrieved: race_count={race_count}, differential={team_differential}")
-                logging.info(f"🔍 Players data from war: {players_data}")
-                logging.info(f"🔍 Number of players to process: {len(players_data)}")
-                logging.info(f"🔍 Team differential to remove: {team_differential}")
+                logging.debug(f"🔍 War {war_id} retrieved: race_count={race_count}, differential={team_differential}")
+                logging.debug(f"🔍 Players data from war: {players_data}")
+                logging.debug(f"🔍 Number of players to process: {len(players_data)}")
+                logging.debug(f"🔍 Team differential to remove: {team_differential}")
 
                 stats_reverted = 0
                 for i, result in enumerate(players_data):
-                    logging.info(f"🔍 Processing player {i+1}/{len(players_data)}: {result}")
+                    logging.debug(f"🔍 Processing player {i+1}/{len(players_data)}: {result}")
                     player_name = result.get('name')
                     score = result.get('score', 0)
                     races_played = result.get('races_played', race_count)
@@ -339,7 +334,7 @@ class WarRepository(BaseRepository):
                 combined_results = existing_results + new_players
 
                 new_team_score = sum(p.get('score', 0) for p in combined_results)
-                total_points = 82 * race_count
+                total_points = TOTAL_POINTS_PER_RACE * race_count
                 opponent_score = total_points - new_team_score
                 new_team_differential = new_team_score - opponent_score
 
@@ -383,7 +378,7 @@ class WarRepository(BaseRepository):
                 }
 
                 team_score = sum(r.get('score', 0) for r in results)
-                total_points = 82 * race_count
+                total_points = TOTAL_POINTS_PER_RACE * race_count
                 team_differential = team_score - (total_points - team_score)
 
                 cursor.execute("""

@@ -20,6 +20,18 @@ class DashboardClient:
         self.api_key = DASHBOARD_API_KEY
         self.web_url = DASHBOARD_WEB_URL
         self.enabled = DASHBOARD_ENABLED
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Return the shared session, creating it lazily on first use."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close(self) -> None:
+        """Close the shared session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     def is_enabled(self) -> bool:
         """Check if dashboard integration is enabled and configured."""
@@ -109,12 +121,12 @@ class DashboardClient:
             if formatted_failed_results:
                 payload["failed_results"] = formatted_failed_results
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            session = await self._get_session()
+            async with session.post(
                     f"{self.api_url}/api/bulk/sessions",
                     json=payload,
                     headers=self._get_headers()
-                ) as response:
+            ) as response:
                     if response.status == 200:
                         data = await response.json()
                         logger.info(f"Created bulk session: {data.get('token')}")
@@ -138,12 +150,12 @@ class DashboardClient:
             return False
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
+            session = await self._get_session()
+            async with session.get(
                     f"{self.api_url}/health",
                     timeout=aiohttp.ClientTimeout(total=5)
-                ) as response:
-                    return response.status == 200
+            ) as response:
+                return response.status == 200
         except Exception as e:
             logger.error(f"Dashboard health check failed: {e}")
             return False
