@@ -83,7 +83,13 @@ class OCRProcessor:
         """Initialize PaddleOCR processor with memory optimization and optional resource management."""
         self.db_manager = db_manager
         self.ocr = None
-        
+
+        # Initialize OCR sub-modules
+        from .ocr import NameResolver, ScorePairer, TeamSplitter
+        self.name_resolver = NameResolver(db_manager)
+        self.score_pairer = ScorePairer()
+        self.team_splitter = TeamSplitter(db_manager)
+
         # Initialize resource management if available
         self.resource_management_enabled = RESOURCE_MANAGEMENT_AVAILABLE
         if self.resource_management_enabled:
@@ -95,10 +101,10 @@ class OCRProcessor:
             except Exception as e:
                 logging.warning(f"Failed to initialize resource management: {e}")
                 self.resource_management_enabled = False
-        
+
         if not self.resource_management_enabled:
             logging.info("📝 OCR Processor initialized in basic mode (no resource management)")
-        
+
         self._initialize_ocr()
     
     def _initialize_ocr(self):
@@ -570,11 +576,12 @@ class OCRProcessor:
     
     def _parse_mario_kart_results(self, extracted_texts: List[Dict], guild_id: int = 0) -> List[Dict]:
         """Parse extracted text to find Mario Kart player results using database validation."""
+        from .ocr import extract_score_from_corrupted_token
         try:
             if not self.db_manager:
                 logging.error("❌ No database manager available for player validation")
                 return []
-            
+
             # Combine all OCR text into single string and tokenize
             # Also build token-to-bbox mapping for spatial disambiguation
             combined_text = ' '.join([item['text'] for item in extracted_texts])
@@ -632,7 +639,7 @@ class OCRProcessor:
                     
                     # Only treat as embedded score if NO following score exists
                     if not has_following_score:
-                        embedded_score = self._extract_score_from_corrupted_token(token)
+                        embedded_score = extract_score_from_corrupted_token(token)
                         if embedded_score:
                             score_positions.append(i)
                             logging.info(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
@@ -640,20 +647,20 @@ class OCRProcessor:
                         logging.info(f"🔍 Skipping potential embedded score in '{token}' because followed by valid score '{next_token}'")
             
             # Find all valid player names using sliding window
-            valid_names = self._find_valid_names_with_window(tokens, guild_id)
+            valid_names = self.name_resolver.find_valid_names_with_window(tokens, guild_id)
 
             # Pair names with scores using proximity (with bbox-based disambiguation)
-            results = self._pair_names_with_scores(valid_names, score_positions, tokens, token_bboxes)
-            
+            results = self.score_pairer.pair_names_with_scores(valid_names, score_positions, tokens, token_bboxes)
+
             # Count total detected vs guild players
             all_detected_scores = len(score_positions)
             guild_players_found = len(results)
             opponent_players = all_detected_scores - guild_players_found
-            
+
             # Check for team splitting (handles 11-20 players dynamically)
             if 11 <= all_detected_scores <= 20:
                 logging.info(f"🔀 Team Split Detection: {all_detected_scores} players, {guild_players_found} guild members")
-                results = self._apply_dynamic_team_splitting(results, tokens, guild_id, all_detected_scores)
+                results = self.team_splitter.apply_dynamic_team_splitting(results, tokens, guild_id, all_detected_scores)
                 guild_players_found = len(results)  # Update count after splitting
                 opponent_players = all_detected_scores - guild_players_found
             
@@ -670,455 +677,51 @@ class OCRProcessor:
             logging.error(f"❌ Error parsing Mario Kart results: {e}")
             return []
     
+    # ------------------------------------------------------------------
+    # Backward-compat stubs – implementations live in ocr/ sub-modules
+    # ------------------------------------------------------------------
+
     def _apply_6v6_team_splitting(self, guild_results: List[Dict], tokens: List[str], guild_id: int) -> List[Dict]:
-        """Apply 6v6 team splitting using majority rule based on player positions in raw OCR."""
-        try:
-            logging.info("🔀 Starting 6v6 team splitting analysis")
-            
-            # Extract all player-score pairs from tokens in order to determine positioning
-            all_players = self._extract_all_players_from_tokens(tokens, guild_id)
-            logging.info(f"📊 Extracted {len(all_players)} total players from OCR tokens")
-            
-            if len(all_players) != 12:
-                logging.warning(f"⚠️ Expected 12 players for 6v6 split, found {len(all_players)}. Skipping split.")
-                return guild_results
-            
-            # Create position mapping for guild members by matching their raw names and scores
-            guild_member_positions = {}
-            
-            for result in guild_results:
-                result_name = result['name']
-                result_score = result['score']
-                result_raw = result.get('raw_name', result_name)
-                
-                # Find this guild member's position in the all_players list
-                for pos, (player_name, score) in enumerate(all_players):
-                    # Match by score and name (handle different raw name formats)
-                    score_match = (score == result_score)
-                    name_match1 = (player_name.lower() == result_raw.lower())
-                    name_match2 = (player_name.lower() == result_name.lower())
-                    name_match3 = (result_name.lower() in player_name.lower())
-                    
-                    if (score_match and (name_match1 or name_match2 or name_match3)):
-                        guild_member_positions[result_name] = pos
-                        logging.info(f"🎯 {result_name} found at position {pos}")
-                        break
-            
-            # Split guild members into two teams based on their positions
-            team1_guild_members = []  # Positions 0-5
-            team2_guild_members = []  # Positions 6-11
-            
-            for result in guild_results:
-                member_name = result['name']
-                if member_name in guild_member_positions:
-                    pos = guild_member_positions[member_name]
-                    if pos < 6:
-                        team1_guild_members.append(result)
-                    else:
-                        team2_guild_members.append(result)
-                else:
-                    logging.warning(f"⚠️ Could not find position for guild member {member_name}")
-                    # Default to team1 if position unknown
-                    team1_guild_members.append(result)
-            
-            team1_guild_count = len(team1_guild_members)
-            team2_guild_count = len(team2_guild_members)
-            
-            # Log team composition summary
-            team1_names = [m['name'] for m in team1_guild_members]
-            team2_names = [m['name'] for m in team2_guild_members]
-            logging.info(f"🏁 Team split - First 6: {team1_guild_count} guild members ({', '.join(team1_names)})")
-            logging.info(f"🏁 Team split - Last 6: {team2_guild_count} guild members ({', '.join(team2_names)})")
-            
-            # Apply majority rule
-            if team1_guild_count > team2_guild_count:
-                winning_team = team1_guild_members
-                excluded_team = team2_guild_members
-                winning_team_num = 1
-            elif team2_guild_count > team1_guild_count:
-                winning_team = team2_guild_members
-                excluded_team = team1_guild_members
-                winning_team_num = 2
-            else:
-                # Tie scenario - return all players and let user manually decide
-                logging.info(f"🤝 Team split tie: {team1_guild_count} vs {team2_guild_count} guild members - recording all players")
-                return guild_results
-            
-            # Log final decision
-            winning_names = [r['name'] for r in winning_team]
-            excluded_names = [r['name'] for r in excluded_team]
+        """Delegate to TeamSplitter.apply_6v6_team_splitting."""
+        return self.team_splitter.apply_6v6_team_splitting(guild_results, tokens, guild_id)
 
-            logging.info(f"🏆 6v6 Result - Team {winning_team_num} selected: {', '.join(winning_names)}")
-            if excluded_team:
-                logging.info(f"❌ Excluded opposing team: {', '.join(excluded_names)}")
+    def _apply_dynamic_team_splitting(self, guild_results, tokens, guild_id, total_players):
+        """Delegate to TeamSplitter.apply_dynamic_team_splitting."""
+        return self.team_splitter.apply_dynamic_team_splitting(guild_results, tokens, guild_id, total_players)
 
-            # Apply substring matching ONLY to winning team for corrupted name recovery
-            # This is safe because we know these positions belong to the winning team
-            logging.info("🔍 Attempting to recover corrupted names in winning team...")
-            winning_team_start = 0 if winning_team_num == 1 else 6
-            winning_team_end = 6 if winning_team_num == 1 else 12
+    def _map_guild_positions(self, guild_results, all_players):
+        """Delegate to TeamSplitter.map_guild_positions."""
+        return self.team_splitter.map_guild_positions(guild_results, all_players)
 
-            # Get guild members for substring matching
-            guild_players = self.db_manager.get_all_players_stats(guild_id) if self.db_manager else []
-            guild_names_list = {p.get('player_name', '').lower(): p.get('player_name', '') for p in guild_players}
+    def _extract_all_players_from_tokens(self, tokens, guild_id=0):
+        """Delegate to TeamSplitter.extract_all_players_from_tokens."""
+        return self.team_splitter.extract_all_players_from_tokens(tokens, guild_id)
 
-            # Try to recover corrupted names in winning team positions
-            for result in winning_team:
-                result_name = result['name']
-                result_raw = result.get('raw_name', result_name)
-                result_score = result['score']
+    def _find_valid_names_with_window(self, tokens, guild_id):
+        """Delegate to NameResolver.find_valid_names_with_window."""
+        return self.name_resolver.find_valid_names_with_window(tokens, guild_id)
 
-                # Look for any unmatched tokens in winning team positions that might be this player
-                for pos, (token_name, token_score) in enumerate(all_players):
-                    if winning_team_start <= pos < winning_team_end and token_score == result_score:
-                        # Found matching score in correct position
-                        # Check if token_name contains any guild member name substring
-                        token_lower = token_name.lower()
-                        for guild_name in guild_names_list.keys():
-                            if len(guild_name) >= 2 and guild_name in token_lower and guild_name != result_name.lower():
-                                # Potential recovery - update raw_name if it looks like a corrupted match
-                                logging.info(f"🔧 Potential corruption recovery: '{token_name}' might be '{guild_name}' for score {result_score}")
-                                break
+    def _find_guild_name_in_substring(self, corrupted_token, guild_id):
+        """Delegate to NameResolver.find_guild_name_in_substring."""
+        return self.name_resolver.find_guild_name_in_substring(corrupted_token, guild_id)
 
-            return winning_team  # Return only the winning team results
-            
-        except Exception as e:
-            logging.error(f"❌ Error applying 6v6 team splitting: {e}")
-            return guild_results  # Return original results if splitting fails
+    def _extract_score_from_corrupted_token(self, token):
+        """Delegate to module-level extract_score_from_corrupted_token."""
+        from .ocr import extract_score_from_corrupted_token
+        return extract_score_from_corrupted_token(token)
 
-    def _apply_dynamic_team_splitting(
-        self,
-        guild_results: List[Dict],
-        tokens: List[str],
-        guild_id: int,
-        total_players: int
-    ) -> List[Dict]:
-        """
-        Universal team splitting for any player count (11-20 players).
-        Uses majority rule to identify guild team regardless of split (6v6, 7v6, 8v7, etc.)
-        """
-        try:
-            logging.info(f"🔀 Starting dynamic team split for {total_players} players")
+    def _pair_names_with_scores(self, valid_names, score_positions, tokens, token_bboxes=None):
+        """Delegate to ScorePairer.pair_names_with_scores."""
+        return self.score_pairer.pair_names_with_scores(valid_names, score_positions, tokens, token_bboxes)
 
-            # Extract all players from OCR tokens
-            all_players = self._extract_all_players_from_tokens(tokens, guild_id)
+    def _get_bbox_center_x(self, bbox):
+        """Delegate to ScorePairer.get_bbox_center_x."""
+        return self.score_pairer.get_bbox_center_x(bbox)
 
-            if len(all_players) != total_players:
-                logging.warning(f"⚠️ Expected {total_players} players, extracted {len(all_players)}. Skipping split.")
-                return guild_results
+    def _get_bbox_center_y(self, bbox):
+        """Delegate to ScorePairer.get_bbox_center_y."""
+        return self.score_pairer.get_bbox_center_y(bbox)
 
-            # Map each guild member to their position (0 to total_players-1)
-            guild_member_positions = self._map_guild_positions(guild_results, all_players)
-
-            # Try multiple split points around the midpoint
-            split_point1 = total_players // 2          # Floor: 13→6, 14→7, 15→7
-            split_point2 = (total_players + 1) // 2    # Ceil:  13→7, 14→7, 15→8
-
-            # Store all candidate splits
-            split_candidates = []
-
-            # Try split 1: First [split_point1] vs Last [total_players - split_point1]
-            team1_sp1 = [r for r in guild_results if guild_member_positions.get(r['name'], -1) < split_point1]
-            team2_sp1 = [r for r in guild_results if guild_member_positions.get(r['name'], -1) >= split_point1]
-
-            count1_sp1 = len(team1_sp1)
-            count2_sp1 = len(team2_sp1)
-
-            if count1_sp1 > count2_sp1:
-                margin = count1_sp1 - count2_sp1
-                split_candidates.append({
-                    'team': team1_sp1,
-                    'margin': margin,
-                    'description': f"First {split_point1} ({count1_sp1} guild) vs Last {total_players-split_point1} ({count2_sp1} guild)",
-                    'winner': f"first {split_point1}"
-                })
-            elif count2_sp1 > count1_sp1:
-                margin = count2_sp1 - count1_sp1
-                split_candidates.append({
-                    'team': team2_sp1,
-                    'margin': margin,
-                    'description': f"Last {total_players-split_point1} ({count2_sp1} guild) vs First {split_point1} ({count1_sp1} guild)",
-                    'winner': f"last {total_players-split_point1}"
-                })
-
-            # Try split 2 (only if different from split 1)
-            if split_point2 != split_point1:
-                team1_sp2 = [r for r in guild_results if guild_member_positions.get(r['name'], -1) < split_point2]
-                team2_sp2 = [r for r in guild_results if guild_member_positions.get(r['name'], -1) >= split_point2]
-
-                count1_sp2 = len(team1_sp2)
-                count2_sp2 = len(team2_sp2)
-
-                if count1_sp2 > count2_sp2:
-                    margin = count1_sp2 - count2_sp2
-                    split_candidates.append({
-                        'team': team1_sp2,
-                        'margin': margin,
-                        'description': f"First {split_point2} ({count1_sp2} guild) vs Last {total_players-split_point2} ({count2_sp2} guild)",
-                        'winner': f"first {split_point2}"
-                    })
-                elif count2_sp2 > count1_sp2:
-                    margin = count2_sp2 - count1_sp2
-                    split_candidates.append({
-                        'team': team2_sp2,
-                        'margin': margin,
-                        'description': f"Last {total_players-split_point2} ({count2_sp2} guild) vs First {split_point2} ({count1_sp2} guild)",
-                        'winner': f"last {total_players-split_point2}"
-                    })
-
-            # Select best split (highest margin = clearest majority)
-            if not split_candidates:
-                logging.info("🤝 No clear majority in any split - returning all players")
-                return guild_results
-
-            best_split = max(split_candidates, key=lambda x: x['margin'])
-            winning_team = best_split['team']
-            excluded_team = [r for r in guild_results if r not in winning_team]
-
-            # Log results
-            winning_names = [r['name'] for r in winning_team]
-            excluded_names = [r['name'] for r in excluded_team]
-
-            logging.info(f"🏆 Split Result: {best_split['description']}")
-            logging.info(f"✅ Winner ({best_split['winner']}): {', '.join(winning_names)}")
-            if excluded_names:
-                logging.info(f"❌ Excluded: {', '.join(excluded_names)}")
-
-            return winning_team
-
-        except Exception as e:
-            logging.error(f"❌ Error in dynamic team splitting: {e}")
-            import traceback
-            logging.error(traceback.format_exc())
-            return guild_results  # Fallback
-
-    def _map_guild_positions(self, guild_results: List[Dict], all_players: List[tuple]) -> Dict[str, int]:
-        """Map each guild member to their position in the full player list."""
-        guild_member_positions = {}
-
-        for result in guild_results:
-            result_name = result['name']
-            result_score = result['score']
-            result_raw = result.get('raw_name', result_name)
-
-            # Find position by matching score and name
-            for pos, (player_name, score) in enumerate(all_players):
-                score_match = (score == result_score)
-                name_match1 = (player_name.lower() == result_raw.lower())
-                name_match2 = (player_name.lower() == result_name.lower())
-                name_match3 = (result_name.lower() in player_name.lower())
-
-                if score_match and (name_match1 or name_match2 or name_match3):
-                    guild_member_positions[result_name] = pos
-                    logging.debug(f"🎯 {result_name} mapped to position {pos}")
-                    break
-
-            # If not found, log warning
-            if result_name not in guild_member_positions:
-                logging.warning(f"⚠️ Could not map {result_name} to position - defaulting to 0")
-                guild_member_positions[result_name] = 0
-
-        return guild_member_positions
-
-    def _extract_score_from_corrupted_token(self, token: str) -> int:
-        """Extract score (1-180) from a corrupted token containing mixed text and numbers."""
-        import re
-        # Find all numbers in the token
-        numbers = re.findall(r'\d+', token)
-        
-        for num_str in numbers:
-            try:
-                num = int(num_str)
-                if 1 <= num <= 180:  # Valid Mario Kart score range
-                    return num
-            except ValueError:
-                continue
-        
-        return None
-
-    def _extract_all_players_from_tokens(self, tokens: List[str], guild_id: int = 0) -> List[tuple]:
-        """Extract all player-score pairs using database-first approach for proper 6v6 splitting."""
-        if not self.db_manager:
-            logging.error("❌ No database manager available for guild member lookup")
-            return []
-            
-        # Get all guild members upfront (one database call)
-        guild_players = self.db_manager.get_all_players_stats(guild_id)
-        if not guild_players:
-            logging.warning("⚠️ No guild players found in database")
-            return []
-            
-        # Create lookup sets for faster searching
-        guild_names = set()
-        guild_nicknames = {}
-        for player in guild_players:
-            player_name = player.get('player_name', '').lower()
-            guild_names.add(player_name)
-            nicknames = player.get('nicknames', [])
-            if nicknames:
-                for nickname in nicknames:
-                    guild_nicknames[nickname.lower()] = player_name
-        
-        logging.info(f"🔍 Database lookup ready: {len(guild_names)} guild members, {len(guild_nicknames)} nicknames")
-        
-        players = []
-        i = 0
-        
-        def find_guild_member_in_token(token: str, allow_substring_match: bool = True) -> str:
-            """Check if token contains a guild member name or nickname."""
-            token_lower = token.lower()
-
-            # Check exact match first
-            if token_lower in guild_names:
-                return token_lower
-
-            # Check nickname match
-            if token_lower in guild_nicknames:
-                return guild_nicknames[token_lower]
-
-            # Only do substring matching if explicitly allowed (for post-split recovery)
-            if not allow_substring_match:
-                return None
-
-            # Check substring matches (for corrupted OCR like 'IDiceyBIG')
-            for name in guild_names:
-                if len(name) >= 2 and name in token_lower:
-                    return name
-
-            # Check nickname substrings
-            for nickname, real_name in guild_nicknames.items():
-                if len(nickname) >= 2 and nickname in token_lower:
-                    return real_name
-
-            return None
-        
-        while i < len(tokens):
-            current_token = tokens[i]
-            
-            # Case 1: Current token is a standalone score - look ahead for name
-            if current_token.isdigit() and 1 <= int(current_token) <= 180:
-                score = int(current_token)
-                
-                # Look ahead for name in next token
-                if i < len(tokens) - 1:
-                    next_token = tokens[i + 1]
-                    guild_member = find_guild_member_in_token(next_token, allow_substring_match=False)
-                    
-                    if guild_member:
-                        # Found guild member after score - reversed pattern like "93 vee"
-                        players.append((guild_member, score))
-                        logging.info(f"🔍 Found reversed pattern (guild): '{current_token} {next_token}' -> {guild_member}: {score}")
-                        i += 2
-                        continue
-                    else:
-                        # Not a guild member, but still extract as opponent
-                        players.append((next_token, score))
-                        logging.info(f"🔍 Found reversed pattern (opponent): '{current_token} {next_token}' -> {next_token}: {score}")
-                        i += 2
-                        continue
-                else:
-                    # No next token, skip standalone score
-                    logging.warning(f"⚠️ Standalone score '{current_token}' at end of tokens")
-                    i += 1
-                    continue
-            
-            # Case 2: Current token contains letters - check for guild member
-            if not current_token.isdigit():
-                guild_member = find_guild_member_in_token(current_token, allow_substring_match=False)
-                
-                if guild_member:
-                    # Found guild member - look for score
-                    score = None
-                    consumed_tokens = 1
-
-                    # First check if next token is a pure score (prioritize over embedded)
-                    if i < len(tokens) - 1:
-                        next_token = tokens[i + 1]
-                        if next_token.isdigit() and 1 <= int(next_token) <= 180:
-                            score = int(next_token)
-                            consumed_tokens = 2
-                            logging.info(f"🔍 Found guild member with following score: '{current_token}' -> {guild_member}: {score}")
-
-                    # Only try embedded score if no following score found
-                    if score is None:
-                        embedded_score = self._extract_score_from_corrupted_token(current_token)
-                        if embedded_score:
-                            score = embedded_score
-                            logging.info(f"🔍 Found guild member with embedded score: '{current_token}' -> {guild_member}: {score}")
-                        else:
-                            # Look ahead for score in next tokens (skip first since already checked)
-                            for lookahead in range(2, min(4, len(tokens) - i)):
-                                next_token = tokens[i + lookahead]
-
-                                # Check if next token is a pure score
-                                if next_token.isdigit() and 1 <= int(next_token) <= 180:
-                                    score = int(next_token)
-                                    consumed_tokens = lookahead + 1
-                                    logging.info(f"🔍 Found guild member with distant score: '{current_token}' -> {guild_member}: {score}")
-                                    break
-
-                                # Check if next token has embedded score
-                                embedded_score = self._extract_score_from_corrupted_token(next_token)
-                                if embedded_score:
-                                    score = embedded_score
-                                    consumed_tokens = lookahead + 1
-                                    logging.info(f"🔍 Found guild member with embedded score in next token: '{current_token} {next_token}' -> {guild_member}: {score}")
-                                    break
-                    
-                    if score:
-                        players.append((guild_member, score))
-                        i += consumed_tokens
-                        continue
-                    else:
-                        logging.warning(f"⚠️ Guild member '{current_token}' found but no score located")
-                        i += 1
-                        continue
-                
-                # Case 3: Not a guild member - check for opponent player patterns
-
-                # Skip tokens that are just symbols/punctuation (not valid player names)
-                if len(current_token) <= 2 and not any(c.isalnum() for c in current_token):
-                    logging.debug(f"🔍 Skipping symbol token: '{current_token}'")
-                    i += 1
-                    continue
-
-                # Try standard name-score pattern
-                if (i < len(tokens) - 1 and
-                    tokens[i + 1].isdigit() and
-                    1 <= int(tokens[i + 1]) <= 180):
-                    score = int(tokens[i + 1])
-                    players.append((current_token, score))
-                    logging.info(f"🔍 Found opponent player: '{current_token}' -> {current_token}: {score}")
-                    i += 2
-                    continue
-                
-                # Try 2-word opponent pattern
-                if (i < len(tokens) - 2 and 
-                    not tokens[i + 1].isdigit() and
-                    tokens[i + 2].isdigit() and 
-                    1 <= int(tokens[i + 2]) <= 180):
-                    opponent_name = f"{current_token} {tokens[i + 1]}"
-                    score = int(tokens[i + 2])
-                    players.append((opponent_name, score))
-                    logging.info(f"🔍 Found 2-word opponent: '{opponent_name}' -> {opponent_name}: {score}")
-                    i += 3
-                    continue
-                
-                # Check for embedded score in current token
-                embedded_score = self._extract_score_from_corrupted_token(current_token)
-                if embedded_score:
-                    players.append((current_token, embedded_score))
-                    logging.info(f"🔍 Found opponent with embedded score: '{current_token}' -> {current_token}: {embedded_score}")
-                    i += 1
-                    continue
-            
-            # Case 4: No pattern found - skip token
-            logging.debug(f"🔍 No pattern found for token '{current_token}', skipping")
-            i += 1
-        
-        logging.info(f"🔍 Extracted {len(players)} player-score pairs: {[f'{name}:{score}' for name, score in players]}")
-        return players
-    
     def _validate_results(self, results: List[Dict], guild_id: int = 0) -> Dict:
         """Basic validation of parsed results."""
         try:
@@ -1250,374 +853,3 @@ class OCRProcessor:
             logging.error(f"❌ Error creating debug overlay: {e}")
             return None
     
-    def _find_guild_name_in_substring(self, corrupted_token: str, guild_id: int) -> tuple:
-        """Find guild member names as substrings within corrupted OCR tokens."""
-        try:
-            if not self.db_manager:
-                return None, None
-            
-            # Get all guild player names
-            guild_players = self.db_manager.get_all_players_stats(guild_id)
-            if not guild_players:
-                return None, None
-            
-            # Check each guild member name as substring (case-insensitive)
-            best_match = None
-            best_match_name = None
-            longest_length = 0
-            
-            for player in guild_players:
-                player_name = player.get('player_name', '')
-                # Also check nicknames
-                nicknames = player.get('nicknames', [])
-                all_names = [player_name] + (nicknames if nicknames else [])
-                
-                for name in all_names:
-                    if len(name) >= 3 and name.lower() in corrupted_token.lower():
-                        # Prefer longer matches to avoid false positives
-                        if len(name) > longest_length:
-                            best_match = player_name  # Always return official name
-                            best_match_name = name    # But track which variant matched
-                            longest_length = len(name)
-            
-            if best_match:
-                logging.info(f"🔍 Substring match: Found '{best_match}' (via '{best_match_name}') in corrupted token '{corrupted_token}'")
-                return best_match, best_match_name
-            
-            return None, None
-            
-        except Exception as e:
-            logging.error(f"❌ Error in substring matching: {e}")
-            return None, None
-
-    def _find_valid_names_with_window(self, tokens: List[str], guild_id: int) -> List[tuple]:
-        """Find valid player names using sliding window approach with substring fallback for corrupted OCR."""
-        valid_names = []
-        i = 0
-        
-        while i < len(tokens):
-            # Skip tokens that are clearly scores
-            if tokens[i].isdigit() and 1 <= int(tokens[i]) <= 180:
-                i += 1
-                continue
-            
-            # Try 2-word combination first (for "No name", "kyle christian")
-            if i < len(tokens) - 1:
-                two_word = f"{tokens[i]} {tokens[i+1]}"
-                race_count_2word = 12  # Default
-                two_word_to_check = two_word
-                raw_name_2word = two_word
-                tokens_consumed_2word = 2
-                
-                # Check if the 2-word combination has race count patterns
-                race_patterns = [
-                    r'^(.+?)\s*\((\d+)\)$',  # Name (5)
-                    r'^(.+?)\s*\((\d+)$',    # Name (5
-                    r'^(.+?)\s*(\d+)\)$'     # Name 5)
-                ]
-                
-                for pattern in race_patterns:
-                    match = re.match(pattern, two_word.strip())
-                    if match:
-                        clean_2word_name = match.group(1).strip()
-                        extracted_races = int(match.group(2))
-                        if 1 <= extracted_races <= 11:
-                            two_word_to_check = clean_2word_name
-                            race_count_2word = extracted_races
-                            logging.info(f"🏁 Extracted race count from 2-word token '{two_word}': {clean_2word_name} → {race_count_2word} races")
-                        break
-                
-                # If no race count in 2-word combo, check if next token (i+2) has race count
-                if race_count_2word == 12 and i < len(tokens) - 2:
-                    next_token = tokens[i + 2]
-                    pair_patterns = [
-                        r'^\((\d+)\)$',  # (5)
-                        r'^\((\d+)$',    # (5
-                        r'^(\d+)\)$'     # 5)
-                    ]
-                    
-                    for pattern in pair_patterns:
-                        match = re.match(pattern, next_token.strip())
-                        if match:
-                            extracted_races = int(match.group(1))
-                            if 1 <= extracted_races <= 11:
-                                race_count_2word = extracted_races
-                                raw_name_2word = f"{two_word} {next_token}"
-                                tokens_consumed_2word = 3
-                                logging.info(f"🏁 Extracted race count from 2-word + token '{two_word}' + '{next_token}': {two_word_to_check} → {race_count_2word} races")
-                            break
-                
-                resolved = self.db_manager.resolve_player_name(two_word_to_check, guild_id, log_level='debug')
-                if resolved:
-                    valid_names.append((i, resolved, raw_name_2word, None, race_count_2word))
-                    logging.info(f"✅ Found 2-word name: '{raw_name_2word}' → '{resolved}' at position {i} ({race_count_2word} races)")
-                    i += tokens_consumed_2word  # Skip consumed tokens
-                    continue
-                else:
-                    logging.debug(f"Player '{two_word}' not found in guild roster (likely opponent)")
-            
-            # Try single word exact match (check for race count patterns first)
-            token_to_check = tokens[i]
-            race_count = 12  # Default race coun
-            raw_name = tokens[i]
-            tokens_consumed = 1
-            
-            # Check current token for race count patterns like "Cynical (5)" or "Cynical (5"
-            race_patterns = [
-                r'^(.+?)\s*\((\d+)\)$',  # Name (5)
-                r'^(.+?)\s*\((\d+)$',    # Name (5
-                r'^(.+?)\s*(\d+)\)$'     # Name 5)
-            ]
-            
-            for pattern in race_patterns:
-                match = re.match(pattern, token_to_check.strip())
-                if match:
-                    clean_name = match.group(1).strip()
-                    extracted_races = int(match.group(2))
-                    if 1 <= extracted_races <= 11:
-                        token_to_check = clean_name
-                        race_count = extracted_races
-                        logging.info(f"🏁 Extracted race count from token '{raw_name}': {clean_name} → {race_count} races")
-                    break
-            
-            # If no race count in current token, check if next token has race count pattern
-            if race_count == 12 and i < len(tokens) - 1:
-                next_token = tokens[i + 1]
-                pair_patterns = [
-                    r'^\((\d+)\)$',  # (5)
-                    r'^\((\d+)$',    # (5
-                    r'^(\d+)\)$'     # 5)
-                ]
-                
-                for pattern in pair_patterns:
-                    match = re.match(pattern, next_token.strip())
-                    if match:
-                        extracted_races = int(match.group(1))
-                        if 1 <= extracted_races <= 11:
-                            race_count = extracted_races
-                            raw_name = f"{tokens[i]} {next_token}"
-                            tokens_consumed = 2
-                            logging.info(f"🏁 Extracted race count from token pair '{tokens[i]}' + '{next_token}': {token_to_check} → {race_count} races")
-                        break
-            
-            # Now try to resolve the clean name
-            resolved = self.db_manager.resolve_player_name(token_to_check, guild_id, log_level='debug')
-            if resolved:
-                valid_names.append((i, resolved, raw_name, None, race_count))
-                logging.info(f"✅ Found 1-word name: '{raw_name}' → '{resolved}' at position {i} ({race_count} races)")
-                if tokens_consumed == 2:
-                    i += 1  # Skip the next token if we consumed it
-            else:
-                # Fallback: Try substring matching for corrupted OCR tokens
-                # DISABLED: Substring matching in initial parse breaks 6v6 team splitting
-                # The 6v6 splitting logic will handle team detection and apply substring matching
-                # only to the winning team (positions 0-5 or 6-11 depending on majority rule)
-                # This prevents false matches like "Cynda" matching "Cynical" in opponent team
-                substring_match = None
-                if False and len(tokens[i]) >= 5:  # Avoid false positives on short tokens
-                    substring_match, _ = self._find_guild_name_in_substring(tokens[i], guild_id)
-                    if substring_match:
-                        # Check if this is part of a multi-token corrupted sequence
-                        # Look ahead for tokens that might contain embedded scores
-                        consumed_tokens = 1  # Start with current token
-                        embedded_score = None
-                        raw_name_parts = [tokens[i]]
-                        
-                        # Look ahead up to 2 positions for embedded scores
-                        for lookahead in range(1, min(3, len(tokens) - i)):
-                            next_token = tokens[i + lookahead]
-                            # Skip very short tokens or obvious separators
-                            if len(next_token) < 3 or next_token.lower() in ['go', 'and', 'vs']:
-                                continue
-                                
-                            # Apply same context-based logic: only treat as embedded score 
-                            # if this token is NOT followed by another valid score
-                            token_has_following_score = False
-                            if i + lookahead < len(tokens) - 1:
-                                following_token = tokens[i + lookahead + 1]
-                                if following_token.isdigit() and 1 <= int(following_token) <= 180:
-                                    token_has_following_score = True
-                            
-                            if not token_has_following_score:
-                                potential_score = self._extract_score_from_corrupted_token(next_token)
-                                if potential_score:
-                                    logging.info(f"🔍 Multi-token corrupted sequence detected: '{tokens[i]}' + '{next_token}' contains score {potential_score}")
-                                    embedded_score = potential_score
-                                    raw_name_parts.append(next_token)
-                                    consumed_tokens += lookahead
-                                    break
-                            else:
-                                logging.info(f"🔍 Skipping multi-token sequence for '{next_token}' because followed by valid score '{following_token}'")
-                        
-                        # Store the match with embedded score info if found
-                        raw_name = " ".join(raw_name_parts)
-                        if embedded_score:
-                            # Embedded score found - use it directly
-                            match_info = (i, substring_match, raw_name, embedded_score, 12)
-                            logging.info(f"✅ Found multi-token corrupted match: '{raw_name}' → '{substring_match}' with embedded score {embedded_score} (12 races)")
-                        else:
-                            # No embedded score - will need score pairing
-                            match_info = (i, substring_match, raw_name, None, 12)
-                            logging.info(f"✅ Found substring match: '{tokens[i]}' contains '{substring_match}' at position {i} (12 races)")
-                        
-                        valid_names.append(match_info)
-                        i += consumed_tokens  # Skip the consumed tokens
-                        continue
-                    else:
-                        logging.debug(f"Player '{tokens[i]}' not found in guild roster (likely opponent)")
-                else:
-                    logging.debug(f"Player '{tokens[i]}' not found in guild roster (likely opponent)")
-            
-            i += 1
-        
-        return valid_names
-    
-    def _get_bbox_center_x(self, bbox) -> float:
-        """Calculate horizontal center of a bounding box."""
-        if not bbox or len(bbox) < 4:
-            return 0.0
-        # Handle both list of points [[x1,y1],[x2,y2],...] and flat [x1,y1,x2,y2]
-        if isinstance(bbox[0], list):
-            x_coords = [point[0] for point in bbox]
-            return sum(x_coords) / len(x_coords)
-        else:
-            # Assume [x1, y1, x2, y2] format
-            return (bbox[0] + bbox[2]) / 2.0
-
-    def _get_bbox_center_y(self, bbox) -> float:
-        """Calculate vertical center of a bounding box."""
-        if not bbox or len(bbox) < 4:
-            return 0.0
-        if isinstance(bbox[0], list):
-            y_coords = [point[1] for point in bbox]
-            return sum(y_coords) / len(y_coords)
-        else:
-            return (bbox[1] + bbox[3]) / 2.0
-
-    def _pair_names_with_scores(self, valid_names: List[tuple], score_positions: List[int], tokens: List[str], token_bboxes: Dict[int, list] = None) -> List[Dict]:
-        """Pair validated player names with scores using sequential flow matching with spatial disambiguation."""
-        results = []
-        used_scores = set()
-
-        if token_bboxes is None:
-            token_bboxes = {}
-        
-        # Sort names by position to process in reading order
-        valid_names_sorted = sorted(valid_names, key=lambda x: x[0])
-        
-        for name_match in valid_names_sorted:
-            # All matches are now 5-element tuples: (pos, name, raw_name, embedded_score, race_count)
-            name_pos, official_name, raw_name, embedded_score, race_count = name_match
-            
-            if embedded_score is not None:
-                # Use the embedded score directly for multi-token corrupted sequences
-                score = embedded_score
-                results.append({
-                    'name': official_name,
-                    'raw_name': raw_name,
-                    'score': score,
-                    'races': race_count,
-                    'raw_line': f"{raw_name} {score}",
-                    'preset_used': 'database_validated',
-                    'confidence': 1.0,  # Database validated = highest confidence
-                    'is_roster_member': True  # All results are validated against roster
-                })
-                logging.info(f"🎯 Used embedded score: '{official_name}' (raw: '{raw_name}') with embedded score {score} ({race_count} races)")
-                continue
-            
-            # Find the closest available score with priority for positional order
-            # Handles consecutive duplicate scores by preferring adjacent scores
-            best_score_pos = None
-            best_after_pos = None
-            best_before_pos = None
-            min_after_distance = float('inf')
-            min_before_distance = float('inf')
-
-            # Separate AFTER and BEFORE patterns for explicit prioritization
-            for score_pos in score_positions:
-                if score_pos not in used_scores:
-                    if score_pos > name_pos:
-                        # Score comes AFTER name (pattern: "Name Score")
-                        distance = score_pos - name_pos
-                        if distance < min_after_distance:
-                            min_after_distance = distance
-                            best_after_pos = score_pos
-                    else:
-                        # Score comes BEFORE name (pattern: "Score Name")
-                        distance = name_pos - score_pos
-                        # Only consider scores that are very close (within 2 positions)
-                        if distance <= 2 and distance < min_before_distance:
-                            min_before_distance = distance
-                            best_before_pos = score_pos
-
-            # Prioritize: 1) Disambiguate double-adjacent case, 2) Immediately after, 3) Immediately before, 4) Closest after, 5) Closest before
-            if min_after_distance == 1 and min_before_distance == 1:
-                # Both scores are immediately adjacent - use bbox horizontal position to disambiguate
-                name_bbox = token_bboxes.get(name_pos)
-                after_bbox = token_bboxes.get(best_after_pos)
-                before_bbox = token_bboxes.get(best_before_pos)
-
-                if name_bbox and after_bbox and before_bbox:
-                    name_center_x = self._get_bbox_center_x(name_bbox)
-                    after_center_x = self._get_bbox_center_x(after_bbox)
-                    before_center_x = self._get_bbox_center_x(before_bbox)
-
-                    # Prefer score on the expected reading side (after => right, before => left)
-                    if after_center_x > name_center_x and before_center_x < name_center_x:
-                        # Clear case: after is to the right, before is to the left
-                        best_score_pos = best_after_pos
-                        logging.info(f"🎯 Bbox disambiguation: chose after score at pos {best_after_pos} (x={after_center_x:.1f} > name x={name_center_x:.1f})")
-                    elif before_center_x < name_center_x and after_center_x <= name_center_x:
-                        # Before is clearly to the left
-                        best_score_pos = best_before_pos
-                        logging.info(f"🎯 Bbox disambiguation: chose before score at pos {best_before_pos} (x={before_center_x:.1f} < name x={name_center_x:.1f})")
-                    else:
-                        # Ambiguous horizontal position - use vertical distance as tiebreaker
-                        name_center_y = self._get_bbox_center_y(name_bbox)
-                        after_center_y = self._get_bbox_center_y(after_bbox)
-                        before_center_y = self._get_bbox_center_y(before_bbox)
-
-                        after_y_dist = abs(after_center_y - name_center_y)
-                        before_y_dist = abs(before_center_y - name_center_y)
-
-                        if after_y_dist < before_y_dist:
-                            best_score_pos = best_after_pos
-                            logging.info(f"🎯 Bbox disambiguation (y-tiebreak): chose after score at pos {best_after_pos} (y_dist={after_y_dist:.1f} < {before_y_dist:.1f})")
-                        else:
-                            best_score_pos = best_before_pos
-                            logging.info(f"🎯 Bbox disambiguation (y-tiebreak): chose before score at pos {best_before_pos} (y_dist={before_y_dist:.1f} < {after_y_dist:.1f})")
-                else:
-                    # Fallback to after preference if bbox data unavailable
-                    best_score_pos = best_after_pos
-                    logging.info(f"⚠️ Bbox disambiguation fallback: missing bbox data, defaulting to after score")
-            elif min_after_distance == 1:
-                # Immediately adjacent score after name (most common pattern)
-                best_score_pos = best_after_pos
-            elif min_before_distance == 1:
-                # Immediately adjacent score before name (reversed pattern)
-                best_score_pos = best_before_pos
-            elif best_after_pos is not None:
-                # Any score after name (prefer natural reading order)
-                best_score_pos = best_after_pos
-            elif best_before_pos is not None:
-                # Fall back to score before name
-                best_score_pos = best_before_pos
-            
-            if best_score_pos is not None:
-                score = int(tokens[best_score_pos])
-                results.append({
-                    'name': official_name,
-                    'raw_name': raw_name,
-                    'score': score,
-                    'races': race_count,
-                    'raw_line': f"{raw_name} {score}",
-                    'preset_used': 'database_validated',
-                    'confidence': 1.0,  # Database validated = highest confidence
-                    'is_roster_member': True  # All results are validated against roster
-                })
-                used_scores.add(best_score_pos)
-                logging.info(f"🎯 Paired '{official_name}' (raw: '{raw_name}') at pos {name_pos} with score {score} at pos {best_score_pos} ({race_count} races)")
-            else:
-                logging.warning(f"⚠️ No available score found for '{official_name}'")
-        
-        return results

@@ -3,6 +3,9 @@
  * Communicates with the FastAPI backend
  */
 
+export type { BulkSession, BulkPlayer, BulkResult, BulkFailure, StagedPlayer, GuildConfig } from './types'
+import type { BulkSession, BulkPlayer, BulkResult, BulkFailure, GuildConfig } from './types'
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 // ==================== Types ====================
@@ -79,45 +82,6 @@ export interface GuildOverview {
   losses: number
 }
 
-export interface BulkSession {
-  id: number
-  guild_id: number
-  created_by_user_id: number
-  status: string
-  total_images: number
-  created_at: string
-  expires_at: string
-}
-
-export interface BulkResult {
-  id: number
-  image_filename: string
-  image_url: string | null
-  detected_players: BulkPlayer[]
-  review_status: 'pending' | 'approved' | 'rejected'
-  corrected_players: BulkPlayer[] | null
-  race_count: number
-  message_timestamp: string | null
-  created_at: string
-}
-
-export interface BulkPlayer {
-  name: string
-  score: number
-  raw_name?: string
-  is_roster_member?: boolean
-  races_played?: number
-}
-
-export interface BulkFailure {
-  id: number
-  image_filename: string | null
-  image_url: string | null
-  error_message: string
-  message_timestamp: string | null
-  discord_message_id: number | null
-  created_at: string
-}
 
 // ==================== Helper Functions ====================
 
@@ -155,6 +119,14 @@ async function fetchApi<T>(
   }
 }
 
+export interface WarListResponse {
+  wars: War[]
+  page: number
+  limit: number
+  total: number
+  pages: number
+}
+
 // ==================== API Object ====================
 
 export const api = {
@@ -181,8 +153,8 @@ export const api = {
     return result || []
   },
 
-  getGuild: async (guildId: string): Promise<{ config: any; overview: GuildOverview } | null> => {
-    return fetchApi(`/api/guilds/${guildId}`)
+  getGuild: async (guildId: string): Promise<{ config: GuildConfig; overview: GuildOverview } | null> => {
+    return fetchApi<{ config: GuildConfig; overview: GuildOverview }>(`/api/guilds/${guildId}`)
   },
 
   // Players
@@ -238,15 +210,11 @@ export const api = {
   },
 
   // Wars
-  getWars: async (guildId: string, page: number = 1, limit: number = 20): Promise<{
-    wars: War[]
-    page: number
-    limit: number
-    total: number
-    pages: number
-  }> => {
-    const result = await fetchApi<any>(`/api/guilds/${guildId}/wars?page=${page}&limit=${limit}`)
-    return result || { wars: [], page: 1, limit: 20, total: 0, pages: 0 }
+  getWars: async (guildId: string, page: number = 1, limit: number = 20): Promise<WarListResponse> => {
+    const result = await fetchApi<WarListResponse>(
+      `/api/guilds/${guildId}/wars?page=${page}&limit=${limit}`
+    )
+    return result || { wars: [], page, limit, total: 0, pages: 0 }
   },
 
   getWar: async (guildId: string, warId: number): Promise<War | null> => {

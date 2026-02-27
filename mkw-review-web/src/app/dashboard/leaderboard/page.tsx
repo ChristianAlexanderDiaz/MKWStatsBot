@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useState } from "react"
+import { EmptyState } from "@/components/shared/EmptyState"
 
 const sortOptions = [
   { value: "average_score", label: "Average Score" },
@@ -25,11 +26,7 @@ export default function LeaderboardPage() {
   })
 
   if (!selectedGuild) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Select a guild to view leaderboard</p>
-      </div>
-    )
+    return <EmptyState message="Select a guild to view leaderboard" />
   }
 
   return (

@@ -5,6 +5,8 @@ import { api, GuildOverview } from "@/lib/api"
 import { useQuery } from "@tanstack/react-query"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, Swords, TrendingUp, TrendingDown, Trophy } from "lucide-react"
+import { LoadingSpinner } from "@/components/shared/LoadingSpinner"
+import { EmptyState } from "@/components/shared/EmptyState"
 
 export default function DashboardPage() {
   const { selectedGuild } = useAuth()
@@ -16,19 +18,11 @@ export default function DashboardPage() {
   })
 
   if (!selectedGuild) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Select a guild to view dashboard</p>
-      </div>
-    )
+    return <EmptyState message="Select a guild to view dashboard" />
   }
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    )
+    return <LoadingSpinner />
   }
 
   const stats = overview || {
