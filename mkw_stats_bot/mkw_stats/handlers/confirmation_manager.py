@@ -25,8 +25,9 @@ class _TempOCRView:
 def _log_task_error(t: asyncio.Task) -> None:
     if t.cancelled():
         return
-    if exc := t.exception():
-        logger.error("Background task failed", exc_info=True)
+    exc = t.exception()
+    if exc:
+        logger.error("Background task failed", exc_info=exc)
 
 
 class ConfirmationManager:
