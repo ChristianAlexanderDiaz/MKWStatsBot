@@ -76,6 +76,7 @@ export function FailureCard({
           {/* Preview image (or placeholder) */}
           <div className="w-full md:w-[600px] flex-shrink-0">
             {failure.image_url && !imageFailed ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={failure.image_url}
                 alt="Failed"

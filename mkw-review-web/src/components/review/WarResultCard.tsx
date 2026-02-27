@@ -156,6 +156,7 @@ export function WarResultCard({
           {/* Left: preview image */}
           <div className="w-full md:w-[600px] flex-shrink-0">
             {result.image_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={result.image_url}
                 alt={`Table ${index + 1}`}
@@ -378,8 +379,8 @@ export function WarResultCard({
                 {/* Warning hint if any player is not in the roster */}
                 {players.some((p) => !p.is_roster_member) && (
                   <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
-                    Yellow = not in roster. Use "Link" to connect to existing player, or "Add as
-                    New" to create new.
+                    Yellow = not in roster. Use &quot;Link&quot; to connect to existing player, or &quot;Add as
+                    New&quot; to create new.
                   </p>
                 )}
               </>
