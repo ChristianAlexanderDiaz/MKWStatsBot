@@ -38,7 +38,7 @@ class GuildCog(BaseCog):
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
 
-            if self.is_guild_initialized(guild_id):
+            if await self.is_guild_initialized(guild_id):
                 await interaction.response.send_message("✅ Guild is already set up! Use other commands to manage your clan.", ephemeral=True)
                 return
 

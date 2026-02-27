@@ -65,16 +65,6 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     setNotification({ type, message })
   const clearNotification = () => setNotification(null)
 
-  // Close the staged-players dropdown on Escape
-  useEffect(() => {
-    if (!showStagedMenu) return
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowStagedMenu(false)
-    }
-    window.addEventListener("keydown", handleEscape)
-    return () => window.removeEventListener("keydown", handleEscape)
-  }, [showStagedMenu])
-
   // ---- Data fetching ----
 
   const { data, isLoading, error } = useQuery({
@@ -196,6 +186,7 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     setEditedPlayers(
       players.map((p) => ({
         ...p,
+        id: p.id ?? crypto.randomUUID(),
         races_played: p.races_played || result.race_count || 12,
       }))
     )
@@ -213,7 +204,7 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
   const handlePlayerChange = (
     index: number,
     field: keyof BulkPlayer,
-    value: string | number
+    value: string | number | boolean
   ) => {
     const updated = [...editedPlayers]
     updated[index] = { ...updated[index], [field]: value }
@@ -288,15 +279,14 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
     setIsSaving(true)
     try {
       // Create all staged players first (they were queued locally, not yet in DB)
-      const failedPlayers: string[] = []
-      for (const player of stagedPlayers) {
-        try {
-          await api.addPlayer(data.session.guild_id, player.name, player.memberStatus)
-        } catch (err) {
-          console.error(`Failed to add staged player ${player.name}:`, err)
-          failedPlayers.push(player.name)
-        }
-      }
+      const addResults = await Promise.allSettled(
+        stagedPlayers.map((player) =>
+          api.addPlayer(data.session.guild_id, player.name, player.memberStatus)
+        )
+      )
+      const failedPlayers = stagedPlayers
+        .filter((_, i) => addResults[i].status === "rejected")
+        .map((p) => p.name)
       if (failedPlayers.length > 0) {
         notify("error", `Failed to add some players: ${failedPlayers.join(", ")}. Please retry.`)
         return
@@ -403,23 +393,30 @@ export function useBulkReview(token: string, router: AppRouterInstance) {
         return updated
       })
       // Un-mark this player as a roster member in every result that references them
-      for (const result of results) {
+      const resultsToUpdate = results.filter((result) => {
         const players = result.corrected_players || result.detected_players
-        const hasThisPlayer = players.some(
-          (p) => p.name.toLowerCase() === playerToRemove.toLowerCase()
+        return players.some((p) => p.name.toLowerCase() === playerToRemove.toLowerCase())
+      })
+      const updatePromises = resultsToUpdate.map((result) => {
+        const players = result.corrected_players || result.detected_players
+        const updatedPlayers = players.map((p) =>
+          p.name.toLowerCase() === playerToRemove.toLowerCase()
+            ? { ...p, is_roster_member: false }
+            : p
         )
-        if (hasThisPlayer) {
-          const updatedPlayers = players.map((p) =>
-            p.name.toLowerCase() === playerToRemove.toLowerCase()
-              ? { ...p, is_roster_member: false }
-              : p
-          )
-          await updateResultMutation.mutateAsync({
-            resultId: result.id,
-            status: result.review_status,
-            corrected: updatedPlayers,
-          })
-        }
+        return updateResultMutation.mutateAsync({
+          resultId: result.id,
+          status: result.review_status,
+          corrected: updatedPlayers,
+        })
+      })
+      const settled = await Promise.allSettled(updatePromises)
+      const hasFailures = settled.some((r) => r.status === "rejected")
+      if (hasFailures) {
+        setStagedPlayers(prevStagedPlayers)
+        setNewlyAddedPlayers(prevNewlyAddedPlayers)
+        notify("error", `Failed to remove staged player "${playerToRemove}". Changes reverted.`)
+        queryClient.invalidateQueries({ queryKey: ["bulk-review", token] })
       }
     } catch (error) {
       console.error("Failed to remove staged player:", error)

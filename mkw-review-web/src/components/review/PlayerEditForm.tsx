@@ -14,7 +14,7 @@ interface PlayerEditFormProps {
   editedPlayers: BulkPlayer[]
   setEditedPlayers: (players: BulkPlayer[]) => void
   /** Called when a single field on a player row changes */
-  onPlayerChange: (index: number, field: keyof BulkPlayer, value: string | number) => void
+  onPlayerChange: (index: number, field: keyof BulkPlayer, value: string | number | boolean) => void
   onSave: () => void
   onCancel: () => void
 }
@@ -29,7 +29,7 @@ export function PlayerEditForm({
   return (
     <>
       {editedPlayers.map((player, idx) => (
-        <div key={idx} className="flex gap-2 items-center">
+        <div key={player.id ?? String(idx)} className="flex gap-2 items-center">
           <Input
             value={player.name}
             onChange={(e) => onPlayerChange(idx, "name", e.target.value)}
@@ -81,7 +81,7 @@ export function PlayerEditForm({
         onClick={() =>
           setEditedPlayers([
             ...editedPlayers,
-            { name: "", score: 0, is_roster_member: false, races_played: 12 },
+            { id: crypto.randomUUID(), name: "", score: 0, is_roster_member: false, races_played: 12 },
           ])
         }
       >

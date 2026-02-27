@@ -88,7 +88,7 @@ export function ReviewHeader({
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              Save {approvedCount} Wars
+              Save {approvedCount} {approvedCount === 1 ? "War" : "Wars"}
             </Button>
           </div>
         </div>

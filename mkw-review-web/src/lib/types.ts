@@ -13,6 +13,8 @@ export interface BulkSession {
 }
 
 export interface BulkPlayer {
+  /** Stable local identifier used as React key in edit forms — not sent to API. */
+  id?: string
   name: string
   score: number
   raw_name?: string

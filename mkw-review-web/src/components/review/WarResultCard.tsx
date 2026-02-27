@@ -9,6 +9,7 @@
  * names/scores/races before approving.
  */
 
+import { useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -80,6 +81,17 @@ export function WarResultCard({
 }: WarResultCardProps) {
   const players = result.corrected_players || result.detected_players
   const isEditing = editingResult === result.id
+  const [linkError, setLinkError] = useState<string | null>(null)
+
+  const filteredPlayers = useMemo(
+    () =>
+      allAvailablePlayers.filter(
+        (name) =>
+          linkSearchQuery === "" ||
+          name.toLowerCase().includes(linkSearchQuery.toLowerCase())
+      ),
+    [allAvailablePlayers, linkSearchQuery]
+  )
 
   // Border/background tint depending on review status
   const cardClassName = `transition-all ${
@@ -114,7 +126,8 @@ export function WarResultCard({
           {/* Approve / reject / edit controls — hidden while editing */}
           {!isEditing && (
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => onEdit(result)}>
+              <Button variant="ghost" size="sm" onClick={() => onEdit(result)}
+                aria-label={`Edit result ${result.id}`} title="Edit result">
                 <Edit2 className="h-4 w-4" />
               </Button>
               <Button
@@ -122,6 +135,8 @@ export function WarResultCard({
                 size="sm"
                 className="text-green-600 hover:text-green-700"
                 onClick={() => onApprove(result.id)}
+                aria-label={`Approve result ${result.id}`}
+                title="Approve result"
               >
                 <Check className="h-4 w-4" />
               </Button>
@@ -130,6 +145,8 @@ export function WarResultCard({
                 size="sm"
                 className="text-red-600 hover:text-red-700"
                 onClick={() => onReject(result.id)}
+                aria-label={`Reject result ${result.id}`}
+                title="Reject result"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -268,34 +285,31 @@ export function WarResultCard({
                               className="w-full"
                             />
                             <div className="max-h-40 overflow-y-auto border rounded-md">
-                              {allAvailablePlayers
-                                .filter(
-                                  (name) =>
-                                    linkSearchQuery === "" ||
-                                    name.toLowerCase().includes(linkSearchQuery.toLowerCase())
-                                )
-                                .map((name) => (
-                                  <button
-                                    key={name}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-muted border-b last:border-b-0"
-                                    onClick={async () => {
-                                      try {
-                                        await onLinkPlayer(result.id, idx, player.name, name)
-                                      } catch (err) {
-                                        console.error("Failed to link player:", err)
-                                      }
-                                    }}
-                                  >
-                                    {name}
-                                  </button>
-                                ))}
-                              {allAvailablePlayers.filter(
-                                (name) =>
-                                  linkSearchQuery === "" ||
-                                  name.toLowerCase().includes(linkSearchQuery.toLowerCase())
-                              ).length === 0 && (
+                              {filteredPlayers.map((name) => (
+                                <button
+                                  key={name}
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-muted border-b last:border-b-0"
+                                  onClick={async () => {
+                                    try {
+                                      setLinkError(null)
+                                      await onLinkPlayer(result.id, idx, player.name, name)
+                                    } catch (err) {
+                                      const msg = err instanceof Error ? err.message : "Unknown error"
+                                      setLinkError(`Failed to link player: ${msg}`)
+                                    }
+                                  }}
+                                >
+                                  {name}
+                                </button>
+                              ))}
+                              {filteredPlayers.length === 0 && (
                                 <div className="px-3 py-2 text-sm text-muted-foreground">
                                   No players found
+                                </div>
+                              )}
+                              {linkError && (
+                                <div className="px-3 py-2 text-xs text-red-600">
+                                  {linkError}
                                 </div>
                               )}
                             </div>

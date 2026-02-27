@@ -6,6 +6,7 @@
  * lets reviewers inspect or remove staged entries before that happens.
  */
 
+import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChevronDown, UserPlus, X } from "lucide-react"
@@ -25,6 +26,15 @@ export function StagedPlayersMenu({
   setShowStagedMenu,
   onRemoveStagedPlayer,
 }: StagedPlayersMenuProps) {
+  useEffect(() => {
+    if (!showStagedMenu) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowStagedMenu(false)
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [showStagedMenu, setShowStagedMenu])
+
   return (
     <div className="relative">
       {/* Clickable badge that toggles the dropdown */}
@@ -55,14 +65,7 @@ export function StagedPlayersMenu({
           <div
             className="fixed inset-0 z-40"
             onClick={() => setShowStagedMenu(false)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
-                setShowStagedMenu(false)
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            aria-label="Close staged players menu"
+            aria-hidden="true"
           />
 
           {/* Dropdown */}

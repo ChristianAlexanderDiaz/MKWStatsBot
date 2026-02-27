@@ -1,5 +1,6 @@
 """Shared base cog with decorators, helpers, and autocomplete methods."""
 
+import asyncio
 import functools
 import logging
 import time
@@ -86,7 +87,7 @@ def require_guild_setup(
                     logging.warning(f"/{cmd_name}: interaction expired before defer()")
                     return  # type: ignore[return-value]
             guild_id = self.get_guild_id_from_interaction(interaction)
-            if not self.is_guild_initialized(guild_id):
+            if not await self.is_guild_initialized(guild_id):
                 msg = "❌ Guild not set up! Please run `/setup` first to initialize your clan."
                 if defer:
                     await interaction.followup.send(msg, ephemeral=True)
@@ -140,7 +141,7 @@ class BaseCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot: commands.Bot = bot
 
-    def get_guild_id(self, ctx_or_interaction) -> int:
+    def get_guild_id(self, ctx_or_interaction: "commands.Context | discord.Interaction") -> int:
         """Helper method to get guild ID from context or interaction."""
         if hasattr(ctx_or_interaction, 'guild') and ctx_or_interaction.guild:
             return ctx_or_interaction.guild.id
@@ -150,15 +151,22 @@ class BaseCog(commands.Cog):
         """Get guild ID from interaction."""
         return interaction.guild.id if interaction.guild else 0
 
-    def is_guild_initialized(self, guild_id: int) -> bool:
-        """Check if guild is properly initialized."""
-        try:
-            with self.bot.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM guild_configs WHERE guild_id = %s AND is_active = TRUE", (guild_id,))
-                return cursor.fetchone()[0] > 0
-        except Exception:
-            return False
+    async def is_guild_initialized(self, guild_id: int) -> bool:
+        """Check if guild is properly initialized (async, offloads blocking DB call)."""
+        def _check() -> bool:
+            try:
+                with self.bot.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM guild_configs WHERE guild_id = %s AND is_active = TRUE",
+                        (guild_id,)
+                    )
+                    return cursor.fetchone()[0] > 0
+            except Exception:
+                return False
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _check)
 
     def _format_error_for_user(self, error: Exception, context: str = "") -> str:
         """Convert exception to user-friendly message with technical details."""

@@ -21,7 +21,8 @@ import { useBulkReview } from "@/hooks/useBulkReview"
 export default function BulkReviewPage() {
   const params = useParams()
   const router = useRouter()
-  const token = params.token as string
+  const rawToken = params.token
+  const token = Array.isArray(rawToken) ? rawToken[0] : rawToken ?? ""
 
   const {
     data,

@@ -110,10 +110,16 @@ export function FailureCard({
                     <Input
                       type="number"
                       placeholder="Score"
+                      min={0}
                       value={player.score || ""}
-                      onChange={(e) =>
-                        onPlayerChange(index, "score", parseInt(e.target.value) || 0)
-                      }
+                      onChange={(e) => {
+                        const value = e.target.value
+                        if (value === "") {
+                          onPlayerChange(index, "score", 0)
+                        } else {
+                          onPlayerChange(index, "score", Math.max(0, parseInt(value) || 0))
+                        }
+                      }}
                       className="w-20"
                     />
                     <Input

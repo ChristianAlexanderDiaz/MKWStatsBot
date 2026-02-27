@@ -229,7 +229,7 @@ class WarCog(BaseCog):
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
 
-            if not self.is_guild_initialized(guild_id):
+            if not await self.is_guild_initialized(guild_id):
                 await interaction.response.send_message("❌ Guild not set up! Please run `/setup` first to initialize your clan.", ephemeral=True)
                 return
 
