@@ -157,8 +157,26 @@ def log_function_call(func):
         def my_function(param1, param2):
             pass
     """
+    import asyncio
     import functools
     import time
+
+    if asyncio.iscoroutinefunction(func):
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            logger = get_logger(func.__module__)
+            logger.debug(f"🔵 Entering {func.__name__}()")
+            start_time = time.time()
+            try:
+                result = await func(*args, **kwargs)
+                execution_time = time.time() - start_time
+                logger.debug(f"✅ Completed {func.__name__}() in {execution_time:.3f}s")
+                return result
+            except Exception as e:
+                execution_time = time.time() - start_time
+                logger.error(f"❌ Exception in {func.__name__}() after {execution_time:.3f}s: {e}")
+                raise
+        return async_wrapper
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -190,7 +208,7 @@ def log_function_call(func):
     return wrapper
 
 
-def log_database_operation(operation: str, table: str = None, count: int = None):
+def log_database_operation(operation: str, table: str | None = None, count: int | None = None):
     """
     Log database operations for monitoring and debugging.
 
@@ -227,7 +245,7 @@ def log_ocr_operation(image_path: str, success: bool, players_found: int = 0):
         logger.warning(f"🖼️  OCR Failed: {image_path}")
 
 
-def log_discord_command(command: str, user: str, guild: str = None):
+def log_discord_command(command: str, user: str, guild: str | None = None):
     """
     Log Discord command usage for monitoring.
 

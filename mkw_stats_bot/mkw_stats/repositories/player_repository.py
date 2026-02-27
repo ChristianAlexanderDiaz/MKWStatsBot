@@ -457,7 +457,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error setting player team: {e}")
             return False
 
-    def get_players_by_team(self, team: str = None, guild_id: int = 0) -> dict[str, list[str]]:
+    def get_players_by_team(self, team: str | None = None, guild_id: int = 0) -> dict[str, list[str]]:
         """Get players organized by team, or players from a specific team."""
         self._validate_guild_id(guild_id, "get_players_by_team")
         try:

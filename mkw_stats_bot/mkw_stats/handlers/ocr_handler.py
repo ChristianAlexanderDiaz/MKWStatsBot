@@ -420,7 +420,7 @@ class OCRHandler:
             logger.error(f"Error sending OCR report: {e}")
 
     def format_enhanced_confirmation(
-        self, results: list[dict], validation: dict, war_metadata: dict = None
+        self, results: list[dict], validation: dict, war_metadata: dict | None = None
     ) -> str:
         """Format extracted results with validation info and war metadata for confirmation."""
         if not results:

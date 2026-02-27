@@ -53,7 +53,7 @@ class DashboardClient:
         guild_id: int,
         user_id: int,
         results: list[dict],
-        failed_results: list[dict] = None
+        failed_results: list[dict] | None = None
     ) -> dict | None:
         """
         Create a bulk scan session in the dashboard API.
@@ -156,8 +156,8 @@ class DashboardClient:
         try:
             session = await self._get_session()
             async with session.get(
-                    f"{self.api_url}/health",
-                    timeout=aiohttp.ClientTimeout(total=5)
+                f"{self.api_url}/health",
+                timeout=aiohttp.ClientTimeout(total=5),
             ) as response:
                 return response.status == 200
         except Exception as e:

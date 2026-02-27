@@ -5,6 +5,7 @@ import os
 
 import aiofiles
 import aiofiles.tempfile
+import aiohttp
 import discord
 
 from ..dashboard_client import dashboard_client
@@ -75,14 +76,17 @@ class BulkScanHandler:
 
                     temp_file_path = None
                     try:
-                        async with self.bot.http_session.get(image_data['attachment'].url) as response:
+                        async with self.bot.http_session.get(
+                            image_data['attachment'].url,
+                            timeout=aiohttp.ClientTimeout(total=30),
+                        ) as response:
                             if response.status == 200:
                                 async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
                                     temp_file_path = temp_file.name
                                     image_bytes = await response.read()
                                     await temp_file.write(image_bytes)
                             else:
-                                raise Exception(f"Failed to download: HTTP {response.status}")
+                                raise aiohttp.ClientError(f"Failed to download: HTTP {response.status}")
 
                         if hasattr(self.bot.ocr, 'process_image_async'):
                             result = await self.bot.ocr.process_image_async(
@@ -356,8 +360,8 @@ class BulkScanHandler:
         save_failures: list[dict],
         failed_images: list[dict],
         total_images: int,
-        guild_id: int = None,
-        user_id: int = None,
+        guild_id: int | None = None,
+        user_id: int | None = None,
     ):
         """Create final results embed after saving to database."""
         success_count = len(saved_wars)

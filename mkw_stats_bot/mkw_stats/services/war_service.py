@@ -149,7 +149,7 @@ class WarService:
         """
         try:
             # Get the updated war to compute new team differential
-            updated_war = self.db.wars.get_war_by_id(war_id, guild_id)
+            updated_war = self.db.wars.get_war_by_id(war_id, guild_id=guild_id)
             if not updated_war:
                 return WarSubmissionResult(success=False, error=f"War {war_id} not found")
 

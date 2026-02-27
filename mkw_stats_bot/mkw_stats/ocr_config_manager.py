@@ -132,7 +132,7 @@ class OCRConfigManager:
             logger.info("Using default OCR configuration")
             return OCRResourceConfig()
 
-    def _get_int_env(self, key: str, default: int, min_val: int = None, max_val: int = None) -> int:
+    def _get_int_env(self, key: str, default: int, min_val: int | None = None, max_val: int | None = None) -> int:
         """Get integer environment variable with validation."""
         try:
             value = int(os.getenv(key, default))
@@ -147,7 +147,7 @@ class OCRConfigManager:
             logger.warning(f"Invalid {key} value, using default {default}")
             return default
 
-    def _get_float_env(self, key: str, default: float, min_val: float = None, max_val: float = None) -> float:
+    def _get_float_env(self, key: str, default: float, min_val: float | None = None, max_val: float | None = None) -> float:
         """Get float environment variable with validation."""
         try:
             value = float(os.getenv(key, default))

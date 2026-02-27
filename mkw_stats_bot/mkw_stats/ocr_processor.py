@@ -391,7 +391,7 @@ class OCRProcessor:
                     self.performance_monitor.mark_operation_started(request.request_id)
 
                     # Perform OCR processing in executor to avoid blocking
-                    loop = asyncio.get_event_loop()
+                    loop = asyncio.get_running_loop()
                     result = await loop.run_in_executor(
                         None,
                         self.process_image,
@@ -470,7 +470,7 @@ class OCRProcessor:
                         batch = image_data_list[i:i + batch_size]
 
                         # Process batch in executor
-                        loop = asyncio.get_event_loop()
+                        loop = asyncio.get_running_loop()
                         batch_tasks = []
 
                         for image_data in batch:

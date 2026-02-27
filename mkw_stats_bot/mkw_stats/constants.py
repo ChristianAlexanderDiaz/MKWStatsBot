@@ -16,8 +16,12 @@ try:
     from zoneinfo import ZoneInfo as _ZoneInfo
     EASTERN_TZ = _ZoneInfo('America/New_York')
 except ImportError:
-    from datetime import timedelta, timezone
-    EASTERN_TZ = timezone(timedelta(hours=-5))  # type: ignore[assignment]
+    try:
+        import pytz as _pytz
+        EASTERN_TZ = _pytz.timezone('America/New_York')  # type: ignore[assignment]
+    except ImportError:
+        from datetime import timedelta, timezone
+        EASTERN_TZ = timezone(timedelta(hours=-5))  # type: ignore[assignment]  # no DST
 
 # =============================================================================
 # Guild Exclusions (testing/dev guilds excluded from global leaderboards)

@@ -281,7 +281,7 @@ class PerformanceCollector:
 
     def complete_operation(self, operation_id: str, success: bool,
                           players_detected: int = 0, confidence_score: float = 0.0,
-                          error_message: str = None) -> None:
+                          error_message: str | None = None) -> None:
         """Complete operation tracking."""
         if operation_id not in self.active_operations:
             return
@@ -553,7 +553,7 @@ class OCRPerformanceMonitor:
             return {'status': 'no_data', 'timeframe': f'last_{hours}_hours'}
 
         # Calculate aggregated statistics
-        total_requests = sum(m.total_requests for m in recent_metrics)
+        total_requests = recent_metrics[-1].total_requests - recent_metrics[0].total_requests
         avg_wait_time = sum(m.average_wait_time for m in recent_metrics) / len(recent_metrics)
         avg_utilization = sum(m.overall_utilization for m in recent_metrics) / len(recent_metrics)
         avg_success_rate = sum(m.success_rate for m in recent_metrics) / len(recent_metrics)

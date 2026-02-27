@@ -499,7 +499,7 @@ class WarCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            existing_war = self.bot.db.wars.get_war_by_id(war_id, guild_id)
+            existing_war = self.bot.db.wars.get_war_by_id(war_id, guild_id=guild_id)
             if not existing_war:
                 await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return
@@ -624,7 +624,7 @@ class WarCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            war = self.bot.db.wars.get_war_by_id(war_id, guild_id)
+            war = self.bot.db.wars.get_war_by_id(war_id, guild_id=guild_id)
             if not war:
                 await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return

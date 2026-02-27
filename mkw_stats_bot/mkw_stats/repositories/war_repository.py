@@ -91,7 +91,7 @@ class WarRepository(BaseRepository):
             logging.error(f"❌ Error adding race results: {e}")
             return None
 
-    def get_war_by_id(self, war_id: int, guild_id: int = 0) -> dict | None:
+    def get_war_by_id(self, war_id: int, *, guild_id: int) -> dict | None:
         """Get specific war details by ID. Raises ValueError for invalid guild_id."""
         self._validate_guild_id(guild_id, "get_war_by_id")
         try:
@@ -122,7 +122,7 @@ class WarRepository(BaseRepository):
             logging.error(f"❌ Error getting war by ID: {e}")
             return None
 
-    def get_all_wars(self, limit: int = None, guild_id: int = 0) -> list[dict]:
+    def get_all_wars(self, limit: int | None = None, guild_id: int = 0) -> list[dict]:
         """Get all wars in the database. Raises ValueError for invalid guild_id."""
         self._validate_guild_id(guild_id, "get_all_wars")
         try:

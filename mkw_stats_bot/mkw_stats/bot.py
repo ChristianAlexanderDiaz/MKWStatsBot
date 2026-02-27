@@ -340,8 +340,12 @@ class MarioKartBot(commands.Bot):
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         from .dashboard_client import dashboard_client
-        await dashboard_client.close()
-        await super().close()
+        try:
+            await dashboard_client.close()
+        except Exception as e:
+            logger.warning(f"Error closing dashboard client: {e}")
+        finally:
+            await super().close()
 
     async def on_ready(self) -> None:
         """Event handler called when bot is ready."""

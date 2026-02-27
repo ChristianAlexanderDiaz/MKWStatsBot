@@ -202,7 +202,6 @@ ignore = [
     "E501",  # line too long
     "B008",  # function calls in argument defaults
     "C901",  # too complex
-    "S101",  # assert statements (used in tests)
     "S603",  # subprocess without shell=True (not applicable)
     "S607",  # partial path in subprocess (not applicable)
 ]

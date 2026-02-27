@@ -183,9 +183,9 @@ class PrioritySemaphore:
                 self.standard_limit -= 1
                 self.express_limit += 1
 
-                # Update semaphores
-                self.express_semaphore._value += 1
-                self.standard_semaphore._value = max(0, self.standard_semaphore._value - 1)
+                # Update semaphores using public API
+                self.express_semaphore.release()       # add one permit to EXPRESS
+                await self.standard_semaphore.acquire()  # remove one permit from STANDARD
 
                 self.borrowing_stats['express_borrowed'] += 1
                 self.borrowing_stats['total_borrowing_events'] += 1
@@ -202,9 +202,9 @@ class PrioritySemaphore:
                 self.background_limit -= 1
                 self.express_limit += 1
 
-                # Update semaphores
-                self.express_semaphore._value += 1
-                self.background_semaphore._value = max(0, self.background_semaphore._value - 1)
+                # Update semaphores using public API
+                self.express_semaphore.release()          # add one permit to EXPRESS
+                await self.background_semaphore.acquire()  # remove one permit from BACKGROUND
 
                 self.borrowing_stats['express_borrowed'] += 1
                 self.borrowing_stats['total_borrowing_events'] += 1
@@ -232,9 +232,9 @@ class PrioritySemaphore:
                 self.background_limit -= 1
                 self.standard_limit += 1
 
-                # Update semaphores
-                self.standard_semaphore._value += 1
-                self.background_semaphore._value = max(0, self.background_semaphore._value - 1)
+                # Update semaphores using public API
+                self.standard_semaphore.release()          # add one permit to STANDARD
+                await self.background_semaphore.acquire()  # remove one permit from BACKGROUND
 
                 self.borrowing_stats['standard_borrowed'] += 1
                 self.borrowing_stats['total_borrowing_events'] += 1
@@ -403,7 +403,7 @@ class OCRResourceManager:
                 self.completed_requests.append(request)
 
             # Update processing time statistics
-            if request.processing_time:
+            if request.processing_time is not None:
                 self.usage_stats.total_processing_time += request.processing_time
 
             logger.info(f"🔒 Released resources for {request.request_id} "
