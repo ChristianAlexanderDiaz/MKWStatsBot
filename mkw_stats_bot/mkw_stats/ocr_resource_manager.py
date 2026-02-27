@@ -122,6 +122,12 @@ class PrioritySemaphore:
         # Lock for atomic operations on usage counters
         self._lock = asyncio.Lock()
 
+        # Track in-flight borrows that have reserved a donor slot but not yet
+        # acquired the donor semaphore.  Used in available-capacity checks to
+        # prevent concurrent borrow attempts from counting the same slot twice.
+        self.standard_pending = 0   # slots reserved from STANDARD, not yet acquired
+        self.background_pending = 0  # slots reserved from BACKGROUND, not yet acquired
+
         # Track borrowing events
         self.borrowing_stats = {
             'express_borrowed': 0,
@@ -168,9 +174,14 @@ class PrioritySemaphore:
     async def _try_borrowing_for_express(self) -> bool:
         """Try to borrow resources for EXPRESS priority operations.
 
-        Semaphore acquires are performed OUTSIDE self._lock to avoid deadlock:
-        release() also acquires self._lock, so awaiting inside the lock would
-        deadlock if a lower-priority worker tries to release while we wait.
+        Uses a two-phase reservation protocol to prevent concurrent over-borrowing:
+          1. Inside self._lock: check available = limit - active - pending.
+             If a slot is free, increment donor_pending, bump express_limit,
+             and release express_semaphore (non-blocking — safe inside lock).
+          2. Outside self._lock: await the donor semaphore.  On success finalize
+             (donor_pending--, donor_limit--).  On any error/cancellation roll
+             back by reverting the pending/limit counters and reclaiming the
+             express permit via acquire() so bookkeeping stays consistent.
         """
         if not self.borrowing_enabled:
             return False
@@ -182,28 +193,41 @@ class PrioritySemaphore:
             standard_utilization = self.standard_active / max(self.standard_limit, 1)
             background_utilization = self.background_active / max(self.background_limit, 1)
 
+            standard_available = self.standard_limit - self.standard_active - self.standard_pending
+            background_available = self.background_limit - self.background_active - self.background_pending
+
             if (standard_utilization < self.borrowing_threshold and
-                    self.standard_limit > 1 and self.standard_active < self.standard_limit):
-                self.standard_limit -= 1
+                    self.standard_limit > 1 and standard_available > 0):
+                self.standard_pending += 1
                 self.express_limit += 1
                 self.express_semaphore.release()  # non-blocking: safe inside lock
                 borrow_from = 'standard'
                 logged_util = standard_utilization
 
             elif (background_utilization < self.borrowing_threshold and
-                  self.background_limit > 1 and self.background_active < self.background_limit):
-                self.background_limit -= 1
+                  self.background_limit > 1 and background_available > 0):
+                self.background_pending += 1
                 self.express_limit += 1
                 self.express_semaphore.release()  # non-blocking: safe inside lock
                 borrow_from = 'background'
                 logged_util = background_utilization
 
-        # Acquire the donated semaphore permit OUTSIDE the lock to prevent deadlock.
-        # We already decremented the donor's limit inside the lock, so this acquire
-        # claims the reserved slot and should complete without long waits.
+        # Acquire the donor semaphore OUTSIDE the lock to prevent deadlock.
+        # The pending counter above ensures no other borrow attempt can claim
+        # the same slot while we are waiting here.
         if borrow_from == 'standard':
-            await self.standard_semaphore.acquire()
+            try:
+                await self.standard_semaphore.acquire()
+            except (asyncio.CancelledError, Exception):
+                # Rollback: revert limit changes and reclaim the express permit
+                async with self._lock:
+                    self.standard_pending -= 1
+                    self.express_limit -= 1
+                await self.express_semaphore.acquire()  # take back the released permit
+                raise
             async with self._lock:
+                self.standard_pending -= 1
+                self.standard_limit -= 1
                 self.borrowing_stats['express_borrowed'] += 1
                 self.borrowing_stats['total_borrowing_events'] += 1
             logger.debug(f"EXPRESS borrowed 1 resource from STANDARD "
@@ -211,8 +235,17 @@ class PrioritySemaphore:
             return True
 
         if borrow_from == 'background':
-            await self.background_semaphore.acquire()
+            try:
+                await self.background_semaphore.acquire()
+            except (asyncio.CancelledError, Exception):
+                async with self._lock:
+                    self.background_pending -= 1
+                    self.express_limit -= 1
+                await self.express_semaphore.acquire()
+                raise
             async with self._lock:
+                self.background_pending -= 1
+                self.background_limit -= 1
                 self.borrowing_stats['express_borrowed'] += 1
                 self.borrowing_stats['total_borrowing_events'] += 1
             logger.debug(f"EXPRESS borrowed 1 resource from BACKGROUND "
@@ -224,8 +257,8 @@ class PrioritySemaphore:
     async def _try_borrowing_for_standard(self) -> bool:
         """Try to borrow resources for STANDARD priority operations.
 
-        Semaphore acquire is performed OUTSIDE self._lock to avoid deadlock
-        (same reasoning as _try_borrowing_for_express).
+        Uses the same two-phase reservation protocol as _try_borrowing_for_express
+        to prevent concurrent over-borrowing from BACKGROUND.
         """
         if not self.borrowing_enabled:
             return False
@@ -234,11 +267,12 @@ class PrioritySemaphore:
         logged_util: float = 0.0
 
         async with self._lock:
+            background_available = self.background_limit - self.background_active - self.background_pending
             background_utilization = self.background_active / max(self.background_limit, 1)
 
             if (background_utilization < self.borrowing_threshold and
-                    self.background_limit > 1 and self.background_active < self.background_limit):
-                self.background_limit -= 1
+                    self.background_limit > 1 and background_available > 0):
+                self.background_pending += 1
                 self.standard_limit += 1
                 self.standard_semaphore.release()  # non-blocking: safe inside lock
                 should_borrow = True
@@ -246,8 +280,17 @@ class PrioritySemaphore:
 
         # Acquire OUTSIDE the lock to prevent deadlock.
         if should_borrow:
-            await self.background_semaphore.acquire()
+            try:
+                await self.background_semaphore.acquire()
+            except (asyncio.CancelledError, Exception):
+                async with self._lock:
+                    self.background_pending -= 1
+                    self.standard_limit -= 1
+                await self.standard_semaphore.acquire()  # take back the released permit
+                raise
             async with self._lock:
+                self.background_pending -= 1
+                self.background_limit -= 1
                 self.borrowing_stats['standard_borrowed'] += 1
                 self.borrowing_stats['total_borrowing_events'] += 1
             logger.debug(f"STANDARD borrowed 1 resource from BACKGROUND "
