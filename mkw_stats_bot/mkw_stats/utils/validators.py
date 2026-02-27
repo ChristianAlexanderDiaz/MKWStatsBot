@@ -4,14 +4,13 @@ Validation utility functions.
 Extracted from commands.py to eliminate duplication across cogs and services.
 """
 
-from typing import Tuple
 
 import discord
 
 from .. import config
 
 
-def validate_score(score: int, races: int) -> Tuple[bool, str]:
+def validate_score(score: int, races: int) -> tuple[bool, str]:
     """Validate a player's score for a given race count.
 
     Returns:
@@ -25,7 +24,7 @@ def validate_score(score: int, races: int) -> Tuple[bool, str]:
     return True, ""
 
 
-def validate_race_count(races: int) -> Tuple[bool, str]:
+def validate_race_count(races: int) -> tuple[bool, str]:
     """Validate race count is within allowed range.
 
     Returns:

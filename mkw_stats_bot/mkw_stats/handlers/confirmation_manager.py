@@ -2,8 +2,10 @@
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any
+
 import discord
+
 from ..logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -15,11 +17,11 @@ logger = get_logger(__name__)
 @dataclass
 class _TempOCRView:
     """Lightweight stand-in for OCRConfirmationView used inside ReportIssueView on rejection."""
-    guild_id: Optional[int]
-    user_id: Optional[int]
-    original_message_obj: Optional[Any]
-    results: List[dict] = field(default_factory=list)
-    bot: Optional[Any] = None
+    guild_id: int | None
+    user_id: int | None
+    original_message_obj: Any | None
+    results: list[dict] = field(default_factory=list)
+    bot: Any | None = None
 
 
 def _log_task_error(t: asyncio.Task) -> None:
@@ -41,7 +43,7 @@ class ConfirmationManager:
     def __init__(self, bot: "MarioKartBot") -> None:
         self.bot = bot
 
-    async def handle_reaction(self, reaction: discord.Reaction, user: Union[discord.User, discord.Member]) -> None:
+    async def handle_reaction(self, reaction: discord.Reaction, user: discord.User | discord.Member) -> None:
         """Route reaction events to the appropriate handler."""
         if user == self.bot.user:
             return

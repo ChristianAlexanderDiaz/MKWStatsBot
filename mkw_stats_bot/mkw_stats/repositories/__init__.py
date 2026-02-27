@@ -8,10 +8,10 @@ Each repository handles a specific domain of database operations:
 - GuildRepository: Guild configuration, teams, tags, roles
 """
 
-from .player_repository import PlayerRepository
-from .war_repository import WarRepository
-from .stats_repository import StatsRepository
 from .guild_repository import GuildRepository
+from .player_repository import PlayerRepository
+from .stats_repository import StatsRepository
+from .war_repository import WarRepository
 
 __all__ = [
     "PlayerRepository",

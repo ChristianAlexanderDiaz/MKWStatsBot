@@ -7,7 +7,6 @@ so they can be imported by any module without circular dependencies.
 
 import logging
 import os
-from typing import Dict, List
 
 # =============================================================================
 # Timezone
@@ -17,14 +16,14 @@ try:
     from zoneinfo import ZoneInfo as _ZoneInfo
     EASTERN_TZ = _ZoneInfo('America/New_York')
 except ImportError:
-    from datetime import timezone, timedelta
+    from datetime import timedelta, timezone
     EASTERN_TZ = timezone(timedelta(hours=-5))  # type: ignore[assignment]
 
 # =============================================================================
 # Guild Exclusions (testing/dev guilds excluded from global leaderboards)
 # =============================================================================
 
-def _parse_excluded_guilds() -> List[int]:
+def _parse_excluded_guilds() -> list[int]:
     """Parse excluded guild IDs from the EXCLUDED_GUILD_IDS environment variable.
 
     - Unset: returns the default testing guild ID
@@ -61,7 +60,7 @@ def _parse_excluded_guilds() -> List[int]:
     return [default_testing_guild]
 
 
-EXCLUDED_GUILD_IDS: List[int] = _parse_excluded_guilds()
+EXCLUDED_GUILD_IDS: list[int] = _parse_excluded_guilds()
 
 # =============================================================================
 # Bot Identity
@@ -132,7 +131,7 @@ COLOR_EXPIRED: int = 0x808080
 # Sort Options (used by leaderboard views and stats commands)
 # =============================================================================
 
-SORT_DISPLAY_NAMES: Dict[str, str] = {
+SORT_DISPLAY_NAMES: dict[str, str] = {
     "avg10": "Average 10",
     "avgdiff": "Average Team Differential",
     "clutch": "Clutch Factor",
@@ -148,7 +147,7 @@ SORT_DISPLAY_NAMES: Dict[str, str] = {
     "winrate": "Win Rate",
 }
 
-SORT_DESCRIPTIONS: Dict[str, str] = {
+SORT_DESCRIPTIONS: dict[str, str] = {
     "avg10": "Recent form - average of your last 10 wars. Shows current performance vs all-time average.",
     "avgdiff": "Team differential per war - how much your team wins/loses by on average. Positive = helping your team, negative = holding team back.",
     "clutch": "Clutch factor - performance in close wars (differential <=38) vs overall average. Categories: Elite Clutch (+0.45+), Clutch (+0.14 to +0.45), Neutral (-0.30 to +0.14), Shaky (-0.87 to -0.30), Chokes (-0.87 or lower).",
@@ -165,7 +164,7 @@ SORT_DESCRIPTIONS: Dict[str, str] = {
 }
 
 # Global leaderboard title map
-GLOBAL_SORT_TITLES: Dict[str, str] = {
+GLOBAL_SORT_TITLES: dict[str, str] = {
     "avg": "Average Score",
     "avg10": "Average 10",
     "avgdiff": "Average Differential",

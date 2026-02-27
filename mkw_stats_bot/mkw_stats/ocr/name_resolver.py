@@ -1,11 +1,10 @@
 """Name resolution for OCR - finding valid player names in OCR token streams."""
 
-import re
 import logging
-from typing import List, Optional
+import re
 
 
-def extract_score_from_corrupted_token(token: str) -> Optional[int]:
+def extract_score_from_corrupted_token(token: str) -> int | None:
     """Extract score (1-180) from a corrupted token containing mixed text and numbers."""
     numbers = re.findall(r'\d+', token)
     for num_str in numbers:
@@ -60,7 +59,7 @@ class NameResolver:
             logging.error(f"❌ Error in substring matching: {e}")
             return None, None
 
-    def find_valid_names_with_window(self, tokens: List[str], guild_id: int) -> List[tuple]:
+    def find_valid_names_with_window(self, tokens: list[str], guild_id: int) -> list[tuple]:
         """Find valid player names using sliding window approach with substring fallback for corrupted OCR."""
         valid_names = []
         i = 0

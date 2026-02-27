@@ -5,16 +5,15 @@ Player repository: CRUD operations for players, roster, nicknames, and Discord l
 import json
 import logging
 import traceback
-from typing import List, Dict, Optional
 
-from .base import BaseRepository
 from ..constants import EXCLUDED_GUILD_IDS
+from .base import BaseRepository
 
 
 class PlayerRepository(BaseRepository):
     """Handles all player-related database operations."""
 
-    def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0, log_level: str = 'error') -> Optional[str]:
+    def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0, log_level: str = 'error') -> str | None:
         """Resolve a name or nickname to players table player name.
 
         Args:
@@ -218,7 +217,7 @@ class PlayerRepository(BaseRepository):
                 logging.debug(f"🔍 Database lookup failed for '{name_or_nickname}' (expected if opponent): {e}")
             return None
 
-    def get_player_info(self, name_or_nickname: str, guild_id: int = 0) -> Optional[Dict]:
+    def get_player_info(self, name_or_nickname: str, guild_id: int = 0) -> dict | None:
         """Get basic roster info for a player."""
         main_name = self.resolve_player_name(name_or_nickname, guild_id)
         if not main_name:
@@ -250,7 +249,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error getting player info: {e}")
             return None
 
-    def get_all_players_stats(self, guild_id: int = 0) -> List[Dict]:
+    def get_all_players_stats(self, guild_id: int = 0) -> list[dict]:
         """Get all roster players info."""
         try:
             with self.get_connection() as conn:
@@ -283,7 +282,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error getting all player stats: {e}")
             return []
 
-    def get_all_players_stats_global(self, limit: Optional[int] = None) -> List[Dict]:
+    def get_all_players_stats_global(self, limit: int | None = None) -> list[dict]:
         """Get basic stats for all active players across all guilds for global leaderboard.
 
         Automatically excludes testing/dev guilds configured in EXCLUDED_GUILD_IDS env var.
@@ -335,7 +334,7 @@ class PlayerRepository(BaseRepository):
 
     # Roster Management Methods
 
-    def get_roster_players(self, guild_id: int = 0) -> List[str]:
+    def get_roster_players(self, guild_id: int = 0) -> list[str]:
         """Get list of active roster players."""
         try:
             with self.get_connection() as conn:
@@ -458,7 +457,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error setting player team: {e}")
             return False
 
-    def get_players_by_team(self, team: str = None, guild_id: int = 0) -> Dict[str, List[str]]:
+    def get_players_by_team(self, team: str = None, guild_id: int = 0) -> dict[str, list[str]]:
         """Get players organized by team, or players from a specific team."""
         self._validate_guild_id(guild_id, "get_players_by_team")
         try:
@@ -493,12 +492,12 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error getting players by team: {e}")
             return {}
 
-    def get_team_roster(self, team: str, guild_id: int = 0) -> List[str]:
+    def get_team_roster(self, team: str, guild_id: int = 0) -> list[str]:
         """Get list of players in a specific team."""
         team_data = self.get_players_by_team(team, guild_id)
         return team_data.get(team, [])
 
-    def get_player_team(self, player_name: str, guild_id: int = 0) -> Optional[str]:
+    def get_player_team(self, player_name: str, guild_id: int = 0) -> str | None:
         """Get a player's current team assignment."""
         try:
             with self.get_connection() as conn:
@@ -596,7 +595,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error removing nickname: {e}")
             return False
 
-    def get_player_nicknames(self, player_name: str, guild_id: int = 0) -> List[str]:
+    def get_player_nicknames(self, player_name: str, guild_id: int = 0) -> list[str]:
         """Get all nicknames for a player."""
         self._validate_guild_id(guild_id, "get_player_nicknames")
         try:
@@ -615,7 +614,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error getting player nicknames: {e}")
             return []
 
-    def set_player_nicknames(self, player_name: str, nicknames: List[str], guild_id: int = 0) -> bool:
+    def set_player_nicknames(self, player_name: str, nicknames: list[str], guild_id: int = 0) -> bool:
         """Set all nicknames for a player (replaces existing nicknames)."""
         self._validate_guild_id(guild_id, "set_player_nicknames")
         try:
@@ -681,7 +680,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error setting member status: {e}")
             return False
 
-    def get_players_by_member_status(self, member_status: str, guild_id: int = 0) -> List[Dict]:
+    def get_players_by_member_status(self, member_status: str, guild_id: int = 0) -> list[dict]:
         """Get all players with a specific member status."""
         self._validate_guild_id(guild_id, "get_players_by_member_status")
         try:
@@ -714,7 +713,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error getting players by member status: {e}")
             return []
 
-    def get_member_status_counts(self, guild_id: int = 0) -> Dict[str, int]:
+    def get_member_status_counts(self, guild_id: int = 0) -> dict[str, int]:
         """Get count of players by member status."""
         self._validate_guild_id(guild_id, "get_member_status_counts")
         try:
@@ -911,7 +910,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error syncing player role: {e}")
             return False
 
-    def get_unlinked_players(self, guild_id: int = 0) -> List[Dict]:
+    def get_unlinked_players(self, guild_id: int = 0) -> list[dict]:
         """Get all active players without a Discord user ID link."""
         self._validate_guild_id(guild_id, "get_unlinked_players")
         try:
@@ -943,7 +942,7 @@ class PlayerRepository(BaseRepository):
             logging.error(f"❌ Error getting unlinked players: {e}")
             return []
 
-    def get_player_name_by_discord_id(self, discord_user_id: int, guild_id: int) -> Optional[str]:
+    def get_player_name_by_discord_id(self, discord_user_id: int, guild_id: int) -> str | None:
         """Return the player_name for an active player linked to a Discord user, or None."""
         self._validate_guild_id(guild_id, "get_player_name_by_discord_id")
         try:

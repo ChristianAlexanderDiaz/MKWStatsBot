@@ -5,28 +5,24 @@ Based on working Discord bot PaddleOCR implementation
 Enhanced with Railway-optimized resource management
 """
 
-import os
-import gc
 import asyncio
-import threading
-import tempfile
+import gc
 import logging
+import os
 import re
-from enum import Enum
-from typing import List, Dict, Optional
-from pathlib import Path
-from PIL import Image, ImageDraw
+import threading
 import traceback
-import numpy as np
+from enum import Enum
 
 # PaddleOCR imports
 from paddleocr import PaddleOCR
+from PIL import Image, ImageDraw
 
 # Enhanced resource management imports (optional - falls back gracefully)
 try:
-    from .ocr_config_manager import get_ocr_config, OCRPriority
-    from .ocr_resource_manager import get_ocr_resource_manager
+    from .ocr_config_manager import get_ocr_config
     from .ocr_performance_monitor import get_ocr_performance_monitor
+    from .ocr_resource_manager import get_ocr_resource_manager
     RESOURCE_MANAGEMENT_AVAILABLE = True
 except ImportError:
     RESOURCE_MANAGEMENT_AVAILABLE = False
@@ -78,7 +74,7 @@ TABLE_FORMATS = {
 
 class OCRProcessor:
     """PaddleOCR processor for Mario Kart race result images."""
-    
+
     def __init__(self, db_manager=None):
         """Initialize PaddleOCR processor with memory optimization and optional resource management."""
         self.db_manager = db_manager
@@ -106,7 +102,7 @@ class OCRProcessor:
             logging.info("📝 OCR Processor initialized in basic mode (no resource management)")
 
         self._initialize_ocr()
-    
+
     def _initialize_ocr(self):
         """Initialize PaddleOCR with optimized settings."""
         try:
@@ -159,25 +155,25 @@ class OCRProcessor:
         except Exception as e:
             logging.error(f"❌ Failed to initialize PaddleOCR: {e}")
             raise
-    
+
     def cleanup_memory(self):
         """Force garbage collection to free memory."""
         gc.collect()
-    
+
     def detect_table_format(self, img_width: int, img_height: int) -> TableFormat:
         """Detect table format based on image width. Height varies with player count."""
         # Find the closest matching format by width
         best_match = None
         smallest_diff = float('inf')
-        
+
         for format_type, format_data in TABLE_FORMATS.items():
             expected_width = format_data['expected_width']
             width_diff = abs(img_width - expected_width)
-            
+
             if width_diff < smallest_diff:
                 smallest_diff = width_diff
                 best_match = format_type
-        
+
         if best_match:
             format_name = TABLE_FORMATS[best_match]['name']
             logging.info(f"🎯 Detected table format: {format_name} (image: {img_width}x{img_height})")
@@ -186,72 +182,72 @@ class OCRProcessor:
             # Fallback to large format if no good match
             logging.warning(f"⚠️ Unknown image size {img_width}x{img_height}, defaulting to Large Format")
             return TableFormat.LARGE
-    
+
     def crop_image_to_target_region(self, image_path: str) -> tuple[str, str, tuple]:
         """Crop image to target region and create visualization - returns (cropped_path, visual_path, crop_coords)"""
         try:
             # Load image
             image = Image.open(image_path)
             img_width, img_height = image.size
-            
+
             # Detect table format based on image size
             table_format = self.detect_table_format(img_width, img_height)
             crop_coords = TABLE_FORMATS[table_format]['crop_coords']
-            
+
             # Get coordinates for detected format
             start_x = crop_coords['start_x']
             start_y = crop_coords['start_y']
             end_x = crop_coords['end_x']
             end_y = img_height  # Extend to full height of current image (preserves dynamic behavior)
-            
+
             # Ensure coordinates are within bounds
             start_x = max(0, min(start_x, img_width))
             start_y = max(0, min(start_y, img_height))
             end_x = max(0, min(end_x, img_width))
             end_y = max(0, min(end_y, img_height))
-            
+
             crop_coords = (start_x, start_y, end_x, end_y)
-            
+
             # Crop the image
             cropped_image = image.crop(crop_coords)
-            
+
             # Create visualization showing the crop region on original image
             visual_image = image.copy()
             draw = ImageDraw.Draw(visual_image)
-            
+
             # Draw rectangle showing crop region
             draw.rectangle(crop_coords, outline="red", width=8)
-            
+
             # Add text labels
             draw.text((start_x + 10, start_y + 10), "OCR REGION", fill="red")
             draw.text((start_x + 10, start_y + 40), f"{end_x - start_x}x{end_y - start_y}px", fill="red")
-            
+
             # Save both images
             cropped_path = image_path.replace('.png', '_cropped.png').replace('.jpg', '_cropped.jpg').replace('.jpeg', '_cropped.jpg')
             visual_path = image_path.replace('.png', '_visual.png').replace('.jpg', '_visual.jpg').replace('.jpeg', '_visual.jpg')
-            
+
             cropped_image.save(cropped_path)
             visual_image.save(visual_path)
-            
+
             format_name = TABLE_FORMATS[table_format]['name']
             logging.info(f"✂️ Cropped image {img_width}x{img_height} to region ({start_x},{start_y}) to ({end_x},{end_y}) using {format_name}")
-            
+
             return cropped_path, visual_path, crop_coords
-            
+
         except Exception as e:
             logging.error(f"❌ Error cropping image: {e}")
             return image_path, image_path, (0, 0, 0, 0)  # Return original if cropping fails
-    
+
     def perform_ocr_on_file(self, image_path: str) -> dict:
         """Perform OCR on image file and return results with visualization paths"""
         try:
             # First crop the image to target region and create visualization
             cropped_path, visual_path, crop_coords = self.crop_image_to_target_region(image_path)
-            
+
             with ocr_lock:
                 # Perform OCR on cropped image
                 result = self.ocr.ocr(cropped_path, cls=False)
-                
+
                 # Format results
                 text_results = []
                 if result and result[0]:
@@ -262,7 +258,7 @@ class OCRProcessor:
                                 "confidence": float(line[1][1]),
                                 "bbox": line[0]
                             })
-                
+
                 response = {
                     "success": True,
                     "results": text_results,
@@ -271,24 +267,24 @@ class OCRProcessor:
                     "visual_path": visual_path,
                     "crop_coords": crop_coords
                 }
-                
+
                 # Clean up
                 del result
                 self.cleanup_memory()
-                
+
                 return response
-                
+
         except Exception as e:
             self.cleanup_memory()
             logging.error(f"❌ Error in OCR: {str(e)}")
             logging.error(traceback.format_exc())
             return {"success": False, "error": str(e)}
-    
-    def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0) -> Dict:
+
+    def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0) -> dict:
         """Process image using PaddleOCR and return parsed Mario Kart results."""
         try:
             logging.info(f"🔍 Processing image with PaddleOCR: {image_path}")
-            
+
             if not os.path.exists(image_path):
                 logging.error(f"❌ File not found: {image_path}")
                 return {
@@ -296,17 +292,17 @@ class OCRProcessor:
                     'error': f'Image file not found: {image_path}',
                     'results': []
                 }
-            
+
             # Perform OCR using the working Discord bot method
             ocr_result = self.perform_ocr_on_file(image_path)
-            
+
             if not ocr_result["success"]:
                 return {
                     'success': False,
                     'error': ocr_result.get('error', 'OCR processing failed'),
                     'results': []
                 }
-            
+
             # Extract text results for parsing
             extracted_texts = []
             if ocr_result.get("results"):
@@ -322,34 +318,34 @@ class OCRProcessor:
                             'confidence': confidence,
                             'bbox': bbox
                         })
-            
+
             if not extracted_texts:
                 return {
                     'success': False,
                     'error': 'No valid text found in image after filtering',
                     'results': []
                 }
-            
+
             # Parse Mario Kart results
             parsed_results = self._parse_mario_kart_results(extracted_texts, guild_id)
-            
+
             if not parsed_results:
                 return {
                     'success': False,
                     'error': 'No valid player results found',
                     'results': []
                 }
-            
+
             # Add metadata to results
             war_metadata = self._create_default_war_metadata(message_timestamp)
             for result_item in parsed_results:
                 result_item.update(war_metadata)
-            
+
             # Validate results
             validation_result = self._validate_results(parsed_results, guild_id)
-            
+
             logging.info("🎉 SUCCESS! PaddleOCR processing completed!")
-            
+
             return {
                 'success': True,
                 'results': parsed_results,
@@ -358,7 +354,7 @@ class OCRProcessor:
                 'validation': validation_result,
                 'processing_engine': 'paddleocr'
             }
-            
+
         except Exception as e:
             logging.error(f"❌ OCR processing error: {e}")
             return {
@@ -366,9 +362,9 @@ class OCRProcessor:
                 'error': f'OCR processing failed: {str(e)}',
                 'results': []
             }
-    
+
     async def process_image_async(self, image_path: str, guild_id: int, user_id: int,
-                                 message_timestamp=None) -> Dict:
+                                 message_timestamp=None) -> dict:
         """
         Async process image with resource management and priority allocation.
         Falls back to sync processing if resource management is unavailable.
@@ -376,7 +372,7 @@ class OCRProcessor:
         if not self.resource_management_enabled:
             # Fallback to synchronous processing
             return self.process_image(image_path, message_timestamp, guild_id)
-        
+
         try:
             # Create resource request
             request = self.resource_manager.create_request(
@@ -384,53 +380,53 @@ class OCRProcessor:
                 guild_id=guild_id,
                 user_id=user_id
             )
-            
+
             # Track operation performance
             async with self.performance_monitor.track_operation(
                 request.request_id, request.priority, 1, guild_id, user_id
-            ) as operation_profile:
-                
+            ):
+
                 # Acquire resources with priority allocation
                 async with self.resource_manager.acquire_resources(request) as context:
                     self.performance_monitor.mark_operation_started(request.request_id)
-                    
+
                     # Perform OCR processing in executor to avoid blocking
                     loop = asyncio.get_event_loop()
                     result = await loop.run_in_executor(
-                        None, 
-                        self.process_image, 
-                        image_path, 
-                        message_timestamp, 
+                        None,
+                        self.process_image,
+                        image_path,
+                        message_timestamp,
                         guild_id
                     )
-                    
+
                     # Update performance metrics
                     if result.get('success'):
                         players_detected = len(result.get('results', []))
                         # Calculate average confidence from results
-                        all_confidences = [r.get('confidence', 0.0) for r in result.get('results', []) 
+                        all_confidences = [r.get('confidence', 0.0) for r in result.get('results', [])
                                          if 'confidence' in r]
                         avg_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
-                        
+
                         self.performance_monitor.update_operation_results(
                             request.request_id, players_detected, avg_confidence
                         )
-                    
+
                     # Add resource management metadata
                     if result.get('success'):
                         result['resource_priority'] = request.priority.value
                         result['processing_engine'] = 'paddleocr_with_resource_management'
                         result['wait_time_seconds'] = context.wait_time
-                    
+
                     return result
-                    
+
         except Exception as e:
             logging.error(f"Error in async OCR processing: {e}")
             # Fallback to synchronous processing on error
             return self.process_image(image_path, message_timestamp, guild_id)
-    
-    async def process_bulk_images_async(self, image_data_list: List[Dict], guild_id: int, 
-                                       user_id: int) -> List[Dict]:
+
+    async def process_bulk_images_async(self, image_data_list: list[dict], guild_id: int,
+                                       user_id: int) -> list[dict]:
         """
         Process multiple images with intelligent batching and resource management.
         Falls back to individual sync processing if resource management is unavailable.
@@ -440,43 +436,43 @@ class OCRProcessor:
             results = []
             for image_data in image_data_list:
                 result = self.process_image(
-                    image_data['path'], 
-                    image_data.get('timestamp'), 
+                    image_data['path'],
+                    image_data.get('timestamp'),
                     guild_id
                 )
                 results.append(result)
             return results
-        
+
         try:
             image_count = len(image_data_list)
-            
+
             # Create resource request for bulk processing
             request = self.resource_manager.create_request(
                 image_count=image_count,
                 guild_id=guild_id,
                 user_id=user_id
             )
-            
+
             # Track bulk operation performance
             async with self.performance_monitor.track_operation(
                 request.request_id, request.priority, image_count, guild_id, user_id
-            ) as operation_profile:
-                
+            ):
+
                 # Acquire resources with priority allocation
-                async with self.resource_manager.acquire_resources(request) as context:
+                async with self.resource_manager.acquire_resources(request):
                     self.performance_monitor.mark_operation_started(request.request_id)
-                    
+
                     # Process images based on batch size configuration
                     batch_size = getattr(self.config_manager.config, 'batch_size', 3)
                     results = []
-                    
+
                     for i in range(0, image_count, batch_size):
                         batch = image_data_list[i:i + batch_size]
-                        
+
                         # Process batch in executor
                         loop = asyncio.get_event_loop()
                         batch_tasks = []
-                        
+
                         for image_data in batch:
                             task = loop.run_in_executor(
                                 None,
@@ -486,12 +482,12 @@ class OCRProcessor:
                                 guild_id
                             )
                             batch_tasks.append(task)
-                        
+
                         # Wait for batch completion
                         batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-                        
+
                         # Handle any exceptions in batch results
-                        for j, result in enumerate(batch_results):
+                        for _j, result in enumerate(batch_results):
                             if isinstance(result, Exception):
                                 logging.error(f"Error processing image in batch: {result}")
                                 results.append({
@@ -506,31 +502,31 @@ class OCRProcessor:
                                     result['processing_engine'] = 'paddleocr_bulk_with_resource_management'
                                     result['batch_number'] = i // batch_size + 1
                                 results.append(result)
-                        
+
                         # Memory cleanup between batches
                         if i + batch_size < image_count:
                             self.cleanup_memory()
                             await asyncio.sleep(0.1)  # Brief pause for cleanup
-                    
+
                     # Update performance metrics
                     successful_results = [r for r in results if r.get('success')]
                     total_players = sum(len(r.get('results', [])) for r in successful_results)
-                    
+
                     # Calculate bulk average confidence
                     all_confidences = []
                     for result in successful_results:
                         for player_result in result.get('results', []):
                             if 'confidence' in player_result:
                                 all_confidences.append(player_result['confidence'])
-                    
+
                     avg_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
-                    
+
                     self.performance_monitor.update_operation_results(
                         request.request_id, total_players, avg_confidence
                     )
-                    
+
                     return results
-                    
+
         except Exception as e:
             logging.error(f"Error in bulk async OCR processing: {e}")
             # Fallback to individual synchronous processing
@@ -538,8 +534,8 @@ class OCRProcessor:
             for image_data in image_data_list:
                 try:
                     result = self.process_image(
-                        image_data['path'], 
-                        image_data.get('timestamp'), 
+                        image_data['path'],
+                        image_data.get('timestamp'),
                         guild_id
                     )
                     results.append(result)
@@ -550,15 +546,15 @@ class OCRProcessor:
                         'results': []
                     })
             return results
-    
-    def get_performance_stats(self) -> Dict:
+
+    def get_performance_stats(self) -> dict:
         """Get current performance statistics from the processor."""
         if not self.resource_management_enabled:
             return {
                 'resource_management': False,
                 'status': 'basic_mode'
             }
-        
+
         try:
             return {
                 'resource_management': True,
@@ -573,8 +569,8 @@ class OCRProcessor:
                 'status': 'error',
                 'error': str(e)
             }
-    
-    def _parse_mario_kart_results(self, extracted_texts: List[Dict], guild_id: int = 0) -> List[Dict]:
+
+    def _parse_mario_kart_results(self, extracted_texts: list[dict], guild_id: int = 0) -> list[dict]:
         """Parse extracted text to find Mario Kart player results using database validation."""
         from .ocr import extract_score_from_corrupted_token
         try:
@@ -601,7 +597,7 @@ class OCRProcessor:
                     token_idx += 1
 
             logging.info(f"🔍 OCR tokens: {tokens}")
-            
+
             # Find all valid scores (1-180)
             score_positions = []
             for i, token in enumerate(tokens):
@@ -611,7 +607,7 @@ class OCRProcessor:
                     r'^\((\d+)$',    # (5
                     r'^(\d+)\)$'     # 5)
                 ]
-                
+
                 is_race_count_token = False
                 for pattern in race_count_patterns:
                     match = re.match(pattern, token.strip())
@@ -621,10 +617,10 @@ class OCRProcessor:
                             is_race_count_token = True
                             logging.info(f"🏁 Skipping race count token '{token}' in score detection")
                             break
-                
+
                 if is_race_count_token:
                     continue
-                    
+
                 if token.isdigit() and 1 <= int(token) <= 180:
                     score_positions.append(i)
                     logging.info(f"📊 Found score: {token} at position {i}")
@@ -636,7 +632,7 @@ class OCRProcessor:
                         next_token = tokens[i + 1]
                         if next_token.isdigit() and 1 <= int(next_token) <= 180:
                             has_following_score = True
-                    
+
                     # Only treat as embedded score if NO following score exists
                     if not has_following_score:
                         embedded_score = extract_score_from_corrupted_token(token)
@@ -645,7 +641,7 @@ class OCRProcessor:
                             logging.info(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
                     else:
                         logging.info(f"🔍 Skipping potential embedded score in '{token}' because followed by valid score '{next_token}'")
-            
+
             # Find all valid player names using sliding window
             valid_names = self.name_resolver.find_valid_names_with_window(tokens, guild_id)
 
@@ -663,25 +659,25 @@ class OCRProcessor:
                 results = self.team_splitter.apply_dynamic_team_splitting(results, tokens, guild_id, all_detected_scores)
                 guild_players_found = len(results)  # Update count after splitting
                 opponent_players = all_detected_scores - guild_players_found
-            
+
             logging.info(f"🎯 OCR Results: {guild_players_found} guild players found, {opponent_players} opponent players detected")
-            
+
             # Log guild team summary
             if results:
                 team_summary = ", ".join([f"{result['name']} {result['score']}" for result in results])
                 logging.info(f"Your team: {team_summary}")
-            
+
             return results
-            
+
         except Exception as e:
             logging.error(f"❌ Error parsing Mario Kart results: {e}")
             return []
-    
+
     # ------------------------------------------------------------------
     # Backward-compat stubs – implementations live in ocr/ sub-modules
     # ------------------------------------------------------------------
 
-    def _apply_6v6_team_splitting(self, guild_results: List[Dict], tokens: List[str], guild_id: int) -> List[Dict]:
+    def _apply_6v6_team_splitting(self, guild_results: list[dict], tokens: list[str], guild_id: int) -> list[dict]:
         """Delegate to TeamSplitter.apply_6v6_team_splitting."""
         return self.team_splitter.apply_6v6_team_splitting(guild_results, tokens, guild_id)
 
@@ -722,7 +718,7 @@ class OCRProcessor:
         """Delegate to ScorePairer.get_bbox_center_y."""
         return self.score_pairer.get_bbox_center_y(bbox)
 
-    def _validate_results(self, results: List[Dict], guild_id: int = 0) -> Dict:
+    def _validate_results(self, results: list[dict], guild_id: int = 0) -> dict:
         """Basic validation of parsed results."""
         try:
             validation = {
@@ -730,32 +726,32 @@ class OCRProcessor:
                 'errors': [],
                 'warnings': []
             }
-            
+
             if not results:
                 validation['is_valid'] = False
                 validation['errors'].append("No results found")
                 return validation
-            
+
             # Check for duplicate players
             names = [result['name'] for result in results]
-            duplicates = set([name for name in names if names.count(name) > 1])
+            duplicates = {name for name in names if names.count(name) > 1}
             if duplicates:
                 validation['warnings'].append(f"Duplicate players found: {', '.join(duplicates)}")
-            
+
             # Check score ranges
             for result in results:
                 score = result.get('score', 0)
                 if not (1 <= score <= 180):
                     validation['warnings'].append(f"{result['name']}: Score {score} is outside normal range (1-180)")
-            
+
             # Check minimum players
             if len(results) < 3:
                 validation['warnings'].append(f"Only {len(results)} players found, expected more for a war")
-            
+
             logging.info(f"🔍 Validation complete: {len(validation['errors'])} errors, {len(validation['warnings'])} warnings")
-            
+
             return validation
-            
+
         except Exception as e:
             logging.error(f"❌ Error during validation: {e}")
             return {
@@ -763,61 +759,61 @@ class OCRProcessor:
                 'errors': [f"Validation failed: {str(e)}"],
                 'warnings': []
             }
-    
-    def _create_default_war_metadata(self, message_timestamp=None) -> Dict:
+
+    def _create_default_war_metadata(self, message_timestamp=None) -> dict:
         """Create default war metadata."""
         try:
             from . import config
             default_race_count = getattr(config, 'DEFAULT_RACE_COUNT', 12)
-        except:
+        except Exception:
             default_race_count = 12
-        
+
         metadata = {
             'date': None,
-            'time': None, 
+            'time': None,
             'race_count': default_race_count,
             'war_type': '6v6',
             'notes': 'Auto-processed with PaddleOCR'
         }
-        
+
         # Use message timestamp as primary source for date/time
         if message_timestamp:
             metadata['date'] = message_timestamp.strftime('%Y-%m-%d')
             metadata['time'] = message_timestamp.strftime('%H:%M:%S')
-        
+
         return metadata
-    
+
     def create_debug_overlay(self, image_path: str) -> str:
         """Create debug overlay showing OCR detection results."""
         try:
             logging.info("🎨 Creating debug visualization...")
-            
+
             # Load original image
             image = Image.open(image_path).convert('RGB')
             img_width, img_height = image.size
             draw = ImageDraw.Draw(image)
-            
+
             # Draw crop region using format detection
             table_format = self.detect_table_format(img_width, img_height)
             crop_coords = TABLE_FORMATS[table_format]['crop_coords']
-            
+
             start_x = crop_coords['start_x']
             start_y = crop_coords['start_y']
             end_x = crop_coords['end_x']
             end_y = img_height
-            
+
             # Draw ROI boundaries
             draw.rectangle([start_x, start_y, end_x, end_y], outline="red", width=3)
             draw.text((start_x, start_y-20), "OCR REGION", fill="red")
-            
+
             # Process and get OCR results for visualization
             ocr_result = self.perform_ocr_on_file(image_path)
-            
+
             if ocr_result.get("success") and ocr_result.get("results"):
-                for i, result in enumerate(ocr_result["results"]):
+                for _i, result in enumerate(ocr_result["results"]):
                     text = result.get("text", "")
                     bbox = result.get("bbox", [])
-                    
+
                     if bbox and len(bbox) >= 4:
                         # Draw bounding box (adjust coordinates)
                         if isinstance(bbox[0], list):
@@ -833,23 +829,23 @@ class OCRProcessor:
                             box_y1 += start_y
                             box_x2 += start_x
                             box_y2 += start_y
-                        
+
                         # Color based on content type
                         if re.match(r'^[\d\s.,\-+%$]+$', text.strip()):
                             color = "blue"  # Numbers in blue
                         else:
                             color = "green"  # Names in green
-                        
+
                         draw.rectangle([box_x1, box_y1, box_x2, box_y2], outline=color, width=2)
                         draw.text((box_x1, max(0, box_y1-20)), text[:10], fill=color)
-            
+
             # Save visualization
             output_path = image_path.replace('.png', '_debug.png').replace('.jpg', '_debug.jpg')
             image.save(output_path)
             logging.info(f"📊 Debug overlay saved: {output_path}")
             return output_path
-            
+
         except Exception as e:
             logging.error(f"❌ Error creating debug overlay: {e}")
             return None
-    
+

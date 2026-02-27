@@ -4,19 +4,18 @@ Centralized Discord embed creation.
 Eliminates duplicated embed patterns across bot.py, commands.py, and handlers.
 """
 
+from typing import Any
+
 import discord
-from typing import List, Dict, Optional, Any
 
 from ..constants import (
-    COLOR_SUCCESS,
-    COLOR_ERROR,
-    COLOR_WARNING,
-    COLOR_INFO,
-    COLOR_EXPIRED,
-    COLOR_PURPLE,
     COLOR_DARK_EMBED,
-    SORT_DISPLAY_NAMES,
-    SORT_DESCRIPTIONS,
+    COLOR_ERROR,
+    COLOR_EXPIRED,
+    COLOR_INFO,
+    COLOR_PURPLE,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
 )
 
 EXPIRED_MESSAGE = "The confirmation period has expired. Results were not saved."
@@ -89,12 +88,12 @@ class EmbedBuilder:
 
     @staticmethod
     def war_saved(
-        resolved_results: List[Dict[str, Any]],
+        resolved_results: list[dict[str, Any]],
         race_count: int,
         team_score: int,
         opponent_score: int,
         differential: int,
-        war_id: Optional[int] = None,
+        war_id: int | None = None,
     ) -> discord.Embed:
         """Build the standard war-saved embed used by OCR and manual addwar flows."""
         if differential > 0:
@@ -133,10 +132,10 @@ class EmbedBuilder:
 
     @staticmethod
     def ocr_results(
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         filename: str,
         race_count: int = 12,
-        warnings: Optional[List[str]] = None,
+        warnings: list[str] | None = None,
     ) -> discord.Embed:
         """Build the OCR results detected embed for confirmation."""
         embed = discord.Embed(

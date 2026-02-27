@@ -8,8 +8,7 @@ Keeps type information centralized to avoid circular imports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TypedDict, Optional, List, Dict, Any
-
+from typing import Any, TypedDict
 
 # =============================================================================
 # OCR Result Types
@@ -27,15 +26,15 @@ class PlayerResultFull(TypedDict, total=False):
     score: int
     races: int
     raw_name: str
-    embedded_score: Optional[int]
+    embedded_score: int | None
     confidence: float
 
 
 class ParsedOCRResult(TypedDict, total=False):
     """Complete OCR parse result from a single image."""
-    results: List[PlayerResult]
+    results: list[PlayerResult]
     race_count: int
-    warnings: List[str]
+    warnings: list[str]
     raw_text: str
     table_format: str
 
@@ -49,7 +48,7 @@ class WarRecord(TypedDict, total=False):
     war_id: int
     guild_id: int
     race_count: int
-    results: List[PlayerResult]
+    results: list[PlayerResult]
     timestamp: str
     team_score: int
     opponent_score: int
@@ -73,25 +72,25 @@ class PlayerStats(TypedDict, total=False):
     win_count: int
     loss_count: int
     win_percentage: float
-    avg10_score: Optional[float]
-    hotstreak: Optional[float]
-    consistency_score: Optional[float]
-    clutch_factor: Optional[float]
-    form_score: Optional[float]
-    potential: Optional[float]
-    country_code: Optional[str]
-    team_name: Optional[str]
-    member_status: Optional[str]
-    last_war_date: Optional[str]
+    avg10_score: float | None
+    hotstreak: float | None
+    consistency_score: float | None
+    clutch_factor: float | None
+    form_score: float | None
+    potential: float | None
+    country_code: str | None
+    team_name: str | None
+    member_status: str | None
+    last_war_date: str | None
 
 
 class GuildConfig(TypedDict, total=False):
     """Guild configuration record."""
     guild_id: int
     guild_name: str
-    team_names: List[str]
+    team_names: list[str]
     is_active: bool
-    ocr_channel_id: Optional[int]
+    ocr_channel_id: int | None
 
 
 # =============================================================================
@@ -108,9 +107,9 @@ class TeamDifferential:
     @classmethod
     def from_results(
         cls,
-        results: List[PlayerResult],
+        results: list[PlayerResult],
         race_count: int,
-    ) -> "TeamDifferential":
+    ) -> TeamDifferential:
         """Calculate team differential from player results and race count.
 
         Uses TOTAL_POINTS_PER_RACE (82) * race_count for total possible points.
@@ -132,10 +131,10 @@ class TeamDifferential:
 class WarSubmissionResult:
     """Result of a war submission attempt through WarService."""
     success: bool
-    war_id: Optional[int] = None
-    error_message: Optional[str] = None
+    war_id: int | None = None
+    error_message: str | None = None
     is_duplicate: bool = False
-    resolved_results: List[Dict[str, Any]] = field(default_factory=list)
+    resolved_results: list[dict[str, Any]] = field(default_factory=list)
     team_score: int = 0
     opponent_score: int = 0
     differential: int = 0

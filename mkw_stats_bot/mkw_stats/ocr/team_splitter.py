@@ -2,7 +2,6 @@
 
 import logging
 import traceback
-from typing import List, Dict
 
 from .name_resolver import extract_score_from_corrupted_token
 
@@ -13,7 +12,7 @@ class TeamSplitter:
     def __init__(self, db_manager):
         self.db_manager = db_manager
 
-    def extract_all_players_from_tokens(self, tokens: List[str], guild_id: int = 0) -> List[tuple]:
+    def extract_all_players_from_tokens(self, tokens: list[str], guild_id: int = 0) -> list[tuple]:
         """Extract all player-score pairs using database-first approach for proper 6v6 splitting."""
         if not self.db_manager:
             logging.error("❌ No database manager available for guild member lookup")
@@ -174,7 +173,7 @@ class TeamSplitter:
         logging.info(f"🔍 Extracted {len(players)} player-score pairs: {[f'{name}:{score}' for name, score in players]}")
         return players
 
-    def map_guild_positions(self, guild_results: List[Dict], all_players: List[tuple]) -> Dict[str, int]:
+    def map_guild_positions(self, guild_results: list[dict], all_players: list[tuple]) -> dict[str, int]:
         """Map each guild member to their position in the full player list."""
         guild_member_positions = {}
 
@@ -200,7 +199,7 @@ class TeamSplitter:
 
         return guild_member_positions
 
-    def apply_6v6_team_splitting(self, guild_results: List[Dict], tokens: List[str], guild_id: int) -> List[Dict]:
+    def apply_6v6_team_splitting(self, guild_results: list[dict], tokens: list[str], guild_id: int) -> list[dict]:
         """Apply 6v6 team splitting using majority rule based on player positions in raw OCR."""
         try:
             logging.info("🔀 Starting 6v6 team splitting analysis")
@@ -299,11 +298,11 @@ class TeamSplitter:
 
     def apply_dynamic_team_splitting(
         self,
-        guild_results: List[Dict],
-        tokens: List[str],
+        guild_results: list[dict],
+        tokens: list[str],
         guild_id: int,
         total_players: int
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Universal team splitting for any player count (11-20 players).
         Uses majority rule to identify guild team regardless of split (6v6, 7v6, 8v7, etc.)

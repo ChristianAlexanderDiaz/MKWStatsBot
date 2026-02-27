@@ -4,9 +4,9 @@ Formatting utility functions.
 Moved from commands.py to eliminate duplication and enable reuse.
 """
 
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from ..constants import UNICODE_REGIONAL_INDICATOR_OFFSET, ERROR_MSG_TRUNCATE_LENGTH
+from ..constants import ERROR_MSG_TRUNCATE_LENGTH, UNICODE_REGIONAL_INDICATOR_OFFSET
 
 if TYPE_CHECKING:
     from ..database import DatabaseManager
@@ -30,7 +30,7 @@ def get_player_display_name(
     team_name: str,
     guild_id: int,
     db: "DatabaseManager",
-    team_tags: Optional[Dict[str, str]] = None,
+    team_tags: dict[str, str] | None = None,
 ) -> str:
     """Return player name with team tag prefix if tag exists.
 

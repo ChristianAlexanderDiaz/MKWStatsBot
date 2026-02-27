@@ -11,9 +11,8 @@ Replaces duplicated war submission logic that was in:
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Dict, Optional
 
-from ..constants import TOTAL_POINTS_PER_RACE, EASTERN_TZ
+from ..constants import EASTERN_TZ, TOTAL_POINTS_PER_RACE
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +21,12 @@ logger = logging.getLogger(__name__)
 class WarSubmissionResult:
     """Result of a war submission attempt."""
     success: bool
-    war_id: Optional[int] = None
-    stats_updated: Optional[List[str]] = None
-    stats_failed: Optional[List[str]] = None
+    war_id: int | None = None
+    stats_updated: list[str] | None = None
+    stats_failed: list[str] | None = None
     team_score: int = 0
     team_differential: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class WarService:
@@ -47,7 +46,7 @@ class WarService:
 
     def submit_war(
         self,
-        results: List[Dict],
+        results: list[dict],
         race_count: int,
         guild_id: int,
     ) -> WarSubmissionResult:
@@ -135,7 +134,7 @@ class WarService:
     def submit_appended_players(
         self,
         war_id: int,
-        new_players: List[Dict],
+        new_players: list[dict],
         guild_id: int,
     ) -> WarSubmissionResult:
         """Update stats for players appended to an existing war.
@@ -197,7 +196,7 @@ class WarService:
             logger.error(f"❌ Failed to update stats for appended players: {e}")
             return WarSubmissionResult(success=False, error=str(e))
 
-    def check_duplicate(self, results: List[Dict], guild_id: int) -> bool:
+    def check_duplicate(self, results: list[dict], guild_id: int) -> bool:
         """Check if the war results are a duplicate of the last war.
 
         Args:
@@ -211,7 +210,7 @@ class WarService:
         return self.db.wars.check_for_duplicate_war(results, last_war)
 
     @staticmethod
-    def calculate_team_differential(results: List[Dict], race_count: int) -> int:
+    def calculate_team_differential(results: list[dict], race_count: int) -> int:
         """Calculate team differential from results.
 
         Args:
@@ -226,7 +225,7 @@ class WarService:
         opponent_score = total_points - team_score
         return team_score - opponent_score
 
-    def _normalize_results(self, results: List[Dict], race_count: int) -> List[Dict]:
+    def _normalize_results(self, results: list[dict], race_count: int) -> list[dict]:
         """Normalize result dicts to have consistent field names.
 
         Handles both OCR format ('races') and manual format ('races_played').

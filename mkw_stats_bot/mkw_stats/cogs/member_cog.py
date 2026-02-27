@@ -1,12 +1,13 @@
 """Member status management commands."""
 
 import logging
-import discord
-from discord.ext import commands
-from discord import app_commands
 
-from .base_cog import BaseCog, require_guild_setup, MEMBER_STATUS_CHOICES
+import discord
+from discord import app_commands
+from discord.ext import commands
+
 from ..utils.formatters import get_player_display_name
+from .base_cog import MEMBER_STATUS_CHOICES, BaseCog, require_guild_setup
 
 
 class MemberCog(BaseCog):

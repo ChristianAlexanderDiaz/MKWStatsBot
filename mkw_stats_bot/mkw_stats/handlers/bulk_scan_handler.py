@@ -2,11 +2,10 @@
 
 import asyncio
 import os
-import tempfile
+
 import aiofiles
 import aiofiles.tempfile
 import discord
-from typing import Dict, List
 
 from ..dashboard_client import dashboard_client
 from ..logging_config import get_logger
@@ -35,7 +34,7 @@ class BulkScanHandler:
     def __init__(self, bot):
         self.bot = bot
 
-    async def handle_processing(self, message: discord.Message, confirmation_data: Dict):
+    async def handle_processing(self, message: discord.Message, confirmation_data: dict):
         """Handle bulk scan processing after user confirms."""
         try:
             images_found = confirmation_data['images_found']
@@ -185,8 +184,8 @@ class BulkScanHandler:
     async def _create_dashboard_review_session(
         self,
         message: discord.Message,
-        successful_wars: List[Dict],
-        failed_images: List[Dict],
+        successful_wars: list[dict],
+        failed_images: list[dict],
         total_images: int,
         guild_id: int,
         user_id: int,
@@ -280,7 +279,7 @@ class BulkScanHandler:
                 total_images, guild_id, user_id,
             )
 
-    async def handle_results_save(self, message: discord.Message, confirmation_data: Dict):
+    async def handle_results_save(self, message: discord.Message, confirmation_data: dict):
         """Handle saving confirmed bulk scan results to database."""
         try:
             successful_wars = confirmation_data['successful_wars']
@@ -353,9 +352,9 @@ class BulkScanHandler:
     async def create_results_embed(
         self,
         message: discord.Message,
-        saved_wars: List[Dict],
-        save_failures: List[Dict],
-        failed_images: List[Dict],
+        saved_wars: list[dict],
+        save_failures: list[dict],
+        failed_images: list[dict],
         total_images: int,
         guild_id: int = None,
         user_id: int = None,
@@ -477,8 +476,8 @@ class BulkScanHandler:
     async def create_confirmation_embed(
         self,
         message: discord.Message,
-        successful_wars: List[Dict],
-        failed_images: List[Dict],
+        successful_wars: list[dict],
+        failed_images: list[dict],
         total_images: int,
         guild_id: int,
         user_id: int,

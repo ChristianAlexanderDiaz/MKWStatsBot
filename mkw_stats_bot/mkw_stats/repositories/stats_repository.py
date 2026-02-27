@@ -5,18 +5,17 @@ Stats repository: Player statistics, metrics calculation, and caching.
 import logging
 import statistics
 import traceback
-from typing import List, Dict, Optional
 
-from .base import BaseRepository
 from ..constants import (
-    FORM_SCORE_DECAY_FACTOR,
-    FORM_SCORE_MIN_WARS,
     CLOSE_WAR_THRESHOLD,
     CLUTCH_ELITE_THRESHOLD,
-    CLUTCH_POSITIVE_THRESHOLD,
     CLUTCH_NEUTRAL_THRESHOLD,
+    CLUTCH_POSITIVE_THRESHOLD,
     CLUTCH_SHAKY_THRESHOLD,
+    FORM_SCORE_DECAY_FACTOR,
+    FORM_SCORE_MIN_WARS,
 )
+from .base import BaseRepository
 
 
 class StatsRepository(BaseRepository):
@@ -265,7 +264,7 @@ class StatsRepository(BaseRepository):
             logging.error(f"❌ Full traceback: {traceback.format_exc()}")
             return False
 
-    def get_player_stats(self, player_name: str, guild_id: int = 0) -> Optional[Dict]:
+    def get_player_stats(self, player_name: str, guild_id: int = 0) -> dict | None:
         """Get comprehensive player statistics with cached metrics."""
         try:
             with self.get_connection() as conn:
@@ -293,7 +292,6 @@ class StatsRepository(BaseRepository):
                 score_stddev = float(result[13]) if result[13] else 0.0
                 total_wars = float(result[3]) if result[3] else 0.0
                 cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
-                consistency_score = max(0, 100 - cv_percent) if cv_percent is not None else None
 
                 return {
                     'player_name': player_name,
@@ -389,7 +387,7 @@ class StatsRepository(BaseRepository):
             logging.error(f"❌ Error refreshing metrics: {e}")
             return False
 
-    def get_player_stats_last_x_wars(self, player_name: str, x_wars: int, guild_id: int = 0) -> Optional[Dict]:
+    def get_player_stats_last_x_wars(self, player_name: str, x_wars: int, guild_id: int = 0) -> dict | None:
         """Get player statistics calculated from their last X wars only."""
         try:
             with self.get_connection() as conn:
@@ -512,7 +510,7 @@ class StatsRepository(BaseRepository):
             logging.error(f"❌ Error getting player stats for last {x_wars} wars: {e}")
             return None
 
-    def get_player_form_score(self, player_name: str, guild_id: int = 0) -> Optional[float]:
+    def get_player_form_score(self, player_name: str, guild_id: int = 0) -> float | None:
         """Calculate Form Score (Momentum) using exponentially weighted moving average."""
         try:
             self._validate_guild_id(guild_id, "get_player_form_score")
@@ -592,7 +590,7 @@ class StatsRepository(BaseRepository):
             return None
 
     @staticmethod
-    def get_clutch_category(clutch_factor: Optional[float]) -> Optional[str]:
+    def get_clutch_category(clutch_factor: float | None) -> str | None:
         """Categorize clutch factor into performance category."""
         if clutch_factor is None:
             return None
@@ -608,7 +606,7 @@ class StatsRepository(BaseRepository):
         else:
             return "Chokes"
 
-    def get_player_clutch_factor(self, player_name: str, guild_id: int = 0) -> Optional[float]:
+    def get_player_clutch_factor(self, player_name: str, guild_id: int = 0) -> float | None:
         """Calculate Clutch Factor: performance in close wars vs overall average."""
         try:
             self._validate_guild_id(guild_id, "get_player_clutch_factor")
@@ -672,7 +670,7 @@ class StatsRepository(BaseRepository):
             logging.error(f"❌ Error calculating clutch factor for {player_name}: {e}")
             return None
 
-    def get_player_potential(self, player_name: str, guild_id: int = 0) -> Optional[float]:
+    def get_player_potential(self, player_name: str, guild_id: int = 0) -> float | None:
         """Calculate Potential: estimated performance ceiling based on recent form + variance."""
         try:
             self._validate_guild_id(guild_id, "get_player_potential")
@@ -722,7 +720,7 @@ class StatsRepository(BaseRepository):
             logging.error(f"❌ Error getting distinct war count for {player_name}: {e}")
             return 0
 
-    def get_player_last_war_scores(self, player_name: str, limit: int = 10, guild_id: int = 0) -> List[Dict]:
+    def get_player_last_war_scores(self, player_name: str, limit: int = 10, guild_id: int = 0) -> list[dict]:
         """Get the last N war scores for a player."""
         try:
             with self.get_connection() as conn:

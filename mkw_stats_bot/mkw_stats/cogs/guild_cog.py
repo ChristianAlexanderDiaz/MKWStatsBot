@@ -4,14 +4,12 @@ import json
 import logging
 import re
 import traceback
-import discord
-from discord.ext import commands
-from discord import app_commands
-from typing import Optional
 
-from .base_cog import BaseCog, require_guild_setup
+import discord
+from discord import app_commands
+
 from ..database import DatabaseManager
-from ..utils.validators import has_admin_permission
+from .base_cog import BaseCog, require_guild_setup
 
 
 class GuildCog(BaseCog):

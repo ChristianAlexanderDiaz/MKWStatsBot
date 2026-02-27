@@ -1,7 +1,6 @@
 """Score pairing for OCR - matching validated player names with their scores."""
 
 import logging
-from typing import List, Dict, Optional
 
 
 class ScorePairer:
@@ -29,11 +28,11 @@ class ScorePairer:
 
     def pair_names_with_scores(
         self,
-        valid_names: List[tuple],
-        score_positions: List[int],
-        tokens: List[str],
-        token_bboxes: Optional[Dict[int, list]] = None
-    ) -> List[Dict]:
+        valid_names: list[tuple],
+        score_positions: list[int],
+        tokens: list[str],
+        token_bboxes: dict[int, list] | None = None
+    ) -> list[dict]:
         """Pair validated player names with scores using sequential flow matching with spatial disambiguation."""
         results = []
         used_scores = set()
@@ -119,7 +118,7 @@ class ScorePairer:
                             logging.info(f"🎯 Bbox disambiguation (y-tiebreak): chose before score at pos {best_before_pos} (y_dist={before_y_dist:.1f} < {after_y_dist:.1f})")
                 else:
                     best_score_pos = best_after_pos
-                    logging.info(f"⚠️ Bbox disambiguation fallback: missing bbox data, defaulting to after score")
+                    logging.info("⚠️ Bbox disambiguation fallback: missing bbox data, defaulting to after score")
             elif min_after_distance == 1:
                 best_score_pos = best_after_pos
             elif min_before_distance == 1:

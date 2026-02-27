@@ -4,17 +4,16 @@ War repository: CRUD operations for wars, duplicate detection.
 
 import json
 import logging
-from typing import List, Dict, Optional
 from datetime import datetime
 
+from ..constants import EASTERN_TZ, TOTAL_POINTS_PER_RACE
 from .base import BaseRepository
-from ..constants import TOTAL_POINTS_PER_RACE, EASTERN_TZ
 
 
 class WarRepository(BaseRepository):
     """Handles all war-related database operations."""
 
-    def add_race_results(self, results: List[Dict], race_count: int = 12, *, guild_id: int) -> Optional[int]:
+    def add_race_results(self, results: list[dict], race_count: int = 12, *, guild_id: int) -> int | None:
         """
         Add race results for multiple players.
         results: [{'name': 'PlayerName', 'score': 85}, ...]
@@ -92,7 +91,7 @@ class WarRepository(BaseRepository):
             logging.error(f"❌ Error adding race results: {e}")
             return None
 
-    def get_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[Dict]:
+    def get_war_by_id(self, war_id: int, guild_id: int = 0) -> dict | None:
         """Get specific war details by ID. Raises ValueError for invalid guild_id."""
         self._validate_guild_id(guild_id, "get_war_by_id")
         try:
@@ -123,7 +122,7 @@ class WarRepository(BaseRepository):
             logging.error(f"❌ Error getting war by ID: {e}")
             return None
 
-    def get_all_wars(self, limit: int = None, guild_id: int = 0) -> List[Dict]:
+    def get_all_wars(self, limit: int = None, guild_id: int = 0) -> list[dict]:
         """Get all wars in the database. Raises ValueError for invalid guild_id."""
         self._validate_guild_id(guild_id, "get_all_wars")
         try:
@@ -164,7 +163,7 @@ class WarRepository(BaseRepository):
             logging.error(f"❌ Error getting all wars: {e}")
             return []
 
-    def get_last_war_for_duplicate_check(self, guild_id: int = 0) -> Optional[List[Dict]]:
+    def get_last_war_for_duplicate_check(self, guild_id: int = 0) -> list[dict] | None:
         """
         Get the most recent war's player results for duplicate detection.
         Returns normalized player data for comparison.
@@ -210,7 +209,7 @@ class WarRepository(BaseRepository):
             return None
 
     @staticmethod
-    def check_for_duplicate_war(new_results: List[Dict], last_war_results: Optional[List[Dict]]) -> bool:
+    def check_for_duplicate_war(new_results: list[dict], last_war_results: list[dict] | None) -> bool:
         """
         Check if new war results are identical to the last war.
         Compares normalized player names and scores.
@@ -230,7 +229,7 @@ class WarRepository(BaseRepository):
         if len(normalized_new) != len(last_war_results):
             return False
 
-        for new_player, last_player in zip(normalized_new, last_war_results):
+        for new_player, last_player in zip(normalized_new, last_war_results, strict=False):
             if (new_player['name'] != last_player['name'] or
                 new_player['score'] != last_player['score']):
                 return False
@@ -238,7 +237,7 @@ class WarRepository(BaseRepository):
         logging.info(f"🔍 Duplicate war detected: {len(normalized_new)} players with identical names and scores")
         return True
 
-    def remove_war_by_id(self, war_id: int, *, guild_id: int) -> Optional[int]:
+    def remove_war_by_id(self, war_id: int, *, guild_id: int) -> int | None:
         """Remove a war by ID and update player statistics."""
         self._validate_guild_id(guild_id, "remove_war_by_id")
 
@@ -298,7 +297,7 @@ class WarRepository(BaseRepository):
             logging.error(f"❌ Error removing war: {e}")
             return None
 
-    def append_players_to_war_by_id(self, war_id: int, new_players: List[Dict], *, guild_id: int) -> bool:
+    def append_players_to_war_by_id(self, war_id: int, new_players: list[dict], *, guild_id: int) -> bool:
         """Append new players to an existing war without modifying existing players."""
         self._validate_guild_id(guild_id, "append_players_to_war_by_id")
 
@@ -363,7 +362,7 @@ class WarRepository(BaseRepository):
             logging.error(f"❌ Error appending players to war by ID: {e}")
             return False
 
-    def update_war_by_id(self, war_id: int, results: List[Dict], race_count: int, *, guild_id: int) -> bool:
+    def update_war_by_id(self, war_id: int, results: list[dict], race_count: int, *, guild_id: int) -> bool:
         """Update an existing war with new player data."""
         self._validate_guild_id(guild_id, "update_war_by_id")
 

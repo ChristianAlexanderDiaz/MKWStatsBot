@@ -3,24 +3,24 @@
 import asyncio
 import logging
 import traceback
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 import discord
-from discord.ext import commands
 from discord import app_commands
 
-from .base_cog import BaseCog, require_guild_setup
 from ..constants import (
-    SORT_DISPLAY_NAMES,
-    SORT_DESCRIPTIONS,
     GLOBAL_SORT_TITLES,
+    SORT_DESCRIPTIONS,
+    SORT_DISPLAY_NAMES,
 )
 from ..utils.formatters import country_code_to_flag, get_player_display_name
+from .base_cog import BaseCog, require_guild_setup
 
 
 class LeaderboardView(discord.ui.View):
     """Pagination view for player statistics leaderboard."""
 
-    def __init__(self, all_players: list, sortby: Optional[str], total_players_count: int, bot, guild_id: int):
+    def __init__(self, all_players: list, sortby: str | None, total_players_count: int, bot, guild_id: int):
         super().__init__(timeout=300)  # 5 minute timeout
         self.all_players = all_players
         self.sortby = sortby
@@ -425,7 +425,7 @@ class GlobalLeaderboardView(discord.ui.View):
 class StatsCog(BaseCog):
     """Player statistics and leaderboard commands."""
 
-    def _filter_active_members(self, roster_stats: List[Dict[str, Any]], interaction: discord.Interaction, role_config: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _filter_active_members(self, roster_stats: list[dict[str, Any]], interaction: discord.Interaction, role_config: dict[str, Any] | None) -> list[dict[str, Any]]:
         """Filter roster for active members based on Discord roles.
 
         Args:
@@ -467,7 +467,7 @@ class StatsCog(BaseCog):
 
         return member_stats
 
-    def _sort_player_stats(self, players_with_stats: List[Dict[str, Any]], sortby: Optional[str], guild_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def _sort_player_stats(self, players_with_stats: list[dict[str, Any]], sortby: str | None, guild_id: int | None = None) -> list[dict[str, Any]]:
         """Sort player statistics by specified criteria.
 
         Args:
@@ -527,7 +527,7 @@ class StatsCog(BaseCog):
 
         return players_with_stats
 
-    async def _display_player_stats(self, interaction: discord.Interaction, player_name: str, stats: Dict[str, Any], lastxwars: Optional[int] = None, guild_id: Optional[int] = None) -> None:
+    async def _display_player_stats(self, interaction: discord.Interaction, player_name: str, stats: dict[str, Any], lastxwars: int | None = None, guild_id: int | None = None) -> None:
         """Display individual player statistics with embed."""
         from datetime import datetime
 
@@ -720,7 +720,7 @@ class StatsCog(BaseCog):
 
         await interaction.followup.send(embed=embed)
 
-    async def _display_leaderboard(self, interaction: discord.Interaction, guild_id: int, member_stats: list, sortby: Optional[str]):
+    async def _display_leaderboard(self, interaction: discord.Interaction, guild_id: int, member_stats: list, sortby: str | None):
         """Display leaderboard with pagination for all members."""
         # Get war statistics for members who have them
         players_with_stats = []
@@ -810,9 +810,9 @@ class StatsCog(BaseCog):
     async def stats_slash(
         self,
         interaction: discord.Interaction,
-        player: Optional[str] = None,
-        sortby: Optional[str] = None,
-        lastxwars: Optional[int] = None
+        player: str | None = None,
+        sortby: str | None = None,
+        lastxwars: int | None = None
     ):
         """View statistics for a specific player or all players."""
         try:
@@ -924,7 +924,7 @@ class StatsCog(BaseCog):
     async def leaderboard_slash(
         self,
         interaction: discord.Interaction,
-        sortby: Optional[str] = None
+        sortby: str | None = None
     ):
         """Display global cross-guild leaderboard."""
         await interaction.response.defer()

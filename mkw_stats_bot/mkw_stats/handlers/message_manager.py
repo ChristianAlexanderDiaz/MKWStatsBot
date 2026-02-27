@@ -1,7 +1,9 @@
 """Message lifecycle management: auto-delete, countdown timers, cleanup."""
 
 import asyncio
+
 import discord
+
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -36,12 +38,12 @@ class MessageManager:
                 unit = "second" if remaining == 1 else "seconds"
                 try:
                     await message.edit(embed=embed, content=f"Disappearing in {remaining} {unit}...")
-                except Exception:
+                except discord.HTTPException:
                     pass
 
         try:
             await message.delete()
-        except Exception:
+        except discord.HTTPException:
             pass
 
     async def countdown_and_delete_interaction(
@@ -62,12 +64,12 @@ class MessageManager:
                     )
                 except asyncio.CancelledError:
                     raise
-                except Exception:
+                except discord.HTTPException:
                     pass
 
         try:
             await interaction.delete_original_response()
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except discord.HTTPException:
             pass

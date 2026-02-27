@@ -4,7 +4,6 @@ Guild repository: Guild configuration, teams, tags, roles, and OCR channel setti
 
 import json
 import logging
-from typing import List, Dict, Optional
 
 from .base import BaseRepository
 
@@ -45,7 +44,7 @@ class GuildRepository(BaseRepository):
             logging.error(f"❌ Error setting OCR channel: {e}")
             return False
 
-    def get_ocr_channel(self, guild_id: int) -> Optional[int]:
+    def get_ocr_channel(self, guild_id: int) -> int | None:
         """Get the OCR channel ID for a guild."""
         self._validate_guild_id(guild_id, "get_ocr_channel")
         try:
@@ -65,7 +64,7 @@ class GuildRepository(BaseRepository):
             logging.error(f"❌ Error getting OCR channel: {e}")
             return None
 
-    def get_guild_config(self, guild_id: int) -> Optional[Dict]:
+    def get_guild_config(self, guild_id: int) -> dict | None:
         """Get guild configuration settings."""
         self._validate_guild_id(guild_id, "get_guild_config")
         try:
@@ -94,7 +93,7 @@ class GuildRepository(BaseRepository):
             logging.error(f"❌ Error getting guild config: {e}")
             return None
 
-    def create_guild_config(self, guild_id: int, guild_name: str = None, team_names: List[str] = None) -> bool:
+    def create_guild_config(self, guild_id: int, guild_name: str = None, team_names: list[str] = None) -> bool:
         """Create a new guild configuration."""
         self._validate_guild_id(guild_id, "create_guild_config")
         try:
@@ -143,7 +142,7 @@ class GuildRepository(BaseRepository):
 
             update_fields.append("updated_at = CURRENT_TIMESTAMP")
             values.append(guild_id)
-            query = f"UPDATE guild_configs SET {', '.join(update_fields)} WHERE guild_id = %s"
+            query = f"UPDATE guild_configs SET {', '.join(update_fields)} WHERE guild_id = %s"  # noqa: S608
 
             if cursor is not None:
                 cursor.execute(query, values)
@@ -161,7 +160,7 @@ class GuildRepository(BaseRepository):
             logging.error(f"❌ Error updating guild config: {e}")
             return False
 
-    def get_guild_team_names(self, guild_id: int) -> List[str]:
+    def get_guild_team_names(self, guild_id: int) -> list[str]:
         """Get valid team names for a guild."""
         config = self.get_guild_config(guild_id)
         if config:
@@ -307,7 +306,7 @@ class GuildRepository(BaseRepository):
 
         return True
 
-    def get_guild_teams_with_counts(self, guild_id: int) -> Dict[str, int]:
+    def get_guild_teams_with_counts(self, guild_id: int) -> dict[str, int]:
         """Get all teams for a guild with player counts."""
         try:
             teams = self._db.players.get_players_by_team(guild_id=guild_id)
@@ -379,7 +378,7 @@ class GuildRepository(BaseRepository):
             logging.error(f"❌ Error setting team tag: {e}")
             return False
 
-    def get_team_tag(self, guild_id: int, team_name: str) -> Optional[str]:
+    def get_team_tag(self, guild_id: int, team_name: str) -> str | None:
         """Get the tag for a team in a guild."""
         try:
             self._validate_guild_id(guild_id, "get_team_tag")
@@ -455,7 +454,7 @@ class GuildRepository(BaseRepository):
             logging.error(f"❌ Error removing team tag: {e}")
             return False
 
-    def get_all_team_tags(self, guild_id: int) -> Dict[str, str]:
+    def get_all_team_tags(self, guild_id: int) -> dict[str, str]:
         """Get all team tags for a guild."""
         try:
             self._validate_guild_id(guild_id, "get_all_team_tags")
@@ -479,7 +478,7 @@ class GuildRepository(BaseRepository):
 
     # Role Configuration Methods
 
-    def get_guild_role_config(self, guild_id: int) -> Optional[Dict]:
+    def get_guild_role_config(self, guild_id: int) -> dict | None:
         """Get the role configuration for a guild."""
         self._validate_guild_id(guild_id, "get_guild_role_config")
         try:

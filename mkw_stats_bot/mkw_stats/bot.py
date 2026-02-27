@@ -1,16 +1,17 @@
+import asyncio
+
 import aiohttp
 import discord
 from discord.ext import commands
-import asyncio
-from typing import Optional, Dict, List
 from dotenv import load_dotenv
+
 from . import config
 from .database import DatabaseManager
+from .handlers import BulkScanHandler, ConfirmationManager, MessageManager, OCRHandler
+from .logging_config import get_logger, setup_logging
+from .ocr_modals import AddPlayerModal, EditPlayerModal, ReportIssueModal
 from .ocr_processor import OCRProcessor
 from .services import WarService
-from .handlers import OCRHandler, BulkScanHandler, ConfirmationManager, MessageManager
-from .logging_config import get_logger, setup_logging
-from .ocr_modals import EditPlayerModal, AddPlayerModal, ReportIssueModal
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -28,7 +29,7 @@ def _log_task_error(t: asyncio.Task) -> None:
 class OCRConfirmationView(discord.ui.View):
     """Interactive view for OCR war result confirmation with inline editing."""
 
-    def __init__(self, results: List[Dict], guild_id: int, user_id: int, original_message_obj: discord.Message, bot):
+    def __init__(self, results: list[dict], guild_id: int, user_id: int, original_message_obj: discord.Message, bot):
         super().__init__(timeout=300)  # 5 minute timeout
         self.results = results
         self.guild_id = guild_id
@@ -196,7 +197,7 @@ class OCRConfirmationView(discord.ui.View):
 
         try:
             await self.original_message_obj.add_reaction("❌")
-        except (discord.HTTPException, discord.Forbidden, asyncio.TimeoutError) as e:
+        except (TimeoutError, discord.HTTPException, discord.Forbidden) as e:
             logger.warning(f"Failed to add reaction to original message: {e}")
 
         embed = discord.Embed(
@@ -317,7 +318,7 @@ class MarioKartBot(commands.Bot):
         self.ocr = OCRProcessor(db_manager=self.db)
 
         # Shared HTTP client (created in setup_hook after the event loop is running)
-        self.http_session: Optional[aiohttp.ClientSession] = None
+        self.http_session: aiohttp.ClientSession | None = None
 
         # Confirmation state (accessed directly by commands.py)
         self.pending_confirmations = {}  # message_id -> confirmation_data
@@ -361,8 +362,8 @@ class MarioKartBot(commands.Bot):
         # Initialize OCR resource management if available
         try:
             if hasattr(self.ocr, 'resource_management_enabled') and self.ocr.resource_management_enabled:
-                from .ocr_resource_manager import initialize_ocr_resource_manager
                 from .ocr_performance_monitor import get_ocr_performance_monitor
+                from .ocr_resource_manager import initialize_ocr_resource_manager
 
                 initialize_ocr_resource_manager()
 
@@ -448,7 +449,16 @@ async def setup_bot():
     bot = MarioKartBot()
 
     # Load all domain cogs
-    from .cogs import GuildCog, PlayerCog, WarCog, StatsCog, TeamCog, NicknameCog, MemberCog, OCRCog
+    from .cogs import (
+        GuildCog,
+        MemberCog,
+        NicknameCog,
+        OCRCog,
+        PlayerCog,
+        StatsCog,
+        TeamCog,
+        WarCog,
+    )
     await bot.add_cog(GuildCog(bot))
     await bot.add_cog(PlayerCog(bot))
     await bot.add_cog(WarCog(bot))

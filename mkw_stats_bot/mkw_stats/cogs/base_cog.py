@@ -3,18 +3,16 @@
 import functools
 import logging
 import time
-import discord
-from discord.ext import commands
-from discord import app_commands
+from collections.abc import Callable, Coroutine
 from typing import (
     Any,
-    Callable,
-    Coroutine,
-    Optional,
-    Union,
     cast,
     overload,
 )
+
+import discord
+from discord import app_commands
+from discord.ext import commands
 
 try:
     from typing import ParamSpec, TypeVar
@@ -57,16 +55,10 @@ def require_guild_setup(
 
 
 def require_guild_setup(
-    func: Optional[Callable[P, Coroutine[Any, Any, R]]] = None,
+    func: Callable[P, Coroutine[Any, Any, R]] | None = None,
     *,
     defer: bool = False,
-) -> Union[
-    Callable[..., Coroutine[Any, Any, R]],
-    Callable[
-        [Callable[P, Coroutine[Any, Any, R]]],
-        Callable[P, Coroutine[Any, Any, R]],
-    ],
-]:
+) -> Callable[..., Coroutine[Any, Any, R]] | Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """Decorator to ensure guild is initialized before running slash commands.
 
     Usage:

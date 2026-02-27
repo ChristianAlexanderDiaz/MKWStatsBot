@@ -2,12 +2,16 @@
 Dashboard API client for the MKW Stats Bot.
 Handles communication with the FastAPI dashboard service.
 """
-import aiohttp
 import logging
-from typing import List, Dict, Optional
-from datetime import datetime
 
-from .config import DASHBOARD_API_URL, DASHBOARD_API_KEY, DASHBOARD_WEB_URL, DASHBOARD_ENABLED
+import aiohttp
+
+from .config import (
+    DASHBOARD_API_KEY,
+    DASHBOARD_API_URL,
+    DASHBOARD_ENABLED,
+    DASHBOARD_WEB_URL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +24,7 @@ class DashboardClient:
         self.api_key = DASHBOARD_API_KEY
         self.web_url = DASHBOARD_WEB_URL
         self.enabled = DASHBOARD_ENABLED
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Return the shared session, creating it lazily on first use."""
@@ -37,7 +41,7 @@ class DashboardClient:
         """Check if dashboard integration is enabled and configured."""
         return self.enabled and self.api_url and self.web_url
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         """Get headers for API requests."""
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -48,9 +52,9 @@ class DashboardClient:
         self,
         guild_id: int,
         user_id: int,
-        results: List[Dict],
-        failed_results: List[Dict] = None
-    ) -> Optional[Dict]:
+        results: list[dict],
+        failed_results: list[dict] = None
+    ) -> dict | None:
         """
         Create a bulk scan session in the dashboard API.
 

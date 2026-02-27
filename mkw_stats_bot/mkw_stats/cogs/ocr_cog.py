@@ -10,10 +10,9 @@ import aiofiles
 import aiofiles.tempfile
 import discord
 from discord import app_commands
-from discord.ext import commands
 
-from .base_cog import BaseCog, require_guild_setup
 from ..database import DatabaseManager
+from .base_cog import BaseCog, require_guild_setup
 
 
 def _log_task_error(t: asyncio.Task) -> None:
@@ -306,7 +305,7 @@ class OCRCog(BaseCog):
             embed = discord.Embed(
                 title="🔍 Bulk Image Scan Ready",
                 description=f"Found {len(images_found)} image{'s' if len(images_found) != 1 else ''} to process" +
-                           (f" (limited from channel total)" if limit and len(images_found) == limit else ""),
+                           (" (limited from channel total)" if limit and len(images_found) == limit else ""),
                 color=0x00ff00
             )
 
@@ -470,7 +469,7 @@ class OCRCog(BaseCog):
                     try:
                         msg = record.getMessage()
                         self.messages.append(msg)
-                    except Exception:
+                    except Exception:  # noqa: S110 - logging handlers must not raise
                         pass
 
             # Process each image with detailed logging
@@ -558,7 +557,6 @@ class OCRCog(BaseCog):
                     if processed_results:
                         player_strs = []
                         for result in processed_results:
-                            raw_name = result.get('raw_name', result['name'])
                             races = result.get('races', 12)
                             player_strs.append(f"{result['name']}({result['score']}pts,{races}r)")
                         debug_lines.append(f"Players[{len(processed_results)}]: {' | '.join(player_strs)}")
@@ -610,7 +608,7 @@ class OCRCog(BaseCog):
                 finally:
                     try:
                         logging.getLogger().removeHandler(debug_handler)
-                    except Exception:
+                    except Exception:  # noqa: S110 - handler removal is best-effort
                         pass
 
                     try:

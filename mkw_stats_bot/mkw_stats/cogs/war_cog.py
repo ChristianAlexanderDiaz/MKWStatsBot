@@ -2,9 +2,9 @@
 
 import asyncio
 import logging
+
 import discord
 from discord import app_commands
-from typing import Optional
 
 from .base_cog import BaseCog, require_guild_setup
 
@@ -360,7 +360,7 @@ class WarCog(BaseCog):
                         await interaction.edit_original_response(embed=cancel_embed)
                         return
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     timeout_embed = discord.Embed(
                         title="⏰ Confirmation Timeout",
                         description="Duplicate war confirmation timed out. War was not added.",

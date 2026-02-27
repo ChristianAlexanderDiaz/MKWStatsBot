@@ -1,15 +1,15 @@
 """Player management commands."""
 
-import re
 import logging
+import re
+
 import discord
 from discord import app_commands
-from typing import Optional
 
-from .base_cog import BaseCog, require_guild_setup
 from ..database import DatabaseManager
 from ..utils.formatters import country_code_to_flag, get_player_display_name
 from ..utils.validators import has_admin_permission
+from .base_cog import BaseCog, require_guild_setup
 
 
 class PlayerCog(BaseCog):
@@ -159,7 +159,7 @@ class PlayerCog(BaseCog):
                 if ingame_name:
                     embed.set_footer(text="OCR will match using the in-game name you provided")
                 else:
-                    embed.set_footer(text=f"OCR will match using display name. Use ingame_name parameter if different.")
+                    embed.set_footer(text="OCR will match using display name. Use ingame_name parameter if different.")
 
                 await interaction.response.send_message(embed=embed)
             else:

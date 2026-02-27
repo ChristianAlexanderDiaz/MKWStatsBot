@@ -16,24 +16,29 @@ Usage remains unchanged:
     db.players.add_roster_player("Player1", guild_id=123)
 """
 
-import psycopg2
-import psycopg2.pool
-import psycopg2.errors
 import logging
-from typing import List, Dict, Optional, Any
 import os
 from contextlib import contextmanager
+from typing import Any
 from urllib.parse import urlparse
+
+import psycopg2
+import psycopg2.errors
+import psycopg2.pool
 
 from .constants import (
     BOT_OWNER_ID,
-    DB_POOL_MIN,
-    DB_POOL_MAX,
-    DB_STATEMENT_TIMEOUT,
     DB_CONNECT_TIMEOUT,
-    EXCLUDED_GUILD_IDS,
+    DB_POOL_MAX,
+    DB_POOL_MIN,
+    DB_STATEMENT_TIMEOUT,
 )
-from .repositories import PlayerRepository, WarRepository, StatsRepository, GuildRepository
+from .repositories import (
+    GuildRepository,
+    PlayerRepository,
+    StatsRepository,
+    WarRepository,
+)
 
 
 class DatabaseManager:
@@ -43,7 +48,7 @@ class DatabaseManager:
     while organizing logic into focused repositories (db.players, db.wars, etc.).
     """
 
-    def __init__(self, database_url: Optional[str] = None):
+    def __init__(self, database_url: str | None = None):
         """
         Initialize PostgreSQL database connection.
 
@@ -96,7 +101,7 @@ class DatabaseManager:
         else:
             return f"postgresql://{user}@{host}:{port}/{database}"
 
-    def _parse_database_url(self, url: str) -> Dict[str, Any]:
+    def _parse_database_url(self, url: str) -> dict[str, Any]:
         """Parse DATABASE_URL into connection parameters with timeouts."""
         parsed = urlparse(url)
         params = {
@@ -130,7 +135,7 @@ class DatabaseManager:
             if conn:
                 conn.rollback()
             raise
-        except Exception as e:
+        except Exception:
             if conn:
                 conn.rollback()
             raise
@@ -239,7 +244,7 @@ class DatabaseManager:
             logging.error(f"❌ {error_msg}")
             raise ValueError(error_msg)
 
-    def get_database_info(self, guild_id: int = 0) -> Dict:
+    def get_database_info(self, guild_id: int = 0) -> dict:
         """Get database information."""
         try:
             info = {
@@ -334,7 +339,7 @@ if __name__ == "__main__":
 
         # Initialize with test player
         db.add_roster_player("TestPlayer", added_by="system", guild_id=test_guild_id)
-        print(f"✅ Added TestPlayer to roster")
+        print("✅ Added TestPlayer to roster")
 
         db.close()
 

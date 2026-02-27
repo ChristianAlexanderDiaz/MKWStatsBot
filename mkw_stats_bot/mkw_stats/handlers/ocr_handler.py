@@ -2,11 +2,10 @@
 
 import asyncio
 import os
-import tempfile
+
 import aiofiles
 import aiofiles.tempfile
 import discord
-from typing import Optional, Dict, List, Tuple, Union
 
 from .. import config
 from ..logging_config import get_logger
@@ -35,7 +34,7 @@ class OCRHandler:
 
     async def process_image(
         self, temp_path: str, guild_id: int, filename: str, original_message
-    ) -> Tuple[bool, discord.Embed, Optional[List[Dict]]]:
+    ) -> tuple[bool, discord.Embed, list[dict] | None]:
         """Shared OCR processing logic for both automatic and manual scanning.
 
         Returns:
@@ -263,7 +262,7 @@ class OCRHandler:
             _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(view.message, embed))
             _task.add_done_callback(_log_task_error)
 
-    async def handle_war_submission(self, message: discord.Message, confirmation_data: Dict):
+    async def handle_war_submission(self, message: discord.Message, confirmation_data: dict):
         """Handle OCR war submission to database (reaction-based flow)."""
         try:
             results = confirmation_data['results']
@@ -343,8 +342,8 @@ class OCRHandler:
         self,
         guild_id: int,
         user: discord.User,
-        original_image: Optional[discord.Attachment],
-        ocr_results: List[Dict],
+        original_image: discord.Attachment | None,
+        ocr_results: list[dict],
         user_description: str,
     ) -> None:
         """Send OCR issue report to admin via DM and admin logging channel."""
@@ -421,7 +420,7 @@ class OCRHandler:
             logger.error(f"Error sending OCR report: {e}")
 
     def format_enhanced_confirmation(
-        self, results: List[Dict], validation: Dict, war_metadata: Dict = None
+        self, results: list[dict], validation: dict, war_metadata: dict = None
     ) -> str:
         """Format extracted results with validation info and war metadata for confirmation."""
         if not results:
