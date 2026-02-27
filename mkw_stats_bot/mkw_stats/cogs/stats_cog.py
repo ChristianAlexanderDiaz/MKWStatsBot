@@ -1,5 +1,6 @@
 """Player statistics and leaderboard commands."""
 
+import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 import discord
@@ -18,7 +19,7 @@ from ..utils.formatters import country_code_to_flag, get_player_display_name
 class LeaderboardView(discord.ui.View):
     """Pagination view for player statistics leaderboard."""
 
-    def __init__(self, all_players: list, sortby: str, total_players_count: int, bot, guild_id: int):
+    def __init__(self, all_players: list, sortby: Optional[str], total_players_count: int, bot, guild_id: int):
         super().__init__(timeout=300)  # 5 minute timeout
         self.all_players = all_players
         self.sortby = sortby
@@ -582,7 +583,7 @@ class StatsCog(BaseCog):
 
         if lastxwars == 10:
             avg10_score = avg_score
-            overall_stats = self.bot.db.stats.get_player_stats(player_name, guild_id)
+            overall_stats = await asyncio.to_thread(self.bot.db.stats.get_player_stats, player_name, guild_id)
             if overall_stats:
                 fetched_avg = overall_stats.get('average_score')
                 if fetched_avg is not None and fetched_avg > 0:
@@ -591,8 +592,8 @@ class StatsCog(BaseCog):
             avg10_score = stats.get('avg10_score')
             war_count = stats.get('war_count', 0)
             if avg10_score is None and war_count >= 10:
-                self.bot.db.stats._refresh_volatile_metrics(player_name, guild_id)
-                updated_stats = self.bot.db.stats.get_player_stats(player_name, guild_id)
+                await asyncio.to_thread(self.bot.db.stats._refresh_volatile_metrics, player_name, guild_id)
+                updated_stats = await asyncio.to_thread(self.bot.db.stats.get_player_stats, player_name, guild_id)
                 if updated_stats:
                     avg10_score = updated_stats.get('avg10_score')
                     form_score = updated_stats.get('form_score')
@@ -718,7 +719,7 @@ class StatsCog(BaseCog):
 
         await interaction.followup.send(embed=embed)
 
-    async def _display_leaderboard(self, interaction: discord.Interaction, guild_id: int, member_stats: list, sortby: str):
+    async def _display_leaderboard(self, interaction: discord.Interaction, guild_id: int, member_stats: list, sortby: Optional[str]):
         """Display leaderboard with pagination for all members."""
         # Get war statistics for members who have them
         players_with_stats = []

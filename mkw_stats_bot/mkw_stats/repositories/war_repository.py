@@ -9,6 +9,12 @@ from datetime import datetime, timezone, timedelta
 
 from .base import BaseRepository
 
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    EASTERN_TZ = _ZoneInfo('America/New_York')
+except ImportError:
+    EASTERN_TZ = timezone(timedelta(hours=-5))
+
 
 class WarRepository(BaseRepository):
     """Handles all war-related database operations."""
@@ -33,13 +39,7 @@ class WarRepository(BaseRepository):
                 }
 
                 # Use Eastern Time instead of UTC
-                import zoneinfo
-                try:
-                    eastern_tz = zoneinfo.ZoneInfo('America/New_York')
-                    eastern_now = datetime.now(eastern_tz)
-                except ImportError:
-                    eastern_tz = timezone(timedelta(hours=-5))
-                    eastern_now = datetime.now(eastern_tz)
+                eastern_now = datetime.now(EASTERN_TZ)
 
                 # Calculate team score and differential
                 team_score = sum(result.get('score', 0) for result in results)
@@ -254,7 +254,7 @@ class WarRepository(BaseRepository):
                 war = self.get_war_by_id(war_id, guild_id)
                 if not war:
                     logging.warning(f"War ID {war_id} not found")
-                    return False
+                    return None
 
                 players_data = war.get('results', [])
                 team_differential = war.get('team_differential', 0)

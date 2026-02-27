@@ -318,6 +318,7 @@ class MarioKartBot(commands.Bot):
         # Confirmation state (accessed directly by commands.py)
         self.pending_confirmations = {}  # message_id -> confirmation_data
         self.timeout_tasks = {}  # message_id -> asyncio.Task
+        self.edit_sessions = {}  # user_id -> edit session data
 
         # Handlers
         self.messages = MessageManager(self)

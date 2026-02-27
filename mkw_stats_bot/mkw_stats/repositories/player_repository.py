@@ -44,7 +44,7 @@ class PlayerRepository(BaseRepository):
                         logging.debug(f"✅ [STRATEGY1] Found exact player_name match: {result[0]}")
                     return result[0]
                 elif log_level == 'debug':
-                    logging.debug(f"❌ [STRATEGY1] No exact player_name match found")
+                    logging.debug("❌ [STRATEGY1] No exact player_name match found")
 
                 # Strategy 2: Case-insensitive match with player_name
                 strategy2_query = """
@@ -62,7 +62,7 @@ class PlayerRepository(BaseRepository):
                         logging.debug(f"✅ [STRATEGY2] Found case-insensitive player_name match: {result[0]}")
                     return result[0]
                 elif log_level == 'debug':
-                    logging.debug(f"❌ [STRATEGY2] No case-insensitive player_name match found")
+                    logging.debug("❌ [STRATEGY2] No case-insensitive player_name match found")
 
                 # Strategy 3: Exact nickname match (case-sensitive)
                 strategy3_query = """
@@ -83,11 +83,11 @@ class PlayerRepository(BaseRepository):
                         logging.debug(f"✅ [STRATEGY3] Found exact nickname match: {result[0]}")
                     return result[0]
                 elif log_level == 'debug':
-                    logging.debug(f"❌ [STRATEGY3] No exact nickname match found")
+                    logging.debug("❌ [STRATEGY3] No exact nickname match found")
 
                 # Strategy 4: Case-insensitive nickname match (Python list approach)
                 if log_level == 'debug':
-                    logging.debug(f"🔍 [STRATEGY4] Starting Python list-based nickname matching")
+                    logging.debug("🔍 [STRATEGY4] Starting Python list-based nickname matching")
 
                 cursor.execute("""
                     SELECT player_name, nicknames
@@ -123,7 +123,7 @@ class PlayerRepository(BaseRepository):
                             logging.debug(f"🔍 [STRATEGY4]   Unexpected nickname format: {type(nicknames)}")
 
                 if log_level == 'debug':
-                    logging.debug(f"❌ [STRATEGY4] No case-insensitive nickname match found")
+                    logging.debug("❌ [STRATEGY4] No case-insensitive nickname match found")
 
                 # Strategy 5: Alternative JSONB case-insensitive approach (fallback)
                 try:
@@ -145,7 +145,7 @@ class PlayerRepository(BaseRepository):
                             logging.debug(f"✅ [STRATEGY5] Found alternative JSONB match: {result[0]}")
                         return result[0]
                     elif log_level == 'debug':
-                        logging.debug(f"❌ [STRATEGY5] No alternative JSONB match found")
+                        logging.debug("❌ [STRATEGY5] No alternative JSONB match found")
 
                 except Exception as e:
                     if log_level == 'debug':
@@ -167,7 +167,7 @@ class PlayerRepository(BaseRepository):
                         logging.debug(f"✅ [STRATEGY6] Found display_name match: {result[0]}")
                     return result[0]
                 elif log_level == 'debug':
-                    logging.debug(f"❌ [STRATEGY6] No display_name match found")
+                    logging.debug("❌ [STRATEGY6] No display_name match found")
 
                 # Strategy 7: Match discord_username (Discord username)
                 strategy7_query = """
@@ -185,7 +185,7 @@ class PlayerRepository(BaseRepository):
                         logging.debug(f"✅ [STRATEGY7] Found discord_username match: {result[0]}")
                     return result[0]
                 elif log_level == 'debug':
-                    logging.debug(f"❌ [STRATEGY7] No discord_username match found")
+                    logging.debug("❌ [STRATEGY7] No discord_username match found")
 
                 # Final debugging: show all available data
                 if log_level == 'debug':
@@ -197,7 +197,7 @@ class PlayerRepository(BaseRepository):
 
                     all_players = cursor.fetchall()
                     logging.debug(f"🔍 [FINAL] Resolution failed for '{name_or_nickname}' in guild {guild_id}")
-                    logging.debug(f"🔍 [FINAL] All active players in this guild:")
+                    logging.debug("🔍 [FINAL] All active players in this guild:")
                     for player, nicknames in all_players:
                         logging.debug(f"🔍 [FINAL]   - {player}: {nicknames if nicknames else 'No nicknames'}")
 
@@ -388,6 +388,7 @@ class PlayerRepository(BaseRepository):
 
     def remove_roster_player(self, player_name: str, guild_id: int = 0) -> bool:
         """Remove a player from the active roster (mark as inactive)."""
+        self._validate_guild_id(guild_id, "remove_roster_player")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -418,6 +419,7 @@ class PlayerRepository(BaseRepository):
 
     def set_player_team(self, player_name: str, team: str, guild_id: int = 0) -> bool:
         """Set a player's team assignment."""
+        self._validate_guild_id(guild_id, "set_player_team")
         # Get valid teams via guild repository (accessed through db_manager)
         valid_teams = self._db.guilds.get_guild_team_names(guild_id)
         valid_teams.append('Unassigned')
@@ -454,6 +456,7 @@ class PlayerRepository(BaseRepository):
 
     def get_players_by_team(self, team: str = None, guild_id: int = 0) -> Dict[str, List[str]]:
         """Get players organized by team, or players from a specific team."""
+        self._validate_guild_id(guild_id, "get_players_by_team")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -513,6 +516,7 @@ class PlayerRepository(BaseRepository):
 
     def add_nickname(self, player_name: str, nickname: str, guild_id: int = 0) -> bool:
         """Add a nickname to a player's nickname list."""
+        self._validate_guild_id(guild_id, "add_nickname")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -551,6 +555,7 @@ class PlayerRepository(BaseRepository):
 
     def remove_nickname(self, player_name: str, nickname: str, guild_id: int = 0) -> bool:
         """Remove a nickname from a player's nickname list."""
+        self._validate_guild_id(guild_id, "remove_nickname")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -589,6 +594,7 @@ class PlayerRepository(BaseRepository):
 
     def get_player_nicknames(self, player_name: str, guild_id: int = 0) -> List[str]:
         """Get all nicknames for a player."""
+        self._validate_guild_id(guild_id, "get_player_nicknames")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -607,6 +613,7 @@ class PlayerRepository(BaseRepository):
 
     def set_player_nicknames(self, player_name: str, nicknames: List[str], guild_id: int = 0) -> bool:
         """Set all nicknames for a player (replaces existing nicknames)."""
+        self._validate_guild_id(guild_id, "set_player_nicknames")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -642,6 +649,7 @@ class PlayerRepository(BaseRepository):
 
     def set_player_member_status(self, player_name: str, member_status: str, guild_id: int = 0) -> bool:
         """Set the member status for a player."""
+        self._validate_guild_id(guild_id, "set_player_member_status")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -671,6 +679,7 @@ class PlayerRepository(BaseRepository):
 
     def get_players_by_member_status(self, member_status: str, guild_id: int = 0) -> List[Dict]:
         """Get all players with a specific member status."""
+        self._validate_guild_id(guild_id, "get_players_by_member_status")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -703,6 +712,7 @@ class PlayerRepository(BaseRepository):
 
     def get_member_status_counts(self, guild_id: int = 0) -> Dict[str, int]:
         """Get count of players by member status."""
+        self._validate_guild_id(guild_id, "get_member_status_counts")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -715,7 +725,7 @@ class PlayerRepository(BaseRepository):
                 """, (guild_id,))
 
                 results = cursor.fetchall()
-                return {status: count for status, count in results}
+                return dict(results)
 
         except Exception as e:
             logging.error(f"❌ Error getting member status counts: {e}")
@@ -794,6 +804,7 @@ class PlayerRepository(BaseRepository):
         guild_id: int = 0
     ) -> bool:
         """Link an existing player to a Discord user."""
+        self._validate_guild_id(guild_id, "link_player_to_discord_user")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -839,6 +850,7 @@ class PlayerRepository(BaseRepository):
         guild_id: int = 0
     ) -> bool:
         """Sync player's display name and Discord username from Discord."""
+        self._validate_guild_id(guild_id, "sync_player_discord_info")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -870,6 +882,7 @@ class PlayerRepository(BaseRepository):
         guild_id: int = 0
     ) -> bool:
         """Sync player's member_status from their Discord role."""
+        self._validate_guild_id(guild_id, "sync_player_role")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()

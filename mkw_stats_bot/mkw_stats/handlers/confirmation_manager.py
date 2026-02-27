@@ -2,15 +2,20 @@
 
 import asyncio
 import discord
-from typing import Dict
+from typing import TYPE_CHECKING, Union
 from ..logging_config import get_logger
+
+if TYPE_CHECKING:
+    from ..bot import MarioKartBot
 
 logger = get_logger(__name__)
 
 
 def _log_task_error(t: asyncio.Task) -> None:
-    if not t.cancelled() and (exc := t.exception()):
-        logger.debug(f"Background task failed: {exc}")
+    if t.cancelled():
+        return
+    if exc := t.exception():
+        logger.error("Background task failed", exc_info=exc)
 
 
 class ConfirmationManager:
@@ -21,10 +26,10 @@ class ConfirmationManager:
     that operate on those dicts.
     """
 
-    def __init__(self, bot):
+    def __init__(self, bot: "MarioKartBot") -> None:
         self.bot = bot
 
-    async def handle_reaction(self, reaction, user):
+    async def handle_reaction(self, reaction: discord.Reaction, user: Union[discord.User, discord.Member]) -> None:
         """Route reaction events to the appropriate handler."""
         if user == self.bot.user:
             return
@@ -61,7 +66,7 @@ class ConfirmationManager:
         elif emoji == "\u270f\ufe0f":
             await self.handle_edit(reaction.message, confirmation_data)
 
-    async def handle_accept(self, message: discord.Message, confirmation_data: Dict):
+    async def handle_accept(self, message: discord.Message, confirmation_data: dict) -> None:
         """Handle accepted confirmation - routes to appropriate handler."""
         try:
             confirmation_type = confirmation_data.get('type', 'standard')
@@ -133,7 +138,7 @@ class ConfirmationManager:
             _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
             _task.add_done_callback(_log_task_error)
 
-    async def handle_reject(self, message: discord.Message, confirmation_data: Dict):
+    async def handle_reject(self, message: discord.Message, confirmation_data: dict) -> None:
         """Handle rejected confirmation."""
         if 'original_message_obj' in confirmation_data:
             try:
@@ -174,7 +179,7 @@ class ConfirmationManager:
         await message.edit(embed=embed, view=report_view)
         self.cleanup(str(message.id))
 
-    async def handle_edit(self, message: discord.Message, confirmation_data: Dict):
+    async def handle_edit(self, message: discord.Message, confirmation_data: dict) -> None:
         """Handle manual edit request."""
         results = confirmation_data['results']
 
@@ -216,13 +221,11 @@ class ConfirmationManager:
             'edit_message_id': str(message.id),
         }
 
-        if not hasattr(self.bot, 'edit_sessions'):
-            self.bot.edit_sessions = {}
         self.bot.edit_sessions[confirmation_data['user_id']] = edit_session_data
 
         self.cleanup(str(message.id))
 
-    async def handle_timeout(self, message: discord.Message):
+    async def handle_timeout(self, message: discord.Message) -> None:
         """Handle confirmation timeout."""
         embed = discord.Embed(
             title="\u23f0 Confirmation Expired",
@@ -237,7 +240,7 @@ class ConfirmationManager:
 
         self.cleanup(str(message.id))
 
-    def cleanup(self, message_id: str):
+    def cleanup(self, message_id: str) -> None:
         """Clean up confirmation data and cancel any associated timeout tasks."""
         if message_id in self.bot.pending_confirmations:
             del self.bot.pending_confirmations[message_id]

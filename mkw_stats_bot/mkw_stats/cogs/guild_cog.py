@@ -323,8 +323,8 @@ class GuildCog(BaseCog):
             else:
                 await interaction.response.send_message("❌ Failed to set OCR channel. Please try again.", ephemeral=True)
 
-        except Exception as e:
-            logging.exception(f"Error setting OCR channel for guild")
+        except Exception:
+            logging.exception("Error setting OCR channel for guild")
             await interaction.response.send_message("❌ Error setting OCR channel. Please try again.", ephemeral=True)
 
     @app_commands.command(name="checkpermissions", description="Check bot permissions in a channel for OCR functionality")
@@ -412,10 +412,10 @@ class GuildCog(BaseCog):
             discord_role = interaction.guild.get_role(member_role_id)
             if discord_role:
                 debug_lines.append(f"Member Role: {discord_role.name} (ID: {member_role_id})")
-                debug_lines.append(f"Role exists in Discord: YES")
+                debug_lines.append("Role exists in Discord: YES")
             else:
                 debug_lines.append(f"Member Role ID: {member_role_id}")
-                debug_lines.append(f"Role exists in Discord: NO - ROLE NOT FOUND!")
+                debug_lines.append("Role exists in Discord: NO - ROLE NOT FOUND!")
         else:
             debug_lines.append("No Member role configured")
 
