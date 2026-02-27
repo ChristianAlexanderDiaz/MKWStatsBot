@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import traceback
 import discord
 from discord.ext import commands
@@ -43,7 +44,6 @@ class GuildCog(BaseCog):
                 await interaction.response.send_message("✅ Guild is already set up! Use other commands to manage your clan.", ephemeral=True)
                 return
 
-            import re
             user_id_pattern = r'<@!?(\d+)>'
             user_ids = re.findall(user_id_pattern, players)
 

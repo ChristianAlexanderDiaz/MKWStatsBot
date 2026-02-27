@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 def _log_task_error(t: asyncio.Task) -> None:
     if not t.cancelled() and (exc := t.exception()):
-        logger.debug(f"Background task failed: {exc}")
+        logger.error("Background task failed", exc_info=exc)
 
 
 class OCRConfirmationView(discord.ui.View):
@@ -195,8 +195,8 @@ class OCRConfirmationView(discord.ui.View):
 
         try:
             await self.original_message_obj.add_reaction("❌")
-        except Exception:
-            pass
+        except (discord.HTTPException, discord.Forbidden, asyncio.TimeoutError) as e:
+            logger.warning(f"Failed to add reaction to original message: {e}")
 
         embed = discord.Embed(
             title="❌ Results Cancelled",

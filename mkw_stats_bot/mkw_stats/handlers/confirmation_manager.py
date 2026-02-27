@@ -1,8 +1,9 @@
 """Confirmation flow management: accept, reject, edit, timeout, cleanup."""
 
 import asyncio
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 import discord
-from typing import TYPE_CHECKING, Union
 from ..logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -11,11 +12,21 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+@dataclass
+class _TempOCRView:
+    """Lightweight stand-in for OCRConfirmationView used inside ReportIssueView on rejection."""
+    guild_id: Optional[int]
+    user_id: Optional[int]
+    original_message_obj: Optional[Any]
+    results: List[dict] = field(default_factory=list)
+    bot: Optional[Any] = None
+
+
 def _log_task_error(t: asyncio.Task) -> None:
     if t.cancelled():
         return
     if exc := t.exception():
-        logger.error("Background task failed", exc_info=exc)
+        logger.error("Background task failed", exc_info=True)
 
 
 class ConfirmationManager:
@@ -95,7 +106,8 @@ class ConfirmationManager:
                 await message.channel.send("\u274c **Error:** Could not determine guild ID.")
                 return
 
-            success = self.bot.db.wars.add_race_results(results, guild_id=guild_id)
+            race_count = confirmation_data.get('race_count', 12)
+            success = self.bot.db.wars.add_race_results(results, race_count, guild_id=guild_id)
 
             if success:
                 embed = discord.Embed(
@@ -162,16 +174,13 @@ class ConfirmationManager:
         # Create a report view for the rejection message
         from ..bot import ReportIssueView
 
-        class TempOCRView:
-            def __init__(self, conf_data):
-                self.guild_id = conf_data.get('guild_id')
-                self.user_id = conf_data.get('user_id')
-                self.original_message_obj = conf_data.get('original_message_obj')
-                self.results = conf_data.get('results', [])
-                self.bot = None
-
-        temp_view = TempOCRView(confirmation_data)
-        temp_view.bot = self.bot
+        temp_view = _TempOCRView(
+            guild_id=confirmation_data.get('guild_id'),
+            user_id=confirmation_data.get('user_id'),
+            original_message_obj=confirmation_data.get('original_message_obj'),
+            results=confirmation_data.get('results', []),
+            bot=self.bot,
+        )
 
         report_view = ReportIssueView(temp_view)
         report_view.message = message

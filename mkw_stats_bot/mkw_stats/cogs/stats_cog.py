@@ -248,7 +248,7 @@ class GlobalLeaderboardView(discord.ui.View):
     def _populate_team_tags(self):
         """Populate team tags for all guilds represented in the leaderboard."""
         # Get unique guild_ids from all_players
-        guild_ids = set(player.get('guild_id') for player in self.all_players if player.get('guild_id'))
+        guild_ids = {player['guild_id'] for player in self.all_players if player.get('guild_id')}
 
         # Fetch team tags for each guild
         for guild_id in guild_ids:
@@ -644,7 +644,7 @@ class StatsCog(BaseCog):
         # Clutch Factor (performance in close wars)
         clutch_factor = stats.get('clutch_factor')
         if clutch_factor is None and float(stats.get('war_count', 0)) >= 2:
-            clutch_factor = self.bot.db.stats.get_player_clutch_factor(player_name, guild_id)
+            clutch_factor = await asyncio.to_thread(self.bot.db.stats.get_player_clutch_factor, player_name, guild_id)
             if clutch_factor is not None:
                 stats['clutch_factor'] = clutch_factor
 
@@ -726,7 +726,7 @@ class StatsCog(BaseCog):
         players_without_stats = []
 
         for roster_player in member_stats:
-            war_stats = self.bot.db.stats.get_player_stats(roster_player['player_name'], guild_id)
+            war_stats = await asyncio.to_thread(self.bot.db.stats.get_player_stats, roster_player['player_name'], guild_id)
             if war_stats:
                 # For volatile metrics that need refreshing (first access after war change)
                 if sortby in ['avg10', 'hotstreak', 'form', 'clutch', 'potential']:
@@ -746,17 +746,17 @@ class StatsCog(BaseCog):
 
                     # If metric is NULL but player has enough wars, refresh cache
                     if metric_key and war_stats.get(metric_key) is None and war_count >= min_wars:
-                        self.bot.db.stats._refresh_volatile_metrics(player_name, guild_id)
-                        war_stats = self.bot.db.stats.get_player_stats(player_name, guild_id)
+                        await asyncio.to_thread(self.bot.db.stats._refresh_volatile_metrics, player_name, guild_id)
+                        war_stats = await asyncio.to_thread(self.bot.db.stats.get_player_stats, player_name, guild_id)
 
                     # Fetch clutch factor for Clutch sorting
                     if sortby == 'clutch':
-                        clutch_factor = self.bot.db.stats.get_player_clutch_factor(player_name, guild_id)
+                        clutch_factor = await asyncio.to_thread(self.bot.db.stats.get_player_clutch_factor, player_name, guild_id)
                         war_stats['clutch_factor'] = clutch_factor
 
                     # Fetch potential for Potential sorting
                     if sortby == 'potential':
-                        potential = self.bot.db.stats.get_player_potential(player_name, guild_id)
+                        potential = await asyncio.to_thread(self.bot.db.stats.get_player_potential, player_name, guild_id)
                         war_stats['potential'] = potential
 
                 players_with_stats.append(war_stats)

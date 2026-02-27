@@ -251,14 +251,20 @@ class WarRepository(BaseRepository):
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
-                war = self.get_war_by_id(war_id, guild_id)
-                if not war:
+                cursor.execute("""
+                    SELECT id, war_date, race_count, players_data, created_at, team_score, team_differential
+                    FROM wars WHERE id = %s AND guild_id = %s
+                """, (war_id, guild_id))
+                row = cursor.fetchone()
+                if not row:
                     logging.warning(f"War ID {war_id} not found")
                     return None
 
-                players_data = war.get('results', [])
-                team_differential = war.get('team_differential', 0)
-                logging.info(f"🔍 War data retrieved: {war}")
+                session_data = row[3] if row[3] else {}
+                race_count = row[2] or 12
+                players_data = session_data.get('results', [])
+                team_differential = row[6] if row[6] is not None else 0
+                logging.info(f"🔍 War {war_id} retrieved: race_count={race_count}, differential={team_differential}")
                 logging.info(f"🔍 Players data from war: {players_data}")
                 logging.info(f"🔍 Number of players to process: {len(players_data)}")
                 logging.info(f"🔍 Team differential to remove: {team_differential}")
@@ -268,7 +274,7 @@ class WarRepository(BaseRepository):
                     logging.info(f"🔍 Processing player {i+1}/{len(players_data)}: {result}")
                     player_name = result.get('name')
                     score = result.get('score', 0)
-                    races_played = result.get('races_played', war.get('race_count', 12))
+                    races_played = result.get('races_played', race_count)
                     war_participation = result.get('war_participation', 1.0)
 
                     if not player_name:

@@ -20,6 +20,11 @@ class PlayerRepository(BaseRepository):
             guild_id: Guild ID for data isolation
             log_level: Logging level for database errors ('error', 'debug', 'none')
         """
+        if not guild_id:
+            if log_level != 'none':
+                logging.warning(f"resolve_player_name called with invalid guild_id={guild_id!r} for name '{name_or_nickname}'")
+            return None
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -421,8 +426,7 @@ class PlayerRepository(BaseRepository):
         """Set a player's team assignment."""
         self._validate_guild_id(guild_id, "set_player_team")
         # Get valid teams via guild repository (accessed through db_manager)
-        valid_teams = self._db.guilds.get_guild_team_names(guild_id)
-        valid_teams.append('Unassigned')
+        valid_teams = self._db.guilds.get_guild_team_names(guild_id) + ['Unassigned']
 
         if team not in valid_teams:
             logging.error(f"Invalid team '{team}'. Valid teams for guild {guild_id}: {valid_teams}")
@@ -909,6 +913,7 @@ class PlayerRepository(BaseRepository):
 
     def get_unlinked_players(self, guild_id: int = 0) -> List[Dict]:
         """Get all active players without a Discord user ID link."""
+        self._validate_guild_id(guild_id, "get_unlinked_players")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
