@@ -31,12 +31,13 @@ class ConfirmationManager:
 
         message_id = str(reaction.message.id)
 
-        if message_id not in self.bot.pending_confirmations:
+        confirmation_data = self.bot.pending_confirmations.pop(message_id, None)
+        if confirmation_data is None:
             return
 
-        confirmation_data = self.bot.pending_confirmations[message_id]
-
         if user.id != confirmation_data['user_id']:
+            # Put it back — wrong user reacted, we shouldn't consume it
+            self.bot.pending_confirmations[message_id] = confirmation_data
             return
 
         if str(reaction.emoji) == "\u2705":

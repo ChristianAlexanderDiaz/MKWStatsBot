@@ -12,20 +12,30 @@ from .base import BaseRepository
 class GuildRepository(BaseRepository):
     """Handles all guild configuration database operations."""
 
-    def set_ocr_channel(self, guild_id: int, channel_id: int) -> bool:
-        """Set the OCR channel for automatic image processing in a guild."""
+    def set_ocr_channel(self, guild_id: int, channel_id: int, cursor=None) -> bool:
+        """Set the OCR channel for automatic image processing in a guild.
+
+        If *cursor* is provided the caller owns the connection/transaction and
+        this method will NOT commit — the caller is responsible for committing.
+        If *cursor* is None (the default) a new connection is opened, the row
+        is written, and committed immediately.
+        """
+        sql = """
+            INSERT INTO guild_configs (guild_id, ocr_channel_id, is_active)
+            VALUES (%s, %s, TRUE)
+            ON CONFLICT (guild_id) DO UPDATE SET
+                ocr_channel_id = EXCLUDED.ocr_channel_id,
+                updated_at = CURRENT_TIMESTAMP
+        """
         try:
+            if cursor is not None:
+                cursor.execute(sql, (guild_id, channel_id))
+                logging.info(f"✅ Set OCR channel {channel_id} for guild {guild_id} (deferred commit)")
+                return True
+
             with self.get_connection() as conn:
-                cursor = conn.cursor()
-
-                cursor.execute("""
-                    INSERT INTO guild_configs (guild_id, ocr_channel_id, is_active)
-                    VALUES (%s, %s, TRUE)
-                    ON CONFLICT (guild_id) DO UPDATE SET
-                        ocr_channel_id = EXCLUDED.ocr_channel_id,
-                        updated_at = CURRENT_TIMESTAMP
-                """, (guild_id, channel_id))
-
+                cur = conn.cursor()
+                cur.execute(sql, (guild_id, channel_id))
                 conn.commit()
                 logging.info(f"✅ Set OCR channel {channel_id} for guild {guild_id}")
                 return True

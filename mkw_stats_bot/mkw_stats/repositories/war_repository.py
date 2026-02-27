@@ -301,12 +301,18 @@ class WarRepository(BaseRepository):
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
-                existing_war = self.get_war_by_id(war_id, guild_id)
-                if not existing_war:
+                cursor.execute(
+                    "SELECT players_data, race_count FROM wars WHERE id = %s AND guild_id = %s FOR UPDATE",
+                    (war_id, guild_id)
+                )
+                row = cursor.fetchone()
+                if not row:
                     logging.error(f"No war found with ID {war_id} in guild {guild_id}")
                     return False
 
-                existing_results = existing_war.get('results', [])
+                players_data = row[0] if row[0] else {}
+                existing_results = players_data.get('results', [])
+                race_count = row[1] or 12
                 existing_names = {player.get('name', '').lower() for player in existing_results}
 
                 conflicts = []
@@ -321,7 +327,6 @@ class WarRepository(BaseRepository):
                 combined_results = existing_results + new_players
 
                 new_team_score = sum(p.get('score', 0) for p in combined_results)
-                race_count = existing_war.get('race_count', 12)
                 total_points = 82 * race_count
                 opponent_score = total_points - new_team_score
                 new_team_differential = new_team_score - opponent_score

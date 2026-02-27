@@ -150,7 +150,7 @@ class GuildCog(BaseCog):
                     added_players.append(player_name)
                     role_detection.append(f"{player_name} → {role_name}")
 
-                ocr_success = self.bot.db.guilds.set_ocr_channel(guild_id, results_channel.id)
+                ocr_success = self.bot.db.guilds.set_ocr_channel(guild_id, results_channel.id, cursor=cursor)
                 if not ocr_success:
                     conn.rollback()
                     await interaction.response.send_message(

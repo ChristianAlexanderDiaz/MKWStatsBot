@@ -114,7 +114,7 @@ class LeaderboardView(discord.ui.View):
                         clutch = player.get('clutch_factor')
                         if clutch is not None:
                             clutch_symbol = "+" if clutch >= 0 else ""
-                            category = self.bot.db.get_clutch_category(clutch)
+                            category = self.bot.db.stats.get_clutch_category(clutch)
                             player_str += f" | **{clutch_symbol}{clutch:.2f}** ({category})"
                         else:
                             player_str += " | **N/A**"
@@ -325,7 +325,7 @@ class GlobalLeaderboardView(discord.ui.View):
                     clutch = player.get('clutch_factor')
                     if clutch is not None:
                         clutch_symbol = "+" if clutch >= 0 else ""
-                        category = self.bot.db.get_clutch_category(clutch)
+                        category = self.bot.db.stats.get_clutch_category(clutch)
                         player_str += f" | **{clutch_symbol}{clutch:.2f}** ({category})"
                     else:
                         player_str += " | **N/A**"
@@ -652,7 +652,7 @@ class StatsCog(BaseCog):
 
         if clutch_factor is not None:
             clutch_symbol = "+" if clutch_factor >= 0 else ""
-            clutch_category = self.bot.db.get_clutch_category(clutch_factor)
+            clutch_category = self.bot.db.stats.get_clutch_category(clutch_factor)
             clutch_text = f"```\n{clutch_symbol}{clutch_factor:.2f}\n{clutch_category}\n```"
         else:
             clutch_text = "```\nN/A\n(Need 2+ wars)\n```"
