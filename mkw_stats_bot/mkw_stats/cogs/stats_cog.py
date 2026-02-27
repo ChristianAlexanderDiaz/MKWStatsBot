@@ -29,9 +29,6 @@ class LeaderboardView(discord.ui.View):
         self.players_per_page = 10
         self.total_pages = max(1, (len(all_players) + self.players_per_page - 1) // self.players_per_page)
 
-        # Cache team tags to reduce DB calls during pagination
-        self.team_tags = self.bot.db.guilds.get_all_team_tags(guild_id)
-
         # Update button states
         self.update_buttons()
 
@@ -821,24 +818,13 @@ class StatsCog(BaseCog):
 
             # Auto-default to Discord user if lastxwars is specified but player is not
             if not player and lastxwars is not None:
-                # Look up player by Discord user ID
-                with self.bot.db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT player_name
-                        FROM players
-                        WHERE discord_user_id = %s AND guild_id = %s AND is_active = TRUE
-                    """, (interaction.user.id, guild_id))
-                    result = cursor.fetchone()
-
-                    if result:
-                        player = result[0]
-                    else:
-                        await interaction.followup.send(
-                            "❌ You're not linked to a player in this guild. Ask an admin to add you with `/addplayer`.",
-                            ephemeral=True
-                        )
-                        return
+                player = self.bot.db.players.get_player_name_by_discord_id(interaction.user.id, guild_id)
+                if not player:
+                    await interaction.followup.send(
+                        "❌ You're not linked to a player in this guild. Ask an admin to add you with `/addplayer`.",
+                        ephemeral=True
+                    )
+                    return
 
             if player:
                 # Resolve nickname to actual player name first

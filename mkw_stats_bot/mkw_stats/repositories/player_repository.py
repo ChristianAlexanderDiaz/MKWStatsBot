@@ -924,3 +924,21 @@ class PlayerRepository(BaseRepository):
         except Exception as e:
             logging.error(f"❌ Error getting unlinked players: {e}")
             return []
+
+    def get_player_name_by_discord_id(self, discord_user_id: int, guild_id: int) -> Optional[str]:
+        """Return the player_name for an active player linked to a Discord user, or None."""
+        self._validate_guild_id(guild_id, "get_player_name_by_discord_id")
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT player_name
+                    FROM players
+                    WHERE discord_user_id = %s AND guild_id = %s AND is_active = TRUE
+                """, (discord_user_id, guild_id))
+                result = cursor.fetchone()
+                return result[0] if result else None
+
+        except Exception as e:
+            logging.error(f"❌ Error getting player name by Discord ID: {e}")
+            return None

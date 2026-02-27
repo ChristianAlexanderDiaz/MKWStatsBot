@@ -20,6 +20,7 @@ class GuildRepository(BaseRepository):
         If *cursor* is None (the default) a new connection is opened, the row
         is written, and committed immediately.
         """
+        self._validate_guild_id(guild_id, "set_ocr_channel")
         sql = """
             INSERT INTO guild_configs (guild_id, ocr_channel_id, is_active)
             VALUES (%s, %s, TRUE)
@@ -46,6 +47,7 @@ class GuildRepository(BaseRepository):
 
     def get_ocr_channel(self, guild_id: int) -> Optional[int]:
         """Get the OCR channel ID for a guild."""
+        self._validate_guild_id(guild_id, "get_ocr_channel")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -65,6 +67,7 @@ class GuildRepository(BaseRepository):
 
     def get_guild_config(self, guild_id: int) -> Optional[Dict]:
         """Get guild configuration settings."""
+        self._validate_guild_id(guild_id, "get_guild_config")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -93,6 +96,7 @@ class GuildRepository(BaseRepository):
 
     def create_guild_config(self, guild_id: int, guild_name: str = None, team_names: List[str] = None) -> bool:
         """Create a new guild configuration."""
+        self._validate_guild_id(guild_id, "create_guild_config")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -118,33 +122,37 @@ class GuildRepository(BaseRepository):
             logging.error(f"❌ Error creating guild config: {e}")
             return False
 
-    def update_guild_config(self, guild_id: int, **kwargs) -> bool:
-        """Update guild configuration settings."""
+    def update_guild_config(self, guild_id: int, cursor=None, **kwargs) -> bool:
+        """Update guild configuration settings.
+
+        If *cursor* is provided the caller owns the connection/transaction and
+        this method will NOT commit — the caller is responsible for committing.
+        """
+        self._validate_guild_id(guild_id, "update_guild_config")
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            update_fields = []
+            values = []
 
-                update_fields = []
-                values = []
+            for key, value in kwargs.items():
+                if key in ['guild_name', 'team_names', 'is_active']:
+                    update_fields.append(f"{key} = %s")
+                    values.append(json.dumps(value) if key == 'team_names' else value)
 
-                for key, value in kwargs.items():
-                    if key in ['guild_name', 'team_names', 'is_active']:
-                        if key in ['team_names']:
-                            update_fields.append(f"{key} = %s")
-                            values.append(json.dumps(value))
-                        else:
-                            update_fields.append(f"{key} = %s")
-                            values.append(value)
+            if not update_fields:
+                return False
 
-                if not update_fields:
-                    return False
+            update_fields.append("updated_at = CURRENT_TIMESTAMP")
+            values.append(guild_id)
+            query = f"UPDATE guild_configs SET {', '.join(update_fields)} WHERE guild_id = %s"
 
-                update_fields.append("updated_at = CURRENT_TIMESTAMP")
-                values.append(guild_id)
-
-                query = f"UPDATE guild_configs SET {', '.join(update_fields)} WHERE guild_id = %s"
+            if cursor is not None:
                 cursor.execute(query, values)
+                logging.info(f"✅ Updated guild config for {guild_id} (deferred commit)")
+                return True
 
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, values)
                 conn.commit()
                 logging.info(f"✅ Updated guild config for {guild_id}")
                 return True
@@ -221,7 +229,7 @@ class GuildRepository(BaseRepository):
                 moved_players = cursor.rowcount
 
                 new_teams = [team for team in current_teams if team != team_to_remove]
-                success = self.update_guild_config(guild_id, team_names=new_teams)
+                success = self.update_guild_config(guild_id, cursor=cursor, team_names=new_teams)
 
                 if success:
                     conn.commit()
@@ -269,7 +277,7 @@ class GuildRepository(BaseRepository):
                 updated_players = cursor.rowcount
 
                 new_teams = [new_name if team == team_to_rename else team for team in current_teams]
-                success = self.update_guild_config(guild_id, team_names=new_teams)
+                success = self.update_guild_config(guild_id, cursor=cursor, team_names=new_teams)
 
                 if success:
                     conn.commit()
@@ -473,6 +481,7 @@ class GuildRepository(BaseRepository):
 
     def get_guild_role_config(self, guild_id: int) -> Optional[Dict]:
         """Get the role configuration for a guild."""
+        self._validate_guild_id(guild_id, "get_guild_role_config")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -504,6 +513,7 @@ class GuildRepository(BaseRepository):
         role_ally_id: int
     ) -> bool:
         """Set the role configuration for a guild."""
+        self._validate_guild_id(guild_id, "set_guild_role_config")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()

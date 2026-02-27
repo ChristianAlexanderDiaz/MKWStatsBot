@@ -31,20 +31,34 @@ class ConfirmationManager:
 
         message_id = str(reaction.message.id)
 
-        confirmation_data = self.bot.pending_confirmations.pop(message_id, None)
+        # Peek before claiming — don't consume for irrelevant reactions
+        confirmation_data = self.bot.pending_confirmations.get(message_id)
         if confirmation_data is None:
             return
 
         if user.id != confirmation_data['user_id']:
-            # Put it back — wrong user reacted, we shouldn't consume it
-            self.bot.pending_confirmations[message_id] = confirmation_data
             return
 
-        if str(reaction.emoji) == "\u2705":
+        emoji = str(reaction.emoji)
+        if emoji not in ("\u2705", "\u274c", "\u270f\ufe0f"):
+            return
+
+        # Atomically claim: concurrent duplicate reactions from the same user get None and return
+        confirmation_data = self.bot.pending_confirmations.pop(message_id, None)
+        if confirmation_data is None:
+            return
+
+        # Cancel the timeout task immediately so it can't fire after we've claimed
+        if message_id in self.bot.timeout_tasks:
+            task = self.bot.timeout_tasks.pop(message_id)
+            if not task.done():
+                task.cancel()
+
+        if emoji == "\u2705":
             await self.handle_accept(reaction.message, confirmation_data)
-        elif str(reaction.emoji) == "\u274c":
+        elif emoji == "\u274c":
             await self.handle_reject(reaction.message, confirmation_data)
-        elif str(reaction.emoji) == "\u270f\ufe0f":
+        elif emoji == "\u270f\ufe0f":
             await self.handle_edit(reaction.message, confirmation_data)
 
     async def handle_accept(self, message: discord.Message, confirmation_data: Dict):

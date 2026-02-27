@@ -98,7 +98,8 @@ class WarRepository(BaseRepository):
             return None
 
     def get_war_by_id(self, war_id: int, guild_id: int = 0) -> Optional[Dict]:
-        """Get specific war details by ID."""
+        """Get specific war details by ID. Raises ValueError for invalid guild_id."""
+        self._validate_guild_id(guild_id, "get_war_by_id")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -128,7 +129,8 @@ class WarRepository(BaseRepository):
             return None
 
     def get_all_wars(self, limit: int = None, guild_id: int = 0) -> List[Dict]:
-        """Get all wars in the database."""
+        """Get all wars in the database. Raises ValueError for invalid guild_id."""
+        self._validate_guild_id(guild_id, "get_all_wars")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -171,7 +173,9 @@ class WarRepository(BaseRepository):
         """
         Get the most recent war's player results for duplicate detection.
         Returns normalized player data for comparison.
+        Raises ValueError for invalid guild_id.
         """
+        self._validate_guild_id(guild_id, "get_last_war_for_duplicate_check")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -307,6 +311,7 @@ class WarRepository(BaseRepository):
                 )
                 row = cursor.fetchone()
                 if not row:
+                    conn.rollback()
                     logging.error(f"No war found with ID {war_id} in guild {guild_id}")
                     return False
 
@@ -321,6 +326,7 @@ class WarRepository(BaseRepository):
                         conflicts.append(new_player.get('name', 'Unknown'))
 
                 if conflicts:
+                    conn.rollback()
                     logging.error(f"Players already exist in war {war_id}: {', '.join(conflicts)}")
                     return False
 
@@ -344,6 +350,7 @@ class WarRepository(BaseRepository):
                 """, (json.dumps(war_data), new_team_score, new_team_differential, war_id, guild_id))
 
                 if cursor.rowcount == 0:
+                    conn.rollback()
                     logging.error(f"No war found with ID {war_id} in guild {guild_id}")
                     return False
 
@@ -369,11 +376,15 @@ class WarRepository(BaseRepository):
                     "race_count": race_count
                 }
 
+                team_score = sum(r.get('score', 0) for r in results)
+                total_points = 82 * race_count
+                team_differential = team_score - (total_points - team_score)
+
                 cursor.execute("""
                     UPDATE wars
-                    SET players_data = %s, race_count = %s
+                    SET players_data = %s, race_count = %s, team_score = %s, team_differential = %s
                     WHERE id = %s AND guild_id = %s
-                """, (json.dumps(war_data), race_count, war_id, guild_id))
+                """, (json.dumps(war_data), race_count, team_score, team_differential, war_id, guild_id))
 
                 if cursor.rowcount == 0:
                     logging.error(f"No war found with ID {war_id} in guild {guild_id}")

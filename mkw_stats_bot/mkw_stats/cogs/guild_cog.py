@@ -119,6 +119,7 @@ class GuildCog(BaseCog):
                         member_status = 'ally'
                         role_name = role_ally.name
                     else:
+                        conn.rollback()
                         await interaction.response.send_message(
                             f"❌ {member.mention} doesn't have a Member, Trial, or Ally role.\n"
                             f"Please assign them one of these roles first: {role_member.mention}, {role_trial.mention}, or {role_ally.mention}",
