@@ -166,82 +166,93 @@ class PrioritySemaphore:
         return PrioritySemaphoreContext(self, priority, wait_time)
 
     async def _try_borrowing_for_express(self) -> bool:
-        """Try to borrow resources for EXPRESS priority operations."""
+        """Try to borrow resources for EXPRESS priority operations.
+
+        Semaphore acquires are performed OUTSIDE self._lock to avoid deadlock:
+        release() also acquires self._lock, so awaiting inside the lock would
+        deadlock if a lower-priority worker tries to release while we wait.
+        """
         if not self.borrowing_enabled:
             return False
 
+        borrow_from: str | None = None
+        logged_util: float = 0.0
+
         async with self._lock:
-            # Calculate current utilization for lower priority tiers
             standard_utilization = self.standard_active / max(self.standard_limit, 1)
             background_utilization = self.background_active / max(self.background_limit, 1)
 
-            # Try borrowing from STANDARD tier first
             if (standard_utilization < self.borrowing_threshold and
-                self.standard_limit > 1 and self.standard_active < self.standard_limit):
-
-                # Temporarily reduce STANDARD limit to allow EXPRESS borrowing
+                    self.standard_limit > 1 and self.standard_active < self.standard_limit):
                 self.standard_limit -= 1
                 self.express_limit += 1
+                self.express_semaphore.release()  # non-blocking: safe inside lock
+                borrow_from = 'standard'
+                logged_util = standard_utilization
 
-                # Update semaphores using public API
-                self.express_semaphore.release()       # add one permit to EXPRESS
-                await self.standard_semaphore.acquire()  # remove one permit from STANDARD
-
-                self.borrowing_stats['express_borrowed'] += 1
-                self.borrowing_stats['total_borrowing_events'] += 1
-
-                logger.debug(f"EXPRESS borrowed 1 resource from STANDARD "
-                           f"(utilization: {standard_utilization:.1%})")
-                return True
-
-            # Try borrowing from BACKGROUND tier if STANDARD borrowing failed
             elif (background_utilization < self.borrowing_threshold and
                   self.background_limit > 1 and self.background_active < self.background_limit):
-
-                # Temporarily reduce BACKGROUND limit to allow EXPRESS borrowing
                 self.background_limit -= 1
                 self.express_limit += 1
+                self.express_semaphore.release()  # non-blocking: safe inside lock
+                borrow_from = 'background'
+                logged_util = background_utilization
 
-                # Update semaphores using public API
-                self.express_semaphore.release()          # add one permit to EXPRESS
-                await self.background_semaphore.acquire()  # remove one permit from BACKGROUND
-
+        # Acquire the donated semaphore permit OUTSIDE the lock to prevent deadlock.
+        # We already decremented the donor's limit inside the lock, so this acquire
+        # claims the reserved slot and should complete without long waits.
+        if borrow_from == 'standard':
+            await self.standard_semaphore.acquire()
+            async with self._lock:
                 self.borrowing_stats['express_borrowed'] += 1
                 self.borrowing_stats['total_borrowing_events'] += 1
+            logger.debug(f"EXPRESS borrowed 1 resource from STANDARD "
+                         f"(utilization: {logged_util:.1%})")
+            return True
 
-                logger.debug(f"EXPRESS borrowed 1 resource from BACKGROUND "
-                           f"(utilization: {background_utilization:.1%})")
-                return True
+        if borrow_from == 'background':
+            await self.background_semaphore.acquire()
+            async with self._lock:
+                self.borrowing_stats['express_borrowed'] += 1
+                self.borrowing_stats['total_borrowing_events'] += 1
+            logger.debug(f"EXPRESS borrowed 1 resource from BACKGROUND "
+                         f"(utilization: {logged_util:.1%})")
+            return True
 
         return False
 
     async def _try_borrowing_for_standard(self) -> bool:
-        """Try to borrow resources for STANDARD priority operations."""
+        """Try to borrow resources for STANDARD priority operations.
+
+        Semaphore acquire is performed OUTSIDE self._lock to avoid deadlock
+        (same reasoning as _try_borrowing_for_express).
+        """
         if not self.borrowing_enabled:
             return False
 
+        should_borrow = False
+        logged_util: float = 0.0
+
         async with self._lock:
-            # Calculate current utilization for BACKGROUND tier
             background_utilization = self.background_active / max(self.background_limit, 1)
 
-            # Try borrowing from BACKGROUND tier
             if (background_utilization < self.borrowing_threshold and
-                self.background_limit > 1 and self.background_active < self.background_limit):
-
-                # Temporarily reduce BACKGROUND limit to allow STANDARD borrowing
+                    self.background_limit > 1 and self.background_active < self.background_limit):
                 self.background_limit -= 1
                 self.standard_limit += 1
+                self.standard_semaphore.release()  # non-blocking: safe inside lock
+                should_borrow = True
+                logged_util = background_utilization
 
-                # Update semaphores using public API
-                self.standard_semaphore.release()          # add one permit to STANDARD
-                await self.background_semaphore.acquire()  # remove one permit from BACKGROUND
-
+        # Acquire OUTSIDE the lock to prevent deadlock.
+        if should_borrow:
+            await self.background_semaphore.acquire()
+            async with self._lock:
                 self.borrowing_stats['standard_borrowed'] += 1
                 self.borrowing_stats['total_borrowing_events'] += 1
-
-                logger.debug(f"STANDARD borrowed 1 resource from BACKGROUND "
-                           f"(utilization: {background_utilization:.1%})")
-                return True
+            logger.debug(f"STANDARD borrowed 1 resource from BACKGROUND "
+                         f"(utilization: {logged_util:.1%})")
+            return True
 
         return False
 

@@ -435,7 +435,7 @@ class WarCog(BaseCog):
                 await interaction.followup.send("❌ Limit must be between 1 and 50.", ephemeral=True)
                 return
 
-            wars = self.bot.db.wars.get_all_wars(limit, guild_id)
+            wars = self.bot.db.wars.get_all_wars(guild_id=guild_id, limit=limit)
 
             if not wars:
                 await interaction.followup.send("❌ No wars found.", ephemeral=True)

@@ -122,7 +122,7 @@ class WarRepository(BaseRepository):
             logging.error(f"❌ Error getting war by ID: {e}")
             return None
 
-    def get_all_wars(self, limit: int | None = None, guild_id: int = 0) -> list[dict]:
+    def get_all_wars(self, *, guild_id: int, limit: int | None = None) -> list[dict]:
         """Get all wars in the database. Raises ValueError for invalid guild_id."""
         self._validate_guild_id(guild_id, "get_all_wars")
         try:
