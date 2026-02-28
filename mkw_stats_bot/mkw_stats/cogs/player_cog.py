@@ -572,6 +572,13 @@ class PlayerCog(BaseCog):
     async def bulk_set_country(self, interaction: discord.Interaction, players_countries: str):
         """Set countries for multiple players at once."""
         try:
+            if not has_admin_permission(interaction):
+                await interaction.response.send_message(
+                    "❌ Only administrators can bulk set country flags.",
+                    ephemeral=True,
+                )
+                return
+
             await interaction.response.defer(ephemeral=True)
 
             guild_id = self.get_guild_id(interaction)

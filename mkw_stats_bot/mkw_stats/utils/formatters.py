@@ -50,7 +50,7 @@ def get_player_display_name(
     if team_tags is not None:
         tag = team_tags.get(team_name)
     else:
-        tag = db.get_team_tag(guild_id, team_name)
+        tag = db.guilds.get_team_tag(guild_id, team_name)
 
     if tag:
         return f"{tag} {player_name}"
