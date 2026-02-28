@@ -10,10 +10,9 @@ import { Input } from "@/components/ui/input"
 import { Plus, Trash2 } from "lucide-react"
 import type { BulkPlayer } from "@/lib/types"
 
-const generateId = (): string =>
-  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2) + Date.now().toString(36)
+const generateId = (): string => crypto.randomUUID()
+
+const DEFAULT_RACES_PLAYED = 12
 
 interface PlayerEditFormProps {
   editedPlayers: BulkPlayer[]
@@ -57,7 +56,7 @@ export function PlayerEditForm({
           <Input
             type="text"
             inputMode="numeric"
-            value={player.races_played}
+            value={player.races_played ?? ""}
             onChange={(e) => {
               const value = e.target.value
               if (value === "" || /^\d+$/.test(value)) {
@@ -86,7 +85,7 @@ export function PlayerEditForm({
         onClick={() =>
           setEditedPlayers([
             ...editedPlayers,
-            { id: generateId(), name: "", score: 0, is_roster_member: false, races_played: 12 },
+            { id: generateId(), name: "", score: 0, is_roster_member: false, races_played: DEFAULT_RACES_PLAYED },
           ])
         }
       >

@@ -181,6 +181,13 @@ class PlayerCog(BaseCog):
     async def remove_player_from_roster(self, interaction: discord.Interaction, player_name: str):
         """Remove a player from the clan roster."""
         try:
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.response.send_message(
+                    "❌ You need administrator permission to remove players from the roster.",
+                    ephemeral=True
+                )
+                return
+
             guild_id = self.get_guild_id(interaction)
             success = self.bot.db.players.remove_roster_player(player_name, guild_id)
 
@@ -215,6 +222,13 @@ class PlayerCog(BaseCog):
     async def link_player_to_discord(self, interaction: discord.Interaction, player_name: str, user: discord.Member):
         """Link an existing player to a Discord user."""
         try:
+            if not interaction.user.guild_permissions.administrator and user.id != interaction.user.id:
+                await interaction.response.send_message(
+                    "❌ You can only link your own Discord account. Administrators can link any account.",
+                    ephemeral=True
+                )
+                return
+
             guild_id = self.get_guild_id(interaction)
 
             role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
@@ -336,6 +350,13 @@ class PlayerCog(BaseCog):
     async def sync_player_status(self, interaction: discord.Interaction):
         """Sync member_status for all linked players from their Discord roles."""
         try:
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.response.send_message(
+                    "❌ You need administrator permission to sync player statuses.",
+                    ephemeral=True
+                )
+                return
+
             guild_id = self.get_guild_id(interaction)
 
             role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
@@ -538,7 +559,7 @@ class PlayerCog(BaseCog):
 
                 if cursor.rowcount == 0:
                     await interaction.response.send_message(
-                        f"❌ Player '{player_name}' not found in **{guild_display_name}**. Check the player name (case-sensitive).",
+                        f"❌ Player '{player_name}' not found in **{guild_display_name}**. Check the player name (case-insensitive) or spelling.",
                         ephemeral=True
                     )
                     return
@@ -590,31 +611,32 @@ class PlayerCog(BaseCog):
 
             mention_pattern = re.compile(r'<@!?(\d+)>')
 
-            for pair in pairs:
-                if ':' not in pair:
-                    errors.append(f"❌ Invalid format: `{pair}` (use @User:CC or Player:CC)")
-                    continue
+            with self.bot.db.get_connection() as conn:
+                cursor = conn.cursor()
 
-                player_identifier, country_code = pair.split(':', 1)
-                player_identifier = player_identifier.strip()
-                country_code = country_code.strip().upper()
-
-                if len(country_code) != 2 or not country_code.isalpha():
-                    errors.append(f"❌ Invalid country code: `{country_code}`")
-                    continue
-
-                mention_match = mention_pattern.search(player_identifier)
-
-                if mention_match:
-                    user_id = int(mention_match.group(1))
-                    member = interaction.guild.get_member(user_id)
-
-                    if not member:
-                        errors.append(f"❌ User not found in server: <@{user_id}>")
+                for pair in pairs:
+                    if ':' not in pair:
+                        errors.append(f"❌ Invalid format: `{pair}` (use @User:CC or Player:CC)")
                         continue
 
-                    with self.bot.db.get_connection() as conn:
-                        cursor = conn.cursor()
+                    player_identifier, country_code = pair.split(':', 1)
+                    player_identifier = player_identifier.strip()
+                    country_code = country_code.strip().upper()
+
+                    if len(country_code) != 2 or not country_code.isalpha():
+                        errors.append(f"❌ Invalid country code: `{country_code}`")
+                        continue
+
+                    mention_match = mention_pattern.search(player_identifier)
+
+                    if mention_match:
+                        user_id = int(mention_match.group(1))
+                        member = interaction.guild.get_member(user_id)
+
+                        if not member:
+                            errors.append(f"❌ User not found in server: <@{user_id}>")
+                            continue
+
                         cursor.execute("""
                             UPDATE players
                             SET country_code = %s, updated_at = CURRENT_TIMESTAMP
@@ -624,14 +646,11 @@ class PlayerCog(BaseCog):
                         if cursor.rowcount > 0:
                             flag = country_code_to_flag(country_code)
                             updated.append(f"{flag} {member.mention}")
-                            conn.commit()
                         else:
                             errors.append(f"❌ {member.mention} not in active roster")
-                else:
-                    player_name = player_identifier
+                    else:
+                        player_name = player_identifier
 
-                    with self.bot.db.get_connection() as conn:
-                        cursor = conn.cursor()
                         cursor.execute("""
                             UPDATE players
                             SET country_code = %s, updated_at = CURRENT_TIMESTAMP
@@ -641,9 +660,10 @@ class PlayerCog(BaseCog):
                         if cursor.rowcount > 0:
                             flag = country_code_to_flag(country_code)
                             updated.append(f"{flag} {player_name}")
-                            conn.commit()
                         else:
                             errors.append(f"❌ Player not found: {player_name}")
+
+                conn.commit()
 
             embed = discord.Embed(
                 title="🌍 Bulk Country Update",
