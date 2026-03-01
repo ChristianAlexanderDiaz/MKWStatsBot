@@ -202,6 +202,45 @@ class DatabaseManager:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_players_team ON players(team)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_players_name ON players(player_name)")
 
+                # Ensure all columns exist on players (handles pre-existing tables missing migrated columns)
+                for col_sql in [
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS discord_user_id BIGINT",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS discord_username VARCHAR(100)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS display_name VARCHAR(100)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS member_status VARCHAR(20) DEFAULT 'member'",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS country_code CHAR(2)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS last_role_sync TIMESTAMP WITH TIME ZONE",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS war_count DECIMAL(8,3) DEFAULT 0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS average_score DECIMAL(5,2) DEFAULT 0.0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS last_war_date DATE",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS total_score INTEGER DEFAULT 0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS total_races INTEGER DEFAULT 0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS team VARCHAR(50) DEFAULT 'Unassigned'",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS nicknames JSONB DEFAULT '[]'",
+                ]:
+                    cursor.execute(col_sql)
+
+                # Ensure all columns exist on wars
+                for col_sql in [
+                    "ALTER TABLE wars ADD COLUMN IF NOT EXISTS team_score INTEGER DEFAULT 0",
+                    "ALTER TABLE wars ADD COLUMN IF NOT EXISTS team_differential INTEGER DEFAULT 0",
+                ]:
+                    cursor.execute(col_sql)
+
+                # Ensure all columns exist on guild_configs
+                for col_sql in [
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS guild_name VARCHAR(255)",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS team_names JSONB DEFAULT '[]'",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS ocr_channel_id BIGINT",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_member_id BIGINT",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_trial_id BIGINT",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_ally_id BIGINT",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS team_tags JSONB DEFAULT '{}'",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
+                ]:
+                    cursor.execute(col_sql)
+
                 # guild_configs
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS guild_configs (
