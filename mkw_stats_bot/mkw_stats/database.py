@@ -144,27 +144,19 @@ class DatabaseManager:
                 self.connection_pool.putconn(conn)
 
     def init_database(self):
-        """Initialize the database tables if they don't exist."""
+        """Initialize the database tables if they don't exist.
+
+        Uses CREATE TABLE IF NOT EXISTS throughout so this method is safe to
+        call on a fully-initialized database (no-op) and on partially-initialized
+        databases (only missing tables are created).
+        """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Check if tables exist (check for players table now)
+                # wars
                 cursor.execute("""
-                    SELECT EXISTS (
-                        SELECT FROM information_schema.tables
-                        WHERE table_schema = 'public' AND table_name = 'players'
-                    );
-                """)
-
-                if cursor.fetchone()[0]:
-                    # Tables exist, don't recreate
-                    logging.info("✅ PostgreSQL tables already exist")
-                    return
-
-                # Create wars table (simplified from race_sessions)
-                cursor.execute("""
-                    CREATE TABLE wars (
+                    CREATE TABLE IF NOT EXISTS wars (
                         id SERIAL PRIMARY KEY,
                         war_date DATE NOT NULL,
                         race_count INTEGER NOT NULL,
@@ -173,19 +165,15 @@ class DatabaseManager:
                         team_score INTEGER DEFAULT 0,
                         team_differential INTEGER DEFAULT 0,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );
+                    )
                 """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_wars_guild_id ON wars(guild_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_wars_date ON wars(war_date DESC)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_wars_created ON wars(created_at DESC)")
 
-                # Create indexes for wars
+                # players
                 cursor.execute("""
-                    CREATE INDEX idx_wars_guild_id ON wars(guild_id);
-                    CREATE INDEX idx_wars_date ON wars(war_date DESC);
-                    CREATE INDEX idx_wars_created ON wars(created_at DESC);
-                """)
-
-                # Create players table (unified roster + player_stats)
-                cursor.execute("""
-                    CREATE TABLE players (
+                    CREATE TABLE IF NOT EXISTS players (
                         id SERIAL PRIMARY KEY,
                         player_name VARCHAR(100) NOT NULL,
                         guild_id BIGINT NOT NULL,
@@ -193,28 +181,135 @@ class DatabaseManager:
                         nicknames JSONB DEFAULT '[]',
                         added_by VARCHAR(100),
                         is_active BOOLEAN DEFAULT TRUE,
-                        -- Statistics fields
                         total_score INTEGER DEFAULT 0,
                         total_races INTEGER DEFAULT 0,
-                        war_count DECIMAL(8,3) DEFAULT 0,  -- Supports fractional wars (0.583 = 7/12 races), max 99999.999
+                        war_count DECIMAL(8,3) DEFAULT 0,
                         average_score DECIMAL(5,2) DEFAULT 0.0,
                         last_war_date DATE,
-                        -- Metadata
+                        discord_user_id BIGINT,
+                        discord_username VARCHAR(100),
+                        display_name VARCHAR(100),
+                        member_status VARCHAR(20) DEFAULT 'member',
+                        country_code CHAR(2),
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(player_name, guild_id)
-                    );
+                    )
                 """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_players_guild_id ON players(guild_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_players_active ON players(is_active)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_players_team ON players(team)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_players_name ON players(player_name)")
 
-                # Create indexes for players
+                # guild_configs
                 cursor.execute("""
-                    CREATE INDEX idx_players_guild_id ON players(guild_id);
-                    CREATE INDEX idx_players_active ON players(is_active);
-                    CREATE INDEX idx_players_team ON players(team);
-                    CREATE INDEX idx_players_name ON players(player_name);
+                    CREATE TABLE IF NOT EXISTS guild_configs (
+                        id SERIAL PRIMARY KEY,
+                        guild_id BIGINT UNIQUE NOT NULL,
+                        guild_name VARCHAR(255),
+                        team_names JSONB DEFAULT '[]',
+                        ocr_channel_id BIGINT,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        role_member_id BIGINT,
+                        role_trial_id BIGINT,
+                        role_ally_id BIGINT,
+                        team_tags JSONB DEFAULT '{}',
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
                 """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_guild_configs_guild_id ON guild_configs(guild_id)")
 
-                # Create trigger to automatically update updated_at timestamp
+                # player_war_performances
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS player_war_performances (
+                        id SERIAL PRIMARY KEY,
+                        player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                        war_id INTEGER NOT NULL REFERENCES wars(id) ON DELETE CASCADE,
+                        score INTEGER NOT NULL,
+                        races_played INTEGER NOT NULL,
+                        war_participation DECIMAL(4,3) NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(player_id, war_id)
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_player_performances ON player_war_performances(player_id, war_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_war_performances ON player_war_performances(war_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_player_created ON player_war_performances(player_id, created_at DESC)")
+
+                # bulk_scan_sessions (dashboard)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS bulk_scan_sessions (
+                        id SERIAL PRIMARY KEY,
+                        token UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+                        guild_id BIGINT NOT NULL,
+                        created_by_user_id BIGINT NOT NULL,
+                        status VARCHAR(20) DEFAULT 'pending',
+                        total_images INTEGER DEFAULT 0,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP WITH TIME ZONE DEFAULT (CURRENT_TIMESTAMP + INTERVAL '24 hours'),
+                        completed_at TIMESTAMP WITH TIME ZONE
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_bulk_sessions_token ON bulk_scan_sessions(token)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_bulk_sessions_guild ON bulk_scan_sessions(guild_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_bulk_sessions_status ON bulk_scan_sessions(status)")
+
+                # bulk_scan_results (dashboard)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS bulk_scan_results (
+                        id SERIAL PRIMARY KEY,
+                        session_id INTEGER REFERENCES bulk_scan_sessions(id) ON DELETE CASCADE,
+                        image_filename VARCHAR(255),
+                        image_url TEXT,
+                        detected_players JSONB NOT NULL,
+                        review_status VARCHAR(20) DEFAULT 'pending',
+                        corrected_players JSONB,
+                        race_count INTEGER DEFAULT 12,
+                        message_timestamp TIMESTAMP WITH TIME ZONE,
+                        discord_message_id BIGINT,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        reviewed_at TIMESTAMP WITH TIME ZONE
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_bulk_results_session ON bulk_scan_results(session_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_bulk_results_status ON bulk_scan_results(review_status)")
+
+                # bulk_scan_failures (dashboard)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS bulk_scan_failures (
+                        id SERIAL PRIMARY KEY,
+                        session_id INTEGER REFERENCES bulk_scan_sessions(id) ON DELETE CASCADE,
+                        image_filename VARCHAR(255),
+                        image_url TEXT,
+                        error_message TEXT,
+                        message_timestamp TIMESTAMP WITH TIME ZONE,
+                        discord_message_id BIGINT,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_bulk_failures_session ON bulk_scan_failures(session_id)")
+
+                # user_sessions (dashboard OAuth)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS user_sessions (
+                        id SERIAL PRIMARY KEY,
+                        discord_user_id BIGINT NOT NULL,
+                        discord_username VARCHAR(100),
+                        discord_avatar VARCHAR(255),
+                        session_token UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+                        access_token_encrypted TEXT,
+                        refresh_token_encrypted TEXT,
+                        guild_permissions JSONB DEFAULT '{}',
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP WITH TIME ZONE DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days'),
+                        last_active_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_discord_id ON user_sessions(discord_user_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token)")
+
+                # updated_at trigger (players)
                 cursor.execute("""
                     CREATE OR REPLACE FUNCTION update_updated_at_column()
                     RETURNS TRIGGER AS $$
@@ -222,16 +317,24 @@ class DatabaseManager:
                         NEW.updated_at = CURRENT_TIMESTAMP;
                         RETURN NEW;
                     END;
-                    $$ language 'plpgsql';
-
-                    CREATE TRIGGER update_players_updated_at
-                        BEFORE UPDATE ON players
-                        FOR EACH ROW
-                        EXECUTE FUNCTION update_updated_at_column();
+                    $$ language 'plpgsql'
+                """)
+                cursor.execute("""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_trigger WHERE tgname = 'update_players_updated_at'
+                        ) THEN
+                            CREATE TRIGGER update_players_updated_at
+                                BEFORE UPDATE ON players
+                                FOR EACH ROW
+                                EXECUTE FUNCTION update_updated_at_column();
+                        END IF;
+                    END $$
                 """)
 
                 conn.commit()
-                logging.info("✅ PostgreSQL database tables created successfully")
+                logging.info("✅ PostgreSQL database tables initialized successfully")
 
         except Exception as e:
             logging.error(f"❌ Error initializing PostgreSQL database: {e}")
