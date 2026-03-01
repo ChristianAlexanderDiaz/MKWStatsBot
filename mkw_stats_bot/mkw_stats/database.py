@@ -191,6 +191,7 @@ class DatabaseManager:
                         display_name VARCHAR(100),
                         member_status VARCHAR(20) DEFAULT 'member',
                         country_code CHAR(2),
+                        last_role_sync TIMESTAMP WITH TIME ZONE,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(player_name, guild_id)
