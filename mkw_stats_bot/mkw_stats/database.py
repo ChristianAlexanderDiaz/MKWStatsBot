@@ -193,6 +193,22 @@ class DatabaseManager:
                         country_code CHAR(2),
                         last_role_sync TIMESTAMP WITH TIME ZONE,
                         total_team_differential INTEGER DEFAULT 0,
+                        -- Stable cached metrics (recalculated on every war add/remove)
+                        score_stddev DECIMAL(6,2) DEFAULT 0.0,
+                        consistency_score DECIMAL(5,2),
+                        highest_score INTEGER DEFAULT 0,
+                        lowest_score INTEGER DEFAULT 0,
+                        wins INTEGER DEFAULT 0,
+                        losses INTEGER DEFAULT 0,
+                        ties INTEGER DEFAULT 0,
+                        win_percentage DECIMAL(5,2) DEFAULT 0.0,
+                        -- Volatile cached metrics (invalidated on war add/remove, recalculated lazily)
+                        avg10_score DECIMAL(5,2),
+                        form_score DECIMAL(5,2),
+                        clutch_factor DECIMAL(5,2),
+                        potential DECIMAL(5,2),
+                        hotstreak DECIMAL(5,2),
+                        cached_metrics_updated_at TIMESTAMP WITH TIME ZONE,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(player_name, guild_id)
@@ -219,6 +235,22 @@ class DatabaseManager:
                     "ALTER TABLE players ADD COLUMN IF NOT EXISTS team VARCHAR(50) DEFAULT 'Unassigned'",
                     "ALTER TABLE players ADD COLUMN IF NOT EXISTS nicknames JSONB DEFAULT '[]'",
                     "ALTER TABLE players ADD COLUMN IF NOT EXISTS total_team_differential INTEGER DEFAULT 0",
+                    # Stable cached metrics
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS score_stddev DECIMAL(6,2) DEFAULT 0.0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS consistency_score DECIMAL(5,2)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS highest_score INTEGER DEFAULT 0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS lowest_score INTEGER DEFAULT 0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS wins INTEGER DEFAULT 0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS losses INTEGER DEFAULT 0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS ties INTEGER DEFAULT 0",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS win_percentage DECIMAL(5,2) DEFAULT 0.0",
+                    # Volatile cached metrics
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS avg10_score DECIMAL(5,2)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS form_score DECIMAL(5,2)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS clutch_factor DECIMAL(5,2)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS potential DECIMAL(5,2)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS hotstreak DECIMAL(5,2)",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS cached_metrics_updated_at TIMESTAMP WITH TIME ZONE",
                 ]:
                     cursor.execute(col_sql)
 
@@ -226,20 +258,6 @@ class DatabaseManager:
                 for col_sql in [
                     "ALTER TABLE wars ADD COLUMN IF NOT EXISTS team_score INTEGER DEFAULT 0",
                     "ALTER TABLE wars ADD COLUMN IF NOT EXISTS team_differential INTEGER DEFAULT 0",
-                ]:
-                    cursor.execute(col_sql)
-
-                # Ensure all columns exist on guild_configs
-                for col_sql in [
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS guild_name VARCHAR(255)",
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS team_names JSONB DEFAULT '[]'",
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS ocr_channel_id BIGINT",
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_member_id BIGINT",
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_trial_id BIGINT",
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_ally_id BIGINT",
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS team_tags JSONB DEFAULT '{}'",
-                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
                 ]:
                     cursor.execute(col_sql)
 
@@ -261,6 +279,20 @@ class DatabaseManager:
                     )
                 """)
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_guild_configs_guild_id ON guild_configs(guild_id)")
+
+                # Ensure all columns exist on guild_configs (handles pre-existing tables missing migrated columns)
+                for col_sql in [
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS guild_name VARCHAR(255)",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS team_names JSONB DEFAULT '[]'",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS ocr_channel_id BIGINT",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_member_id BIGINT",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_trial_id BIGINT",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS role_ally_id BIGINT",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS team_tags JSONB DEFAULT '{}'",
+                    "ALTER TABLE guild_configs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
+                ]:
+                    cursor.execute(col_sql)
 
                 # player_war_performances
                 cursor.execute("""
