@@ -3,13 +3,14 @@
 import asyncio
 import functools
 import logging
-import time
 from collections.abc import Callable, Coroutine
 from typing import (
     Any,
     cast,
     overload,
 )
+
+from ..logging_config import LogBlock
 
 import discord
 from discord import app_commands
@@ -78,14 +79,17 @@ def require_guild_setup(
         async def wrapper(
             self, interaction: discord.Interaction, *args: P.args, **kwargs: P.kwargs
         ) -> R:
-            start = time.monotonic()
             cmd_name = fn.__name__
+            user_name = getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Unknown")
+            guild_name = interaction.guild.name if interaction.guild else "DM"
+
             if defer:
                 try:
                     await interaction.response.defer()
                 except discord.errors.NotFound:
                     logging.warning(f"/{cmd_name}: interaction expired before defer()")
                     return  # type: ignore[return-value]
+
             guild_id = self.get_guild_id_from_interaction(interaction)
             if not await self.is_guild_initialized(guild_id):
                 msg = "❌ Guild not set up! Please run `/setup` first to initialize your clan."
@@ -94,15 +98,9 @@ def require_guild_setup(
                 else:
                     await interaction.response.send_message(msg, ephemeral=True)
                 return  # type: ignore[return-value]
-            setup_ms = (time.monotonic() - start) * 1000
-            result = await fn(self, interaction, *args, **kwargs)
-            total_ms = (time.monotonic() - start) * 1000
-            deferred_tag = " [deferred]" if defer else ""
-            logging.info(
-                f"⏱️ /{cmd_name}: guild_check={setup_ms:.0f}ms "
-                f"total={total_ms:.0f}ms{deferred_tag}"
-            )
-            return result
+
+            async with LogBlock(f"/{cmd_name} [{user_name} · {guild_name}]"):
+                return await fn(self, interaction, *args, **kwargs)  # type: ignore[return-value]
 
         return wrapper  # type: ignore[return-value]
 

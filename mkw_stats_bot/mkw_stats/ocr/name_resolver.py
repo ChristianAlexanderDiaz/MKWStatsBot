@@ -29,7 +29,7 @@ class NameResolver:
             if not self.db_manager:
                 return None, None
 
-            guild_players = self.db_manager.get_all_players_stats(guild_id)
+            guild_players = self.db_manager.players.get_all_players_stats(guild_id)
             if not guild_players:
                 return None, None
 
@@ -50,7 +50,7 @@ class NameResolver:
                             longest_length = len(name)
 
             if best_match:
-                logging.info(f"🔍 Substring match: Found '{best_match}' (via '{best_match_name}') in corrupted token '{corrupted_token}'")
+                logging.debug(f"🔍 Substring match: Found '{best_match}' (via '{best_match_name}') in corrupted token '{corrupted_token}'")
                 return best_match, best_match_name
 
             return None, None
@@ -93,7 +93,7 @@ class NameResolver:
                         if 1 <= extracted_races <= 11:
                             two_word_to_check = clean_2word_name
                             race_count_2word = extracted_races
-                            logging.info(f"🏁 Extracted race count from 2-word token '{two_word}': {clean_2word_name} → {race_count_2word} races")
+                            logging.debug(f"🏁 Extracted race count from 2-word token '{two_word}': {clean_2word_name} → {race_count_2word} races")
                         break
 
                 # If no race count in 2-word combo, check if next token (i+2) has race count
@@ -113,10 +113,10 @@ class NameResolver:
                                 race_count_2word = extracted_races
                                 raw_name_2word = f"{two_word} {next_token}"
                                 tokens_consumed_2word = 3
-                                logging.info(f"🏁 Extracted race count from 2-word + token '{two_word}' + '{next_token}': {two_word_to_check} → {race_count_2word} races")
+                                logging.debug(f"🏁 Extracted race count from 2-word + token '{two_word}' + '{next_token}': {two_word_to_check} → {race_count_2word} races")
                             break
 
-                resolved = self.db_manager.resolve_player_name(two_word_to_check, guild_id, log_level='debug')
+                resolved = self.db_manager.players.resolve_player_name(two_word_to_check, guild_id, log_level='debug')
                 if resolved:
                     valid_names.append((i, resolved, raw_name_2word, None, race_count_2word))
                     logging.info(f"✅ Found 2-word name: '{raw_name_2word}' → '{resolved}' at position {i} ({race_count_2word} races)")
@@ -146,7 +146,7 @@ class NameResolver:
                     if 1 <= extracted_races <= 11:
                         token_to_check = clean_name
                         race_count = extracted_races
-                        logging.info(f"🏁 Extracted race count from token '{raw_name}': {clean_name} → {race_count} races")
+                        logging.debug(f"🏁 Extracted race count from token '{raw_name}': {clean_name} → {race_count} races")
                     break
 
             # If no race count in current token, check if next token has race count pattern
@@ -166,11 +166,11 @@ class NameResolver:
                             race_count = extracted_races
                             raw_name = f"{tokens[i]} {next_token}"
                             tokens_consumed = 2
-                            logging.info(f"🏁 Extracted race count from token pair '{tokens[i]}' + '{next_token}': {token_to_check} → {race_count} races")
+                            logging.debug(f"🏁 Extracted race count from token pair '{tokens[i]}' + '{next_token}': {token_to_check} → {race_count} races")
                         break
 
             # Now try to resolve the clean name
-            resolved = self.db_manager.resolve_player_name(token_to_check, guild_id, log_level='debug')
+            resolved = self.db_manager.players.resolve_player_name(token_to_check, guild_id, log_level='debug')
             if resolved:
                 valid_names.append((i, resolved, raw_name, None, race_count))
                 logging.info(f"✅ Found 1-word name: '{raw_name}' → '{resolved}' at position {i} ({race_count} races)")
@@ -200,13 +200,13 @@ class NameResolver:
                             if not token_has_following_score:
                                 potential_score = extract_score_from_corrupted_token(next_token)
                                 if potential_score:
-                                    logging.info(f"🔍 Multi-token corrupted sequence detected: '{tokens[i]}' + '{next_token}' contains score {potential_score}")
+                                    logging.debug(f"🔍 Multi-token corrupted sequence detected: '{tokens[i]}' + '{next_token}' contains score {potential_score}")
                                     embedded_score = potential_score
                                     raw_name_parts.append(next_token)
                                     consumed_tokens += lookahead
                                     break
                             else:
-                                logging.info(f"🔍 Skipping multi-token sequence for '{next_token}' because followed by valid score '{following_token}'")
+                                logging.debug(f"🔍 Skipping multi-token sequence for '{next_token}' because followed by valid score '{following_token}'")
 
                         raw_name = " ".join(raw_name_parts)
                         if embedded_score:

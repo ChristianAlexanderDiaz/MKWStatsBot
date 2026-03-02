@@ -8,7 +8,7 @@ import aiofiles.tempfile
 import discord
 
 from .. import config
-from ..logging_config import get_logger
+from ..logging_config import LogBlock, get_logger
 
 logger = get_logger(__name__)
 
@@ -113,88 +113,94 @@ class OCRHandler:
 
     async def process_race_results(self, message: discord.Message, attachment: discord.Attachment):
         """Process an image attachment for Mario Kart race results using shared OCR logic."""
-        try:
-            processing_msg = await message.channel.send("\U0001f50d Processing race results image...")
-
-            temp_file_path = None
+        channel_name = f"#{message.channel.name}" if hasattr(message.channel, "name") else "DM"
+        guild_name = message.guild.name if message.guild else "Unknown"
+        uploader = getattr(message.author, "display_name", None) or getattr(message.author, "name", "Unknown")
+        async with LogBlock(f"OCR AUTO-SCAN [{channel_name} · {guild_name}] by {uploader}", logger):
             try:
-                async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                    temp_file_path = temp_file.name
-                await attachment.save(temp_file_path)
+                processing_msg = await message.channel.send("\U0001f50d Processing race results image...")
 
-                guild_id = message.guild.id if message.guild else None
-                if not guild_id:
-                    await processing_msg.edit(content="\u274c **Error:** Could not determine guild ID.")
-                    return
+                temp_file_path = None
+                try:
+                    async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                        temp_file_path = temp_file.name
+                    await attachment.save(temp_file_path)
 
-                configured_channel_id = self.bot.db.guilds.get_ocr_channel(guild_id)
-                if not configured_channel_id:
-                    embed = discord.Embed(
-                        title="\u274c No OCR Channel Set",
-                        description="You need to configure an OCR channel before automatic image scanning will work.",
-                        color=0xff4444,
+                    guild_id = message.guild.id if message.guild else None
+                    if not guild_id:
+                        await processing_msg.edit(content="\u274c **Error:** Could not determine guild ID.")
+                        return
+
+                    configured_channel_id = self.bot.db.guilds.get_ocr_channel(guild_id)
+                    if not configured_channel_id:
+                        embed = discord.Embed(
+                            title="\u274c No OCR Channel Set",
+                            description="You need to configure an OCR channel before automatic image scanning will work.",
+                            color=0xff4444,
+                        )
+                        embed.add_field(
+                            name="\U0001f527 Setup Required",
+                            value="Use `/setchannel #your-channel` to enable automatic OCR processing in that channel.",
+                            inline=False,
+                        )
+                        embed.add_field(
+                            name="\U0001f4d6 How it works",
+                            value="\u2022 Run `/setchannel #results` to set your OCR channel\n\u2022 Upload images there for automatic scanning\n\u2022 Use `/scanimage` in that channel as backup",
+                            inline=False,
+                        )
+                        await processing_msg.edit(content="", embed=embed)
+                        return
+
+                    if message.channel.id != configured_channel_id:
+                        configured_channel = self.bot.get_channel(configured_channel_id)
+                        channel_mention = configured_channel.mention if configured_channel else f"<#{configured_channel_id}>"
+
+                        embed = discord.Embed(
+                            title="\u274c Wrong Channel for OCR",
+                            description=f"Automatic image scanning only works in {channel_mention}",
+                            color=0xff4444,
+                        )
+                        embed.add_field(
+                            name="\U0001f527 Options",
+                            value=f"\u2022 Upload your image to {channel_mention} for automatic processing\n\u2022 Use `/scanimage` in {channel_mention} for manual scanning\n\u2022 Change OCR channel with `/setchannel #new-channel`",
+                            inline=False,
+                        )
+                        await processing_msg.edit(content="", embed=embed)
+                        return
+
+                    success, embed, processed_results = await self.process_image(
+                        temp_file_path, guild_id, attachment.filename, message
                     )
-                    embed.add_field(
-                        name="\U0001f527 Setup Required",
-                        value="Use `/setchannel #your-channel` to enable automatic OCR processing in that channel.",
-                        inline=False,
+
+                    if not success:
+                        logger.warning(f"OCR found no results — {attachment.filename}")
+                        await processing_msg.edit(content="", embed=embed)
+                        _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(processing_msg, embed, 5))
+                        _task.add_done_callback(_log_task_error)
+                        return
+
+                    # Success - create interactive view for confirmation
+                    from ..bot import OCRConfirmationView
+
+                    view = OCRConfirmationView(
+                        results=processed_results,
+                        guild_id=guild_id,
+                        user_id=message.author.id,
+                        original_message_obj=message,
+                        bot=self.bot,
                     )
-                    embed.add_field(
-                        name="\U0001f4d6 How it works",
-                        value="\u2022 Run `/setchannel #results` to set your OCR channel\n\u2022 Upload images there for automatic scanning\n\u2022 Use `/scanimage` in that channel as backup",
-                        inline=False,
-                    )
-                    await processing_msg.edit(content="", embed=embed)
-                    return
 
-                if message.channel.id != configured_channel_id:
-                    configured_channel = self.bot.get_channel(configured_channel_id)
-                    channel_mention = configured_channel.mention if configured_channel else f"<#{configured_channel_id}>"
+                    logger.info(f"Parsed {len(processed_results)} players — awaiting confirmation")
+                    view.message = processing_msg
+                    embed = view.create_embed()
+                    await processing_msg.edit(content="", embed=embed, view=view)
 
-                    embed = discord.Embed(
-                        title="\u274c Wrong Channel for OCR",
-                        description=f"Automatic image scanning only works in {channel_mention}",
-                        color=0xff4444,
-                    )
-                    embed.add_field(
-                        name="\U0001f527 Options",
-                        value=f"\u2022 Upload your image to {channel_mention} for automatic processing\n\u2022 Use `/scanimage` in {channel_mention} for manual scanning\n\u2022 Change OCR channel with `/setchannel #new-channel`",
-                        inline=False,
-                    )
-                    await processing_msg.edit(content="", embed=embed)
-                    return
-
-                success, embed, processed_results = await self.process_image(
-                    temp_file_path, guild_id, attachment.filename, message
-                )
-
-                if not success:
-                    await processing_msg.edit(content="", embed=embed)
-                    _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(processing_msg, embed, 5))
-                    _task.add_done_callback(_log_task_error)
-                    return
-
-                # Success - create interactive view for confirmation
-                from ..bot import OCRConfirmationView
-
-                view = OCRConfirmationView(
-                    results=processed_results,
-                    guild_id=guild_id,
-                    user_id=message.author.id,
-                    original_message_obj=message,
-                    bot=self.bot,
-                )
-
-                view.message = processing_msg
-                embed = view.create_embed()
-                await processing_msg.edit(content="", embed=embed, view=view)
-
-            finally:
-                if temp_file_path and os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
-        except Exception as e:
-            logger.error(f"Error processing race results image: {e}")
-            await message.channel.send(f"\u274c **Error processing image:** {str(e)}")
+                finally:
+                    if temp_file_path and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+            except Exception as e:
+                logger.error(f"Error processing race results image: {e}")
+                await message.channel.send(f"\u274c **Error processing image:** {str(e)}")
 
     async def handle_war_submission_from_view(self, interaction: discord.Interaction, view):
         """Handle OCR war submission from interactive view."""

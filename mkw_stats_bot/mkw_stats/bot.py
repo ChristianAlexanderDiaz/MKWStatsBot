@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from . import config
 from .database import DatabaseManager
 from .handlers import BulkScanHandler, ConfirmationManager, MessageManager, OCRHandler
-from .logging_config import get_logger, setup_logging
+from .logging_config import LogBlock, get_logger, setup_logging
 from .ocr_modals import AddPlayerModal, EditPlayerModal, ReportIssueModal
 from .ocr_processor import OCRProcessor
 from .services import WarService
@@ -349,36 +349,29 @@ class MarioKartBot(commands.Bot):
 
     async def on_ready(self) -> None:
         """Event handler called when bot is ready."""
-        logger.info(f'{self.user} has connected to Discord!')
-        logger.info(f'Bot is in {len(self.guilds)} guilds')
-        logger.info(f'🔧 Bot Version: {config.BOT_VERSION}')
+        async with LogBlock("BOT STARTUP", logger):
+            logger.info(f"{self.user} — v{config.BOT_VERSION} — {len(self.guilds)} guild(s)")
 
-        logger.info("🔧 Automatic roster initialization disabled - use /setup command")
-        logger.info("🔧 Using slash commands only - prefix commands disabled")
+            # Sync slash commands
+            try:
+                synced = await self.tree.sync()
+                logger.info(f"{len(synced)} slash commands synced")
+            except Exception as e:
+                logger.error(f"Failed to sync slash commands: {e}")
 
-        # Sync slash commands
-        try:
-            synced = await self.tree.sync()
-            logger.info(f"✅ Synced {len(synced)} slash command(s)")
-        except Exception as e:
-            logger.error(f"❌ Failed to sync slash commands: {e}")
+            # Initialize OCR resource management if available
+            try:
+                if hasattr(self.ocr, 'resource_management_enabled') and self.ocr.resource_management_enabled:
+                    from .ocr_performance_monitor import get_ocr_performance_monitor
+                    from .ocr_resource_manager import initialize_ocr_resource_manager
 
-        # Initialize OCR resource management if available
-        try:
-            if hasattr(self.ocr, 'resource_management_enabled') and self.ocr.resource_management_enabled:
-                from .ocr_performance_monitor import get_ocr_performance_monitor
-                from .ocr_resource_manager import initialize_ocr_resource_manager
-
-                initialize_ocr_resource_manager()
-
-                performance_monitor = get_ocr_performance_monitor()
-                performance_monitor.start_monitoring()
-
-                logger.info("🚀 OCR resource management and performance monitoring started")
-            else:
-                logger.info("📝 OCR running in basic mode (no resource management)")
-        except Exception as e:
-            logger.warning(f"Failed to initialize OCR resource management: {e}")
+                    initialize_ocr_resource_manager()
+                    get_ocr_performance_monitor().start_monitoring()
+                    logger.info("OCR mode: managed (resource monitoring active)")
+                else:
+                    logger.info("OCR mode: basic")
+            except Exception as e:
+                logger.warning(f"OCR resource management init failed: {e}")
 
         # Set bot status
         await self.change_presence(

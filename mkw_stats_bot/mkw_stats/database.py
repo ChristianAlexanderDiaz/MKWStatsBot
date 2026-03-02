@@ -192,6 +192,7 @@ class DatabaseManager:
                         member_status VARCHAR(20) DEFAULT 'member',
                         country_code CHAR(2),
                         last_role_sync TIMESTAMP WITH TIME ZONE,
+                        total_team_differential INTEGER DEFAULT 0,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(player_name, guild_id)
@@ -217,6 +218,7 @@ class DatabaseManager:
                     "ALTER TABLE players ADD COLUMN IF NOT EXISTS total_races INTEGER DEFAULT 0",
                     "ALTER TABLE players ADD COLUMN IF NOT EXISTS team VARCHAR(50) DEFAULT 'Unassigned'",
                     "ALTER TABLE players ADD COLUMN IF NOT EXISTS nicknames JSONB DEFAULT '[]'",
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS total_team_differential INTEGER DEFAULT 0",
                 ]:
                     cursor.execute(col_sql)
 

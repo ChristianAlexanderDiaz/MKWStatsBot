@@ -596,7 +596,7 @@ class OCRProcessor:
                         token_bboxes[token_idx] = bbox
                     token_idx += 1
 
-            logging.info(f"🔍 OCR tokens: {tokens}")
+            logging.debug(f"🔍 OCR tokens: {tokens}")
 
             # Find all valid scores (1-180)
             score_positions = []
@@ -615,7 +615,7 @@ class OCRProcessor:
                         race_num = int(match.group(1))
                         if 1 <= race_num <= 11:  # Valid race count range
                             is_race_count_token = True
-                            logging.info(f"🏁 Skipping race count token '{token}' in score detection")
+                            logging.debug(f"🏁 Skipping race count token '{token}' in score detection")
                             break
 
                 if is_race_count_token:
@@ -623,7 +623,7 @@ class OCRProcessor:
 
                 if token.isdigit() and 1 <= int(token) <= 180:
                     score_positions.append(i)
-                    logging.info(f"📊 Found score: {token} at position {i}")
+                    logging.debug(f"📊 Found score: {token} at position {i}")
                 else:
                     # Check for embedded scores in corrupted tokens (like "RIC69")
                     # But only if this token is NOT followed by another valid score
@@ -638,9 +638,9 @@ class OCRProcessor:
                         embedded_score = extract_score_from_corrupted_token(token)
                         if embedded_score:
                             score_positions.append(i)
-                            logging.info(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
+                            logging.debug(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
                     else:
-                        logging.info(f"🔍 Skipping potential embedded score in '{token}' because followed by valid score '{next_token}'")
+                        logging.debug(f"🔍 Skipping potential embedded score in '{token}' because followed by valid score '{next_token}'")
 
             # Find all valid player names using sliding window
             valid_names = self.name_resolver.find_valid_names_with_window(tokens, guild_id)
@@ -655,7 +655,7 @@ class OCRProcessor:
 
             # Check for team splitting (handles 11-20 players dynamically)
             if 11 <= all_detected_scores <= 20:
-                logging.info(f"🔀 Team Split Detection: {all_detected_scores} players, {guild_players_found} guild members")
+                logging.debug(f"🔀 Team Split Detection: {all_detected_scores} players, {guild_players_found} guild members")
                 results = self.team_splitter.apply_dynamic_team_splitting(results, tokens, guild_id, all_detected_scores)
                 guild_players_found = len(results)  # Update count after splitting
                 opponent_players = all_detected_scores - guild_players_found

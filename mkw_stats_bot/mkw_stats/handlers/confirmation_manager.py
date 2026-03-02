@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import discord
 
-from ..logging_config import get_logger
+from ..logging_config import LogBlock, get_logger
 
 if TYPE_CHECKING:
     from ..bot import MarioKartBot
@@ -82,111 +82,125 @@ class ConfirmationManager:
 
     async def handle_accept(self, message: discord.Message, confirmation_data: dict) -> None:
         """Handle accepted confirmation - routes to appropriate handler."""
-        try:
-            confirmation_type = confirmation_data.get('type', 'standard')
+        user_id = confirmation_data.get('user_id')
+        user = message.guild.get_member(user_id) if message.guild and user_id else None
+        user_name = (user.display_name if user else None) or str(user_id or "Unknown")
+        guild_name = message.guild.name if message.guild else "Unknown"
+        async with LogBlock(f"WAR CONFIRMED [{user_name} · {guild_name}]", logger):
+            try:
+                confirmation_type = confirmation_data.get('type', 'standard')
 
-            if confirmation_type == 'bulk_scan_confirmation':
-                await self.bot.bulk_scan_handler.handle_processing(message, confirmation_data)
-                return
+                if confirmation_type == 'bulk_scan_confirmation':
+                    await self.bot.bulk_scan_handler.handle_processing(message, confirmation_data)
+                    return
 
-            if confirmation_type == 'bulk_results_confirmation':
-                await self.bot.bulk_scan_handler.handle_results_save(message, confirmation_data)
-                return
+                if confirmation_type == 'bulk_results_confirmation':
+                    await self.bot.bulk_scan_handler.handle_results_save(message, confirmation_data)
+                    return
 
-            results = confirmation_data['results']
+                results = confirmation_data['results']
 
-            if confirmation_type == 'ocr_war_submission':
-                await self.bot.ocr_handler.handle_war_submission(message, confirmation_data)
-                return
+                if confirmation_type == 'ocr_war_submission':
+                    await self.bot.ocr_handler.handle_war_submission(message, confirmation_data)
+                    return
 
-            # Standard race results handling
-            guild_id = message.guild.id if message.guild else None
-            if not guild_id:
-                logger.error("Cannot save race results: guild_id is None")
-                await message.channel.send("\u274c **Error:** Could not determine guild ID.")
-                return
+                # Standard race results handling
+                guild_id = message.guild.id if message.guild else None
+                if not guild_id:
+                    logger.error("Cannot save race results: guild_id is None")
+                    await message.channel.send("\u274c **Error:** Could not determine guild ID.")
+                    return
 
-            race_count = confirmation_data.get('race_count', 12)
-            submission = self.bot.war_service.submit_war(results, race_count, guild_id)
+                race_count = confirmation_data.get('race_count', 12)
+                submission = self.bot.war_service.submit_war(results, race_count, guild_id)
 
-            if submission.success:
+                if submission.success:
+                    logger.info(f"War saved — {len(results)} players, {race_count} races")
+                    embed = discord.Embed(
+                        title="\u2705 Results Saved Successfully!",
+                        description=f"Saved results for {len(results)} clan members.",
+                        color=0x00ff00,
+                    )
+
+                    results_text = ""
+                    for result in results:
+                        results_text += f"**{result['name']}**: {result['score']}\n"
+
+                    embed.add_field(name="Saved Results", value=results_text, inline=False)
+                    embed.set_footer(text="Results have been added to the database and averages updated.")
+                else:
+                    logger.error("War save failed — database rejected submission")
+                    embed = discord.Embed(
+                        title="\u274c Database Error",
+                        description="Failed to save results to database. Please try again.",
+                        color=0xff0000,
+                    )
+
+                await message.edit(embed=embed)
+                try:
+                    await message.clear_reactions()
+                except discord.errors.Forbidden:
+                    pass
+
+                self.cleanup(str(message.id))
+                _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+                _task.add_done_callback(_log_task_error)
+
+            except Exception as e:
+                logger.error(f"Error handling confirmation accept: {e}")
                 embed = discord.Embed(
-                    title="\u2705 Results Saved Successfully!",
-                    description=f"Saved results for {len(results)} clan members.",
-                    color=0x00ff00,
-                )
-
-                results_text = ""
-                for result in results:
-                    results_text += f"**{result['name']}**: {result['score']}\n"
-
-                embed.add_field(name="Saved Results", value=results_text, inline=False)
-                embed.set_footer(text="Results have been added to the database and averages updated.")
-            else:
-                embed = discord.Embed(
-                    title="\u274c Database Error",
-                    description="Failed to save results to database. Please try again.",
+                    title="\u274c Error",
+                    description=f"An error occurred while saving results: {str(e)}",
                     color=0xff0000,
                 )
+                await message.edit(embed=embed)
+                _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
+                _task.add_done_callback(_log_task_error)
 
-            await message.edit(embed=embed)
+    async def handle_reject(self, message: discord.Message, confirmation_data: dict) -> None:
+        """Handle rejected confirmation."""
+        user_id = confirmation_data.get('user_id')
+        user = message.guild.get_member(user_id) if message.guild and user_id else None
+        user_name = (user.display_name if user else None) or str(user_id or "Unknown")
+        guild_name = message.guild.name if message.guild else "Unknown"
+        async with LogBlock(f"WAR REJECTED [{user_name} · {guild_name}]", logger):
+            logger.info("OCR result discarded by user")
+
+            if 'original_message_obj' in confirmation_data:
+                try:
+                    await confirmation_data['original_message_obj'].add_reaction("\u274c")
+                except discord.errors.NotFound:
+                    logger.debug("Skipping reaction for deleted message")
+                except Exception as e:
+                    logger.warning(f"Failed to add reaction to original message: {e}")
+
+            embed = discord.Embed(
+                title="\u274c Results Cancelled",
+                description="Results were not saved to the database.\n\n\U0001f4a1 **Found an issue with OCR detection?**\nYou can report it below to help improve accuracy.",
+                color=0xff6600,
+            )
+
             try:
                 await message.clear_reactions()
             except discord.errors.Forbidden:
                 pass
 
-            self.cleanup(str(message.id))
-            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
-            _task.add_done_callback(_log_task_error)
+            # Create a report view for the rejection message
+            from ..bot import ReportIssueView
 
-        except Exception as e:
-            logger.error(f"Error handling confirmation accept: {e}")
-            embed = discord.Embed(
-                title="\u274c Error",
-                description=f"An error occurred while saving results: {str(e)}",
-                color=0xff0000,
+            temp_view = _TempOCRView(
+                guild_id=confirmation_data.get('guild_id'),
+                user_id=confirmation_data.get('user_id'),
+                original_message_obj=confirmation_data.get('original_message_obj'),
+                results=confirmation_data.get('results', []),
+                bot=self.bot,
             )
-            await message.edit(embed=embed)
-            _task = asyncio.create_task(self.bot.messages.countdown_and_delete_message(message, embed))
-            _task.add_done_callback(_log_task_error)
 
-    async def handle_reject(self, message: discord.Message, confirmation_data: dict) -> None:
-        """Handle rejected confirmation."""
-        if 'original_message_obj' in confirmation_data:
-            try:
-                await confirmation_data['original_message_obj'].add_reaction("\u274c")
-            except discord.errors.NotFound:
-                logger.debug("Skipping reaction for deleted message")
-            except Exception as e:
-                logger.warning(f"Failed to add reaction to original message: {e}")
+            report_view = ReportIssueView(temp_view)
+            report_view.message = message
 
-        embed = discord.Embed(
-            title="\u274c Results Cancelled",
-            description="Results were not saved to the database.\n\n\U0001f4a1 **Found an issue with OCR detection?**\nYou can report it below to help improve accuracy.",
-            color=0xff6600,
-        )
-
-        try:
-            await message.clear_reactions()
-        except discord.errors.Forbidden:
-            pass
-
-        # Create a report view for the rejection message
-        from ..bot import ReportIssueView
-
-        temp_view = _TempOCRView(
-            guild_id=confirmation_data.get('guild_id'),
-            user_id=confirmation_data.get('user_id'),
-            original_message_obj=confirmation_data.get('original_message_obj'),
-            results=confirmation_data.get('results', []),
-            bot=self.bot,
-        )
-
-        report_view = ReportIssueView(temp_view)
-        report_view.message = message
-
-        await message.edit(embed=embed, view=report_view)
-        self.cleanup(str(message.id))
+            await message.edit(embed=embed, view=report_view)
+            self.cleanup(str(message.id))
 
     async def handle_edit(self, message: discord.Message, confirmation_data: dict) -> None:
         """Handle manual edit request."""

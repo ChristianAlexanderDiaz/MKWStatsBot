@@ -60,7 +60,7 @@ class ScorePairer:
                     'confidence': 1.0,
                     'is_roster_member': True
                 })
-                logging.info(f"🎯 Used embedded score: '{official_name}' (raw: '{raw_name}') with embedded score {score} ({race_count} races)")
+                logging.debug(f"🎯 Used embedded score: '{official_name}' (raw: '{raw_name}') with embedded score {score} ({race_count} races)")
                 continue
 
             # Find the closest available score with priority for positional order
@@ -97,10 +97,10 @@ class ScorePairer:
 
                     if after_center_x > name_center_x and before_center_x < name_center_x:
                         best_score_pos = best_after_pos
-                        logging.info(f"🎯 Bbox disambiguation: chose after score at pos {best_after_pos} (x={after_center_x:.1f} > name x={name_center_x:.1f})")
+                        logging.debug(f"🎯 Bbox disambiguation: chose after score at pos {best_after_pos} (x={after_center_x:.1f} > name x={name_center_x:.1f})")
                     elif before_center_x < name_center_x and after_center_x <= name_center_x:
                         best_score_pos = best_before_pos
-                        logging.info(f"🎯 Bbox disambiguation: chose before score at pos {best_before_pos} (x={before_center_x:.1f} < name x={name_center_x:.1f})")
+                        logging.debug(f"🎯 Bbox disambiguation: chose before score at pos {best_before_pos} (x={before_center_x:.1f} < name x={name_center_x:.1f})")
                     else:
                         # Ambiguous horizontal position - use vertical distance as tiebreaker
                         name_center_y = self.get_bbox_center_y(name_bbox)
@@ -112,13 +112,13 @@ class ScorePairer:
 
                         if after_y_dist < before_y_dist:
                             best_score_pos = best_after_pos
-                            logging.info(f"🎯 Bbox disambiguation (y-tiebreak): chose after score at pos {best_after_pos} (y_dist={after_y_dist:.1f} < {before_y_dist:.1f})")
+                            logging.debug(f"🎯 Bbox disambiguation (y-tiebreak): chose after score at pos {best_after_pos} (y_dist={after_y_dist:.1f} < {before_y_dist:.1f})")
                         else:
                             best_score_pos = best_before_pos
-                            logging.info(f"🎯 Bbox disambiguation (y-tiebreak): chose before score at pos {best_before_pos} (y_dist={before_y_dist:.1f} < {after_y_dist:.1f})")
+                            logging.debug(f"🎯 Bbox disambiguation (y-tiebreak): chose before score at pos {best_before_pos} (y_dist={before_y_dist:.1f} < {after_y_dist:.1f})")
                 else:
                     best_score_pos = best_after_pos
-                    logging.info("⚠️ Bbox disambiguation fallback: missing bbox data, defaulting to after score")
+                    logging.debug("⚠️ Bbox disambiguation fallback: missing bbox data, defaulting to after score")
             elif min_after_distance == 1:
                 best_score_pos = best_after_pos
             elif min_before_distance == 1:
@@ -141,7 +141,7 @@ class ScorePairer:
                     'is_roster_member': True
                 })
                 used_scores.add(best_score_pos)
-                logging.info(f"🎯 Paired '{official_name}' (raw: '{raw_name}') at pos {name_pos} with score {score} at pos {best_score_pos} ({race_count} races)")
+                logging.debug(f"🎯 Paired '{official_name}' (raw: '{raw_name}') at pos {name_pos} with score {score} at pos {best_score_pos} ({race_count} races)")
             else:
                 logging.warning(f"⚠️ No available score found for '{official_name}'")
 

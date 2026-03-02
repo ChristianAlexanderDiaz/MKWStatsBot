@@ -18,7 +18,7 @@ class TeamSplitter:
             logging.error("❌ No database manager available for guild member lookup")
             return []
 
-        guild_players = self.db_manager.get_all_players_stats(guild_id)
+        guild_players = self.db_manager.players.get_all_players_stats(guild_id)
         if not guild_players:
             logging.warning("⚠️ No guild players found in database")
             return []
@@ -33,7 +33,7 @@ class TeamSplitter:
                 for nickname in nicknames:
                     guild_nicknames[nickname.lower()] = player_name
 
-        logging.info(f"🔍 Database lookup ready: {len(guild_names)} guild members, {len(guild_nicknames)} nicknames")
+        logging.debug(f"🔍 Database lookup ready: {len(guild_names)} guild members, {len(guild_nicknames)} nicknames")
 
         players = []
         i = 0
@@ -74,12 +74,12 @@ class TeamSplitter:
 
                     if guild_member:
                         players.append((guild_member, score))
-                        logging.info(f"🔍 Found reversed pattern (guild): '{current_token} {next_token}' -> {guild_member}: {score}")
+                        logging.debug(f"🔍 Found reversed pattern (guild): '{current_token} {next_token}' -> {guild_member}: {score}")
                         i += 2
                         continue
                     else:
                         players.append((next_token, score))
-                        logging.info(f"🔍 Found reversed pattern (opponent): '{current_token} {next_token}' -> {next_token}: {score}")
+                        logging.debug(f"🔍 Found reversed pattern (opponent): '{current_token} {next_token}' -> {next_token}: {score}")
                         i += 2
                         continue
                 else:
@@ -100,13 +100,13 @@ class TeamSplitter:
                         if next_token.isdigit() and 1 <= int(next_token) <= 180:
                             score = int(next_token)
                             consumed_tokens = 2
-                            logging.info(f"🔍 Found guild member with following score: '{current_token}' -> {guild_member}: {score}")
+                            logging.debug(f"🔍 Found guild member with following score: '{current_token}' -> {guild_member}: {score}")
 
                     if score is None:
                         embedded_score = extract_score_from_corrupted_token(current_token)
                         if embedded_score:
                             score = embedded_score
-                            logging.info(f"🔍 Found guild member with embedded score: '{current_token}' -> {guild_member}: {score}")
+                            logging.debug(f"🔍 Found guild member with embedded score: '{current_token}' -> {guild_member}: {score}")
                         else:
                             for lookahead in range(2, min(4, len(tokens) - i)):
                                 next_token = tokens[i + lookahead]
@@ -114,14 +114,14 @@ class TeamSplitter:
                                 if next_token.isdigit() and 1 <= int(next_token) <= 180:
                                     score = int(next_token)
                                     consumed_tokens = lookahead + 1
-                                    logging.info(f"🔍 Found guild member with distant score: '{current_token}' -> {guild_member}: {score}")
+                                    logging.debug(f"🔍 Found guild member with distant score: '{current_token}' -> {guild_member}: {score}")
                                     break
 
                                 embedded_score = extract_score_from_corrupted_token(next_token)
                                 if embedded_score:
                                     score = embedded_score
                                     consumed_tokens = lookahead + 1
-                                    logging.info(f"🔍 Found guild member with embedded score in next token: '{current_token} {next_token}' -> {guild_member}: {score}")
+                                    logging.debug(f"🔍 Found guild member with embedded score in next token: '{current_token} {next_token}' -> {guild_member}: {score}")
                                     break
 
                     if score:
@@ -144,7 +144,7 @@ class TeamSplitter:
                         1 <= int(tokens[i + 1]) <= 180):
                     score = int(tokens[i + 1])
                     players.append((current_token, score))
-                    logging.info(f"🔍 Found opponent player: '{current_token}' -> {current_token}: {score}")
+                    logging.debug(f"🔍 Found opponent player: '{current_token}' -> {current_token}: {score}")
                     i += 2
                     continue
 
@@ -155,14 +155,14 @@ class TeamSplitter:
                     opponent_name = f"{current_token} {tokens[i + 1]}"
                     score = int(tokens[i + 2])
                     players.append((opponent_name, score))
-                    logging.info(f"🔍 Found 2-word opponent: '{opponent_name}' -> {opponent_name}: {score}")
+                    logging.debug(f"🔍 Found 2-word opponent: '{opponent_name}' -> {opponent_name}: {score}")
                     i += 3
                     continue
 
                 embedded_score = extract_score_from_corrupted_token(current_token)
                 if embedded_score:
                     players.append((current_token, embedded_score))
-                    logging.info(f"🔍 Found opponent with embedded score: '{current_token}' -> {current_token}: {embedded_score}")
+                    logging.debug(f"🔍 Found opponent with embedded score: '{current_token}' -> {current_token}: {embedded_score}")
                     i += 1
                     continue
 
@@ -202,7 +202,7 @@ class TeamSplitter:
     def apply_6v6_team_splitting(self, guild_results: list[dict], tokens: list[str], guild_id: int) -> list[dict]:
         """Apply 6v6 team splitting using majority rule based on player positions in raw OCR."""
         try:
-            logging.info("🔀 Starting 6v6 team splitting analysis")
+            logging.debug("🔀 Starting 6v6 team splitting analysis")
 
             all_players = self.extract_all_players_from_tokens(tokens, guild_id)
             logging.info(f"📊 Extracted {len(all_players)} total players from OCR tokens")
@@ -271,11 +271,11 @@ class TeamSplitter:
             if excluded_team:
                 logging.info(f"❌ Excluded opposing team: {', '.join(excluded_names)}")
 
-            logging.info("🔍 Attempting to recover corrupted names in winning team...")
+            logging.debug("🔍 Attempting to recover corrupted names in winning team...")
             winning_team_start = 0 if winning_team_num == 1 else 6
             winning_team_end = 6 if winning_team_num == 1 else 12
 
-            guild_players = self.db_manager.get_all_players_stats(guild_id) if self.db_manager else []
+            guild_players = self.db_manager.players.get_all_players_stats(guild_id) if self.db_manager else []
             guild_names_list = {p.get('player_name', '').lower(): p.get('player_name', '') for p in guild_players}
 
             for result in winning_team:
@@ -287,7 +287,7 @@ class TeamSplitter:
                         token_lower = token_name.lower()
                         for guild_name in guild_names_list.keys():
                             if len(guild_name) >= 2 and guild_name in token_lower and guild_name != result_name.lower():
-                                logging.info(f"🔧 Potential corruption recovery: '{token_name}' might be '{guild_name}' for score {result_score}")
+                                logging.debug(f"🔧 Potential corruption recovery: '{token_name}' might be '{guild_name}' for score {result_score}")
                                 break
 
             return winning_team
@@ -308,7 +308,7 @@ class TeamSplitter:
         Uses majority rule to identify guild team regardless of split (6v6, 7v6, 8v7, etc.)
         """
         try:
-            logging.info(f"🔀 Starting dynamic team split for {total_players} players")
+            logging.debug(f"🔀 Starting dynamic team split for {total_players} players")
 
             all_players = self.extract_all_players_from_tokens(tokens, guild_id)
 
