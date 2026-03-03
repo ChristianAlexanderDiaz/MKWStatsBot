@@ -79,9 +79,20 @@ def require_guild_setup(
         async def wrapper(
             self, interaction: discord.Interaction, *args: P.args, **kwargs: P.kwargs
         ) -> R:
-            cmd_name = fn.__name__
+            cmd_name = fn.__name__.removesuffix("_slash")
             user_name = getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Unknown")
             guild_name = interaction.guild.name if interaction.guild else "DM"
+
+            # Format slash-command parameters for the log header
+            param_parts: list[str] = []
+            for key, val in kwargs.items():
+                s = str(val)
+                if len(s) > 30:
+                    s = s[:27] + "..."
+                param_parts.append(f'{key}="{s}"')
+            param_str = " ".join(param_parts)
+            if param_str:
+                param_str = " " + param_str
 
             if defer:
                 try:
@@ -99,7 +110,7 @@ def require_guild_setup(
                     await interaction.response.send_message(msg, ephemeral=True)
                 return  # type: ignore[return-value]
 
-            async with LogBlock(f"/{cmd_name} [{user_name} · {guild_name}]"):
+            async with LogBlock(f"/{cmd_name}{param_str} [{user_name} · {guild_name}]"):
                 return await fn(self, interaction, *args, **kwargs)  # type: ignore[return-value]
 
         return wrapper  # type: ignore[return-value]

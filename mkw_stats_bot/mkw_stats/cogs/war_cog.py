@@ -7,6 +7,9 @@ import discord
 from discord import app_commands
 
 from .base_cog import BaseCog, require_guild_setup
+from ..logging_config import LogBlock, get_logger
+
+logger = get_logger(__name__)
 
 
 def _log_task_error(t: asyncio.Task) -> None:
@@ -70,54 +73,60 @@ class AddPlayerToWarConfirmView(discord.ui.View):
             )
             return
 
-        for item in self.children:
-            item.disabled = True
+        user_name = getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Unknown")
+        guild_name = interaction.guild.name if interaction.guild else "DM"
 
-        await interaction.response.edit_message(view=self)
+        async with LogBlock(f"APPEND PLAYERS CONFIRMED [{user_name} · {guild_name}] war_id={self.war_id}", logger):
+            for item in self.children:
+                item.disabled = True
 
-        success = self.cog.bot.db.wars.append_players_to_war_by_id(
-            self.war_id, self.new_players, guild_id=self.guild_id
-        )
+            await interaction.response.edit_message(view=self)
 
-        if success:
-            submission = self.cog.bot.war_service.submit_appended_players(
-                self.war_id, self.new_players, self.guild_id
-            )
-            stats_added = submission.stats_updated or []
-            stats_failed = submission.stats_failed or []
-
-            embed = discord.Embed(
-                title="✅ Players Added Successfully!",
-                description=f"War ID: {self.war_id} has been updated with {len(self.new_players)} new players.",
-                color=0x00ff00
+            success = await asyncio.to_thread(
+                self.cog.bot.db.wars.append_players_to_war_by_id,
+                self.war_id, self.new_players, guild_id=self.guild_id,
             )
 
-            embed.add_field(
-                name="Players Added",
-                value=f"🏁 {self.races} races\n👥 {len(self.new_players)} new players\n📊 {len(stats_added)} stats updated" + (f", {len(stats_failed)} failed" if stats_failed else ""),
-                inline=False
-            )
+            if success:
+                submission = await asyncio.to_thread(
+                    self.cog.bot.war_service.submit_appended_players,
+                    self.war_id, self.new_players, self.guild_id,
+                )
+                stats_added = submission.stats_updated or []
+                stats_failed = submission.stats_failed or []
 
-            player_list = []
-            for p in self.new_players:
-                if p['races_played'] == self.races:
-                    player_list.append(f"**{p['name']}**: {p['score']} points")
-                else:
-                    player_list.append(f"**{p['name']}** ({p['races_played']}): {p['score']} points")
+                embed = discord.Embed(
+                    title="✅ Players Added Successfully!",
+                    description=f"War ID: {self.war_id} has been updated with {len(self.new_players)} new players.",
+                    color=0x00ff00
+                )
 
-            embed.add_field(
-                name="🏁 New Players Added",
-                value="\n".join(player_list[:10]) + (f"\n... +{len(player_list)-10} more" if len(player_list) > 10 else ""),
-                inline=False
-            )
+                embed.add_field(
+                    name="Players Added",
+                    value=f"🏁 {self.races} races\n👥 {len(self.new_players)} new players\n📊 {len(stats_added)} stats updated" + (f", {len(stats_failed)} failed" if stats_failed else ""),
+                    inline=False
+                )
 
-            await interaction.edit_original_response(embed=embed, view=self)
-        else:
-            await interaction.edit_original_response(
-                content="❌ Failed to add players to war. Check logs for details.",
-                view=self,
-                embed=None
-            )
+                player_list = []
+                for p in self.new_players:
+                    if p['races_played'] == self.races:
+                        player_list.append(f"**{p['name']}**: {p['score']} points")
+                    else:
+                        player_list.append(f"**{p['name']}** ({p['races_played']}): {p['score']} points")
+
+                embed.add_field(
+                    name="🏁 New Players Added",
+                    value="\n".join(player_list[:10]) + (f"\n... +{len(player_list)-10} more" if len(player_list) > 10 else ""),
+                    inline=False
+                )
+
+                await interaction.edit_original_response(embed=embed, view=self)
+            else:
+                await interaction.edit_original_response(
+                    content="❌ Failed to add players to war. Check logs for details.",
+                    view=self,
+                    embed=None
+                )
 
         self.stop()
 
@@ -131,14 +140,18 @@ class AddPlayerToWarConfirmView(discord.ui.View):
             )
             return
 
-        for item in self.children:
-            item.disabled = True
+        user_name = getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Unknown")
+        guild_name = interaction.guild.name if interaction.guild else "DM"
 
-        await interaction.response.edit_message(
-            content="❌ Player addition cancelled.",
-            view=self,
-            embed=None
-        )
+        async with LogBlock(f"APPEND PLAYERS CANCELLED [{user_name} · {guild_name}] war_id={self.war_id}", logger):
+            for item in self.children:
+                item.disabled = True
+
+            await interaction.response.edit_message(
+                content="❌ Player addition cancelled.",
+                view=self,
+                embed=None
+            )
 
         self.stop()
 
@@ -164,32 +177,38 @@ class RemoveWarConfirmView(discord.ui.View):
             )
             return
 
-        for item in self.children:
-            item.disabled = True
+        user_name = getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Unknown")
+        guild_name = interaction.guild.name if interaction.guild else "DM"
 
-        await interaction.response.edit_message(view=self)
+        async with LogBlock(f"WAR REMOVAL CONFIRMED [{user_name} · {guild_name}] war_id={self.war_id}", logger):
+            for item in self.children:
+                item.disabled = True
 
-        stats_reverted = self.cog.bot.db.wars.remove_war_by_id(self.war_id, guild_id=self.guild_id)
+            await interaction.response.edit_message(view=self)
 
-        if stats_reverted is not None:
-            war_date = self.war.get('war_date')
-            embed = discord.Embed(
-                title="✅ War Removed Successfully!",
-                description=f"War ID: {self.war_id} from {war_date} has been removed.",
-                color=0x00ff00
+            stats_reverted = await asyncio.to_thread(
+                self.cog.bot.db.wars.remove_war_by_id, self.war_id, guild_id=self.guild_id,
             )
-            embed.add_field(
-                name="Statistics Updated",
-                value=f"Reverted stats for {stats_reverted} players",
-                inline=False
-            )
-            await interaction.edit_original_response(embed=embed, view=self)
-        else:
-            await interaction.edit_original_response(
-                content="❌ Failed to remove war. Check logs for details.",
-                view=self,
-                embed=None
-            )
+
+            if stats_reverted is not None:
+                war_date = self.war.get('war_date')
+                embed = discord.Embed(
+                    title="✅ War Removed Successfully!",
+                    description=f"War ID: {self.war_id} from {war_date} has been removed.",
+                    color=0x00ff00
+                )
+                embed.add_field(
+                    name="Statistics Updated",
+                    value=f"Reverted stats for {stats_reverted} players",
+                    inline=False
+                )
+                await interaction.edit_original_response(embed=embed, view=self)
+            else:
+                await interaction.edit_original_response(
+                    content="❌ Failed to remove war. Check logs for details.",
+                    view=self,
+                    embed=None
+                )
 
         self.stop()
 
@@ -203,14 +222,18 @@ class RemoveWarConfirmView(discord.ui.View):
             )
             return
 
-        for item in self.children:
-            item.disabled = True
+        user_name = getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Unknown")
+        guild_name = interaction.guild.name if interaction.guild else "DM"
 
-        await interaction.response.edit_message(
-            content="❌ War removal cancelled.",
-            view=self,
-            embed=None
-        )
+        async with LogBlock(f"WAR REMOVAL CANCELLED [{user_name} · {guild_name}] war_id={self.war_id}", logger):
+            for item in self.children:
+                item.disabled = True
+
+            await interaction.response.edit_message(
+                content="❌ War removal cancelled.",
+                view=self,
+                embed=None
+            )
 
         self.stop()
 

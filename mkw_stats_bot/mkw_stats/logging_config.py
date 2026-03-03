@@ -14,6 +14,7 @@ Railway / container logging principles:
 import logging
 import os
 import sys
+import threading
 import time
 
 # ---------------------------------------------------------------------------
@@ -87,29 +88,74 @@ class _Formatter(logging.Formatter):
 
 
 # ---------------------------------------------------------------------------
-# LogBlock
+# LogBlock  (deferred header + empty-block collapse)
 # ---------------------------------------------------------------------------
+
+# Thread-local stack of active blocks so the filter can find the current one.
+_local = threading.local()
+
+
+def _active_blocks() -> list["LogBlock"]:
+    """Return the per-thread block stack (lazily created)."""
+    if not hasattr(_local, "blocks"):
+        _local.blocks: list[LogBlock] = []
+    return _local.blocks
+
+
+class _LogBlockFilter(logging.Filter):
+    """Intercepts log records on the stdout handler.
+
+    When a LogBlock is active and its header hasn't been emitted yet, this
+    filter emits the header *before* the first real log line inside the block.
+    A recursion guard prevents the header emission from re-triggering itself.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._emitting_header = threading.local()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Recursion guard — don't intercept while we're emitting a header
+        if getattr(self._emitting_header, "active", False):
+            return True
+
+        stack = _active_blocks()
+        if not stack:
+            return True
+
+        block = stack[-1]
+        if not block._header_emitted:
+            block._header_emitted = True
+            self._emitting_header.active = True
+            try:
+                block._logger.info(block._header())
+            finally:
+                self._emitting_header.active = False
+
+        return True
+
 
 class LogBlock:
     """Context manager that wraps a group of log lines in a bordered block.
 
-    Usage (sync or async):
-        with LogBlock("/addwar [Cynical · YourClan]"):
-            ...
+    The header is *deferred* — it only appears when the first real log line
+    is emitted inside the block.  If the block produces no log output the
+    header and footer collapse into a compact one-liner:
 
-        async with LogBlock("OCR AUTO-SCAN [#results · YourClan]"):
-            ...
+        HH:MM:SS | INFO  | ── /wars [Cynical · BOT] (214ms)
 
-    Produces:
-        HH:MM:SS | INFO  | ── /addwar [Cynical · YourClan] ──────────────
-        HH:MM:SS | INFO  | War #1 saved — stats updated for 1 player
-        HH:MM:SS | INFO  | ──────────────────────────────────────────────  (241ms)
+    Blocks that do produce output look like before:
+
+        HH:MM:SS | INFO  | ── /addwar player_scores="…" [Cynical · BOT] ──────
+        HH:MM:SS | INFO  | Player resolution: 'Cynical' -> Cynical
+        HH:MM:SS | INFO  | ──────────────────────────────────────────────  (292ms)
     """
 
     def __init__(self, title: str, logger: logging.Logger | None = None) -> None:
         self.title = title
         self._logger = logger or logging.getLogger("mkw_stats")
         self._start: float | None = None
+        self._header_emitted: bool = False
 
     def _header(self) -> str:
         inner = f" {self.title} "
@@ -119,14 +165,35 @@ class LogBlock:
     def _footer(self, elapsed_ms: float) -> str:
         return "─" * BORDER_WIDTH + f"  ({elapsed_ms:.0f}ms)"
 
+    def _oneliner(self, elapsed_ms: float) -> str:
+        return f"── {self.title} ({elapsed_ms:.0f}ms)"
+
     def __enter__(self) -> "LogBlock":
         self._start = time.monotonic()
-        self._logger.info(self._header())
+        self._header_emitted = False
+        _active_blocks().append(self)
         return self
 
     def __exit__(self, *_: object) -> bool:
+        stack = _active_blocks()
+        # Locate and remove self from the stack.  Normally we're on top,
+        # but out-of-order exits (e.g. exceptions) could leave us deeper.
+        for i in range(len(stack) - 1, -1, -1):
+            if stack[i] is self:
+                if i != len(stack) - 1:
+                    self._logger.warning(
+                        "LogBlock %r exited out of order (index %d of %d)",
+                        self.title, i, len(stack),
+                    )
+                stack.pop(i)
+                break
+
         elapsed_ms = (time.monotonic() - (self._start or 0)) * 1000
-        self._logger.info(self._footer(elapsed_ms))
+        if self._header_emitted:
+            self._logger.info(self._footer(elapsed_ms))
+        else:
+            # No log output inside the block — collapse to one line
+            self._logger.info(self._oneliner(elapsed_ms))
         return False  # Never suppress exceptions
 
     async def __aenter__(self) -> "LogBlock":
@@ -160,6 +227,7 @@ def setup_logging(log_level: str | None = None) -> logging.Logger:
             datefmt="%H:%M:%S",
         )
     )
+    handler.addFilter(_LogBlockFilter())
     root.addHandler(handler)
 
     # Silence noisy third-party libraries
