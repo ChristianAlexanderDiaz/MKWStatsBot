@@ -77,9 +77,13 @@ class _Formatter(logging.Formatter):
     def formatMessage(self, record: logging.LogRecord) -> str:
         # Truncate multi-line messages to the first line.
         # This removes the "LINE N: ..." SQL context that psycopg2 appends.
-        if hasattr(record, "message") and "\n" in record.message:
-            record.message = record.message.split("\n")[0].strip()
-        return super().formatMessage(record)
+        original_message = getattr(record, "message", None)
+        try:
+            if original_message and "\n" in original_message:
+                record.message = original_message.split("\n")[0].strip()
+            return super().formatMessage(record)
+        finally:
+            record.message = original_message
 
 
 # ---------------------------------------------------------------------------

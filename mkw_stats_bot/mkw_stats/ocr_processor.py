@@ -370,8 +370,11 @@ class OCRProcessor:
         Falls back to sync processing if resource management is unavailable.
         """
         if not self.resource_management_enabled:
-            # Fallback to synchronous processing
-            return self.process_image(image_path, message_timestamp, guild_id)
+            # Fallback: run sync processing in executor to avoid blocking event loop
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, self.process_image, image_path, message_timestamp, guild_id
+            )
 
         try:
             # Create resource request
@@ -422,8 +425,11 @@ class OCRProcessor:
 
         except Exception as e:
             logging.error(f"Error in async OCR processing: {e}")
-            # Fallback to synchronous processing on error
-            return self.process_image(image_path, message_timestamp, guild_id)
+            # Fallback: run sync processing in executor to avoid blocking event loop
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, self.process_image, image_path, message_timestamp, guild_id
+            )
 
     async def process_bulk_images_async(self, image_data_list: list[dict], guild_id: int,
                                        user_id: int) -> list[dict]:
@@ -432,13 +438,13 @@ class OCRProcessor:
         Falls back to individual sync processing if resource management is unavailable.
         """
         if not self.resource_management_enabled:
-            # Fallback to individual synchronous processing
+            # Fallback: run sync processing in executor to avoid blocking event loop
+            loop = asyncio.get_running_loop()
             results = []
             for image_data in image_data_list:
-                result = self.process_image(
-                    image_data['path'],
-                    image_data.get('timestamp'),
-                    guild_id
+                result = await loop.run_in_executor(
+                    None, self.process_image,
+                    image_data['path'], image_data.get('timestamp'), guild_id
                 )
                 results.append(result)
             return results
@@ -681,40 +687,45 @@ class OCRProcessor:
         """Delegate to TeamSplitter.apply_6v6_team_splitting."""
         return self.team_splitter.apply_6v6_team_splitting(guild_results, tokens, guild_id)
 
-    def _apply_dynamic_team_splitting(self, guild_results, tokens, guild_id, total_players):
+    def _apply_dynamic_team_splitting(
+        self, guild_results: list[dict], tokens: list[str], guild_id: int, total_players: int
+    ) -> list[dict]:
         """Delegate to TeamSplitter.apply_dynamic_team_splitting."""
         return self.team_splitter.apply_dynamic_team_splitting(guild_results, tokens, guild_id, total_players)
 
-    def _map_guild_positions(self, guild_results, all_players):
+    def _map_guild_positions(self, guild_results: list[dict], all_players: list[tuple]) -> dict[str, int]:
         """Delegate to TeamSplitter.map_guild_positions."""
         return self.team_splitter.map_guild_positions(guild_results, all_players)
 
-    def _extract_all_players_from_tokens(self, tokens, guild_id=0):
+    def _extract_all_players_from_tokens(self, tokens: list[str], guild_id: int = 0) -> list[tuple]:
         """Delegate to TeamSplitter.extract_all_players_from_tokens."""
         return self.team_splitter.extract_all_players_from_tokens(tokens, guild_id)
 
-    def _find_valid_names_with_window(self, tokens, guild_id):
+    def _find_valid_names_with_window(self, tokens: list[str], guild_id: int) -> list[tuple]:
         """Delegate to NameResolver.find_valid_names_with_window."""
         return self.name_resolver.find_valid_names_with_window(tokens, guild_id)
 
-    def _find_guild_name_in_substring(self, corrupted_token, guild_id):
+    def _find_guild_name_in_substring(self, corrupted_token: str, guild_id: int) -> tuple:
         """Delegate to NameResolver.find_guild_name_in_substring."""
         return self.name_resolver.find_guild_name_in_substring(corrupted_token, guild_id)
 
-    def _extract_score_from_corrupted_token(self, token):
+    def _extract_score_from_corrupted_token(self, token: str) -> int | None:
         """Delegate to module-level extract_score_from_corrupted_token."""
         from .ocr import extract_score_from_corrupted_token
         return extract_score_from_corrupted_token(token)
 
-    def _pair_names_with_scores(self, valid_names, score_positions, tokens, token_bboxes=None):
+    def _pair_names_with_scores(
+        self, valid_names: list[tuple], score_positions: list[int],
+        tokens: list[str], token_bboxes: dict[int, list] | None = None
+    ) -> list[dict]:
         """Delegate to ScorePairer.pair_names_with_scores."""
         return self.score_pairer.pair_names_with_scores(valid_names, score_positions, tokens, token_bboxes)
 
-    def _get_bbox_center_x(self, bbox):
+    def _get_bbox_center_x(self, bbox: list) -> float:
         """Delegate to ScorePairer.get_bbox_center_x."""
         return self.score_pairer.get_bbox_center_x(bbox)
 
-    def _get_bbox_center_y(self, bbox):
+    def _get_bbox_center_y(self, bbox: list) -> float:
         """Delegate to ScorePairer.get_bbox_center_y."""
         return self.score_pairer.get_bbox_center_y(bbox)
 

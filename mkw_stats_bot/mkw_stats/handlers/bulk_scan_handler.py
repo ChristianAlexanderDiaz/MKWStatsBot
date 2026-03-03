@@ -308,7 +308,7 @@ class BulkScanHandler:
 
             for war_info in successful_wars:
                 try:
-                    submission = self.bot.war_service.submit_war(
+                    submission = await self.bot.war_service.submit_war_async(
                         war_info['players'], war_info['total_race_count'], guild_id
                     )
 

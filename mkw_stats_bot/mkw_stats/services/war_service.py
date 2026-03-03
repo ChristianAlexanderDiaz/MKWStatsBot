@@ -8,6 +8,7 @@ Replaces duplicated war submission logic that was in:
 - bot.py (handle_bulk_results_save)
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -130,6 +131,18 @@ class WarService:
                 success=False,
                 error=str(e)
             )
+
+    async def submit_war_async(
+        self,
+        results: list[dict],
+        race_count: int,
+        guild_id: int,
+    ) -> "WarSubmissionResult":
+        """Async wrapper — runs submit_war off the event loop in a thread executor."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, self.submit_war, results, race_count, guild_id
+        )
 
     def submit_appended_players(
         self,

@@ -1,12 +1,13 @@
 """Score pairing for OCR - matching validated player names with their scores."""
 
 import logging
+import re
 
 
 class ScorePairer:
     """Pairs validated player names with scores using sequential flow matching with spatial disambiguation."""
 
-    def get_bbox_center_x(self, bbox) -> float:
+    def get_bbox_center_x(self, bbox: list) -> float:
         """Calculate horizontal center of a bounding box."""
         if not bbox or len(bbox) < 4:
             return 0.0
@@ -16,7 +17,7 @@ class ScorePairer:
         else:
             return (bbox[0] + bbox[2]) / 2.0
 
-    def get_bbox_center_y(self, bbox) -> float:
+    def get_bbox_center_y(self, bbox: list) -> float:
         """Calculate vertical center of a bounding box."""
         if not bbox or len(bbox) < 4:
             return 0.0
@@ -129,7 +130,12 @@ class ScorePairer:
                 best_score_pos = best_before_pos
 
             if best_score_pos is not None:
-                score = int(tokens[best_score_pos])
+                token = tokens[best_score_pos]
+                try:
+                    score = int(token) if token.isdigit() else int(re.search(r'\d+', token).group())
+                except (ValueError, AttributeError):
+                    logging.warning(f"⚠️ Could not parse score from token '{token}' for '{official_name}'")
+                    continue
                 results.append({
                     'name': official_name,
                     'raw_name': raw_name,

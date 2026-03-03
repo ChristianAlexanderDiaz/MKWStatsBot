@@ -416,29 +416,42 @@ class MarioKartBot(commands.Bot):
     # These are called by commands.py, ocr_modals.py, and views.
     # They delegate to the appropriate handler instance.
 
-    async def process_ocr_image(self, *args, **kwargs):
-        return await self.ocr_handler.process_image(*args, **kwargs)
+    async def process_ocr_image(
+        self, temp_path: str, guild_id: int, filename: str, original_message: discord.Message
+    ) -> tuple[bool, discord.Embed, list[dict] | None]:
+        return await self.ocr_handler.process_image(temp_path, guild_id, filename, original_message)
 
-    async def handle_ocr_war_submission_from_view(self, *args, **kwargs):
-        return await self.ocr_handler.handle_war_submission_from_view(*args, **kwargs)
+    async def handle_ocr_war_submission_from_view(
+        self, interaction: discord.Interaction, view: discord.ui.View
+    ) -> None:
+        return await self.ocr_handler.handle_war_submission_from_view(interaction, view)
 
-    async def send_ocr_report(self, *args, **kwargs):
-        return await self.ocr_handler.send_report(*args, **kwargs)
+    async def send_ocr_report(
+        self, guild_id: int, user: discord.User, original_image: discord.Attachment | None,
+        ocr_results: list[dict], user_description: str,
+    ) -> None:
+        return await self.ocr_handler.send_report(guild_id, user, original_image, ocr_results, user_description)
 
-    def format_enhanced_confirmation(self, *args, **kwargs):
-        return self.ocr_handler.format_enhanced_confirmation(*args, **kwargs)
+    def format_enhanced_confirmation(
+        self, results: list[dict], validation: dict, war_metadata: dict | None = None
+    ) -> str:
+        return self.ocr_handler.format_enhanced_confirmation(results, validation, war_metadata)
 
-    def cleanup_confirmation(self, *args, **kwargs):
-        return self.confirmations.cleanup(*args, **kwargs)
+    def cleanup_confirmation(self, message_id: str) -> None:
+        return self.confirmations.cleanup(message_id)
 
-    async def _auto_delete_message(self, *args, **kwargs):
-        return await self.messages.auto_delete(*args, **kwargs)
+    async def _auto_delete_message(self, message: discord.Message, delay_seconds: int) -> None:
+        return await self.messages.auto_delete(message, delay_seconds)
 
-    async def _countdown_and_delete_message(self, *args, **kwargs):
-        return await self.messages.countdown_and_delete_message(*args, **kwargs)
+    async def _countdown_and_delete_message(
+        self, message: discord.Message, embed: discord.Embed, countdown_seconds: int = 30
+    ) -> None:
+        return await self.messages.countdown_and_delete_message(message, embed, countdown_seconds)
 
-    async def _countdown_and_delete_interaction(self, *args, **kwargs):
-        return await self.messages.countdown_and_delete_interaction(*args, **kwargs)
+    async def _countdown_and_delete_interaction(
+        self, interaction: discord.Interaction, embed: discord.Embed, countdown_seconds: int = 30
+    ) -> None:
+        return await self.messages.countdown_and_delete_interaction(interaction, embed, countdown_seconds)
 
 
 async def setup_bot():

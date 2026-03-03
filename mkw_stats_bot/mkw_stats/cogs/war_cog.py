@@ -369,7 +369,7 @@ class WarCog(BaseCog):
                     await interaction.edit_original_response(embed=timeout_embed)
                     return
 
-            submission = self.bot.war_service.submit_war(resolved_results, actual_war_race_count, guild_id)
+            submission = await self.bot.war_service.submit_war_async(resolved_results, actual_war_race_count, guild_id)
 
             if not submission.success:
                 error_msg = f"❌ Failed to add war to database. {submission.error or 'Check logs for details.'}"

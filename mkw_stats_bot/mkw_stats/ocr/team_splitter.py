@@ -9,7 +9,7 @@ from .name_resolver import extract_score_from_corrupted_token
 class TeamSplitter:
     """Splits multi-team OCR results to isolate the guild's own team."""
 
-    def __init__(self, db_manager):
+    def __init__(self, db_manager: object) -> None:
         self.db_manager = db_manager
 
     def extract_all_players_from_tokens(self, tokens: list[str], guild_id: int = 0) -> list[tuple]:
@@ -194,8 +194,10 @@ class TeamSplitter:
                     break
 
             if result_name not in guild_member_positions:
-                logging.warning(f"⚠️ Could not map {result_name} to position - defaulting to 0")
-                guild_member_positions[result_name] = 0
+                # Use median position so unmapped players don't bias toward either team
+                median_pos = len(all_players) // 2
+                logging.warning(f"⚠️ Could not map {result_name} to position - defaulting to median ({median_pos})")
+                guild_member_positions[result_name] = median_pos
 
         return guild_member_positions
 

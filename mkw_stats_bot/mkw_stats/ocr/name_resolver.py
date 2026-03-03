@@ -20,7 +20,7 @@ def extract_score_from_corrupted_token(token: str) -> int | None:
 class NameResolver:
     """Resolves player names from OCR token streams using database validation."""
 
-    def __init__(self, db_manager):
+    def __init__(self, db_manager: object) -> None:
         self.db_manager = db_manager
 
     def find_guild_name_in_substring(self, corrupted_token: str, guild_id: int) -> tuple:

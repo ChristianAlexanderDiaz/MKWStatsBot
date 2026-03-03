@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 
 import aiofiles
 import aiofiles.tempfile
@@ -63,7 +64,25 @@ class OCRHandler:
                 )
                 return False, embed, None
 
-            extracted_texts = [{'text': ocr_result["text"], 'confidence': 0.9}]
+            extracted_texts = []
+            if ocr_result.get("results"):
+                for item in ocr_result["results"]:
+                    text = item.get("text", "").strip()
+                    if text and re.match(r'^[a-zA-Z0-9\s.,\-+%$()]+$', text):
+                        extracted_texts.append({
+                            'text': text,
+                            'confidence': item.get("confidence", 0.0),
+                            'bbox': item.get("bbox"),
+                        })
+
+            if not extracted_texts:
+                embed = discord.Embed(
+                    title="\u274c No Valid Text",
+                    description="OCR completed, but no valid text was found after filtering.",
+                    color=0xff4444,
+                )
+                return False, embed, None
+
             processed_results = ocr._parse_mario_kart_results(extracted_texts, guild_id)
 
             if processed_results:
@@ -215,7 +234,7 @@ class OCRHandler:
 
             total_race_count = max(r.get('races', 12) for r in results)
 
-            submission = self.bot.war_service.submit_war(results, total_race_count, guild_id)
+            submission = await self.bot.war_service.submit_war_async(results, total_race_count, guild_id)
 
             if submission.success:
                 try:
@@ -279,7 +298,7 @@ class OCRHandler:
 
             total_race_count = max(r.get('races', 12) for r in results)
 
-            submission = self.bot.war_service.submit_war(results, total_race_count, guild_id)
+            submission = await self.bot.war_service.submit_war_async(results, total_race_count, guild_id)
 
             if submission.success:
                 if 'original_message_obj' in confirmation_data:
