@@ -48,8 +48,9 @@ It runs entirely inside Discord and supports 50+ members, multiple teams, and hu
 | `/addnickname`     | Register an OCR nickname for a player         |
 | `/addwar`          | Manually log a war result                     |
 | `/showallwars`     | Browse war history                            |
-| `/assignplayers`   | Assign players to a team                      |
-| `/setmemberstatus` | Update a player's status (Member/Trial/etc.)  |
+| `/assignplayers`    | Assign players to a team                      |
+| `/showmemberstatus` | View players grouped by member status         |
+| `/setmemberstatus`  | Update a player's status (Member/Trial/etc.)  |
 
 Full command reference with all options and examples: **[docs/COMMANDS.md](docs/COMMANDS.md)**
 

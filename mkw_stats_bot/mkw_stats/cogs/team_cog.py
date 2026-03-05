@@ -294,7 +294,7 @@ class TeamCog(BaseCog):
                 )
                 embed.add_field(
                     name="Next Steps",
-                    value=f"• Assign players with `/assignplayers {team_name}`\n• View team roster with `/showspecificteamroster {team_name}`\n• View player roster by team with `/roster`",
+                    value=f"• Assign players with `/assignplayers players:player1,player2 team_name:{team_name}`\n• View team roster with `/showspecificteamroster {team_name}`\n• View player roster by team with `/roster`",
                     inline=False
                 )
                 embed.add_field(

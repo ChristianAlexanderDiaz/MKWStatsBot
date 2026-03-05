@@ -6,22 +6,30 @@
 
 First-time initialization for a new server.
 
-```
-/setup teamname:Your Team Name players:Player1,Player2,Player3 results_channel:#race-results
+```text
+/setup teamname:Your Team Name players:@User1 @User2 @User3 results_channel:#race-results role_member:@Member role_trial:@Trial role_ally:@Ally
 ```
 
 Creates your guild configuration, first team, initial player roster, and sets the auto-OCR channel.
 
+**Parameters:**
+- `teamname` — Name for the first team
+- `players` — Space-separated Discord @mentions for initial players
+- `results_channel` — Channel where auto-OCR will run
+- `role_member` — Discord role for full members
+- `role_trial` — Discord role for trial members
+- `role_ally` — Discord role for ally members
+
 **Example:**
-```
-/setup teamname:Team Alpha players:Cynical,Willow,Ghost results_channel:#results
+```text
+/setup teamname:Team Alpha players:@Cynical @Willow @Ghost results_channel:#results role_member:@Member role_trial:@Trial role_ally:@Ally
 ```
 
 ### `/setchannel`
 
 Change which channel automatically scans uploaded images for war results.
 
-```
+```text
 /setchannel channel:#your-channel
 ```
 
@@ -43,7 +51,7 @@ Any PNG uploaded to this channel will be automatically scanned. Bot will show de
 
 Manually trigger a scan on the most recent image in the current channel.
 
-```
+```text
 /scanimage
 ```
 
@@ -53,7 +61,7 @@ Use this if the automatic scan was missed.
 
 Scan all images in the current channel and open a bulk review session.
 
-```
+```text
 /bulkscanimage
 ```
 
@@ -74,22 +82,22 @@ Scan all images in the current channel and open a bulk review session.
 The main statistics command.
 
 **View leaderboard:**
-```
+```text
 /stats
 ```
 
 **View a specific player:**
-```
+```text
 /stats player:Cynical
 ```
 
 **Limit to last X wars:**
-```
+```text
 /stats player:Cynical lastxwars:10
 ```
 
 **Sort leaderboard:**
-```
+```text
 /stats sortby:Average Score
 /stats sortby:Win Rate
 /stats sortby:Average Differential
@@ -114,15 +122,17 @@ The main statistics command.
 
 ### `/addplayer`
 
-```
-/addplayer player_name:NewPlayer member_status:Member
+```text
+/addplayer user:@Username ingame_name:Willow country:US
 ```
 
-**Status options:** `Member`, `Trial`, `Ally`, `Kicked`
+- `user` — Discord @mention (required)
+- `ingame_name` — In-game name for OCR matching (optional, defaults to Discord display name)
+- `country` — 2-letter country code for flag display, e.g. `US`, `GB`, `JP` (optional)
 
 ### `/removeplayer`
 
-```
+```text
 /removeplayer player_name:PlayerName
 ```
 
@@ -130,7 +140,7 @@ Deactivates the player but keeps their historical stats.
 
 ### `/addnickname`
 
-```
+```text
 /addnickname player_name:Willow nickname:Wi11ow
 ```
 
@@ -141,13 +151,13 @@ Teaches the bot to recognize OCR misreads. Common examples:
 
 ### `/removenickname`
 
-```
+```text
 /removenickname player_name:Willow nickname:Wi11ow
 ```
 
 ### `/nicknamesfor`
 
-```
+```text
 /nicknamesfor player_name:Willow
 ```
 
@@ -155,7 +165,7 @@ Shows all nicknames registered for a player.
 
 ### `/roster`
 
-```
+```text
 /roster
 ```
 
@@ -163,7 +173,7 @@ Shows all players organized by teams.
 
 ### `/listunlinked`
 
-```
+```text
 /listunlinked
 ```
 
@@ -175,13 +185,13 @@ Lists players on the roster who haven't been linked to a Discord account yet.
 
 ### `/addteam`
 
-```
+```text
 /addteam team_name:Team Bravo
 ```
 
 ### `/removeteam`
 
-```
+```text
 /removeteam team_name:Team Bravo
 ```
 
@@ -189,29 +199,29 @@ Unassigns all players from the team but does not delete them.
 
 ### `/renameteam`
 
-```
+```text
 /renameteam old_name:Team Alpha new_name:Alpha Squad
 ```
 
 ### `/assignplayers`
 
-```
+```text
 /assignplayers players:Cynical,Willow,Ghost team_name:Team Alpha
 ```
 
 Separate multiple players with commas (no spaces after commas).
 
-### `/unassignplayerfromteam`
+### `/unassignplayer`
 
-```
-/unassignplayerfromteam player_name:Cynical
+```text
+/unassignplayer player_name:Cynical
 ```
 
 Sets the player to the "Unassigned" team.
 
 ### `/showmemberstatus`
 
-```
+```text
 /showmemberstatus
 ```
 
@@ -219,7 +229,7 @@ Shows all active players grouped by member status (Members, Trials, Allies). Kic
 
 ### `/showspecificteamroster`
 
-```
+```text
 /showspecificteamroster team_name:Team Alpha
 ```
 
@@ -231,7 +241,7 @@ Shows all active players grouped by member status (Members, Trials, Allies). Kic
 
 Manually add a war without OCR.
 
-```
+```text
 /addwar player_scores:Cynical:92,Willow:85,Ghost:78 races:12
 ```
 
@@ -239,7 +249,7 @@ Format: `PlayerName:Score,PlayerName:Score`
 
 ### `/removewar`
 
-```
+```text
 /removewar war_id:123
 ```
 
@@ -247,7 +257,7 @@ Reverts player statistics. Find the war ID with `/showallwars`. Use carefully.
 
 ### `/appendplayertowar`
 
-```
+```text
 /appendplayertowar war_id:123 player_scores:NewPlayer:95
 ```
 
@@ -255,7 +265,7 @@ Adds or updates players in an existing war.
 
 ### `/showallwars`
 
-```
+```text
 /showallwars limit:20
 ```
 
@@ -267,7 +277,7 @@ Shows recent wars with pagination. Default limit is 20.
 
 ### `/setmemberstatus`
 
-```
+```text
 /setmemberstatus player_name:Cynical status:Member
 ```
 
@@ -275,7 +285,7 @@ Shows recent wars with pagination. Default limit is 20.
 
 ### `/showtrials`
 
-```
+```text
 /showtrials
 ```
 
@@ -283,7 +293,7 @@ Shows all players with Trial status.
 
 ### `/showkicked`
 
-```
+```text
 /showkicked
 ```
 
@@ -295,7 +305,7 @@ Shows all players with Kicked status.
 
 ### `/checkpermissions`
 
-```
+```text
 /checkpermissions channel:#your-channel
 ```
 
@@ -303,7 +313,7 @@ Verifies the bot has all required permissions in a channel.
 
 ### `/debugocr`
 
-```
+```text
 /debugocr image_url:https://cdn.discordapp.com/...
 ```
 
