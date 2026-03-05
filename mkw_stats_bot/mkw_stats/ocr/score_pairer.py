@@ -3,6 +3,8 @@
 import logging
 import re
 
+from .name_resolver import extract_score_from_corrupted_token
+
 
 class ScorePairer:
     """Pairs validated player names with scores using sequential flow matching with spatial disambiguation."""
@@ -131,11 +133,13 @@ class ScorePairer:
 
             if best_score_pos is not None:
                 token = tokens[best_score_pos]
-                try:
-                    score = int(token) if token.isdigit() else int(re.search(r'\d+', token).group())
-                except (ValueError, AttributeError):
-                    logging.warning(f"⚠️ Could not parse score from token '{token}' for '{official_name}'")
-                    continue
+                if token.isdigit():
+                    score = int(token)
+                else:
+                    score = extract_score_from_corrupted_token(token)
+                    if score is None:
+                        logging.warning(f"⚠️ Could not parse score from token '{token}' for '{official_name}'")
+                        continue
                 results.append({
                     'name': official_name,
                     'raw_name': raw_name,

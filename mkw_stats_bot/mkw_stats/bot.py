@@ -29,7 +29,7 @@ def _log_task_error(t: asyncio.Task) -> None:
 class OCRConfirmationView(discord.ui.View):
     """Interactive view for OCR war result confirmation with inline editing."""
 
-    def __init__(self, results: list[dict], guild_id: int, user_id: int, original_message_obj: discord.Message, bot):
+    def __init__(self, results: list[dict], guild_id: int, user_id: int, original_message_obj: discord.Message, bot: commands.Bot) -> None:
         super().__init__(timeout=300)  # 5 minute timeout
         self.results = results
         self.guild_id = guild_id
@@ -56,7 +56,7 @@ class OCRConfirmationView(discord.ui.View):
             return False
 
         # Get guild role configuration
-        role_config = self.bot.db.guilds.get_guild_role_config(self.guild_id)
+        role_config = await asyncio.to_thread(self.bot.db.guilds.get_guild_role_config, self.guild_id)
 
         # If no role config is set, prompt user to set it up
         if not role_config or not role_config.get('role_member_id'):
@@ -320,6 +320,9 @@ class MarioKartBot(commands.Bot):
         # Shared HTTP client (created in setup_hook after the event loop is running)
         self.http_session: aiohttp.ClientSession | None = None
 
+        # One-time startup state
+        self._commands_synced = False
+
         # Confirmation state (accessed directly by commands.py)
         self.pending_confirmations = {}  # message_id -> confirmation_data
         self.timeout_tasks = {}  # message_id -> asyncio.Task
@@ -352,12 +355,14 @@ class MarioKartBot(commands.Bot):
         async with LogBlock("BOT STARTUP", logger):
             logger.info(f"{self.user} — v{config.BOT_VERSION} — {len(self.guilds)} guild(s)")
 
-            # Sync slash commands
-            try:
-                synced = await self.tree.sync()
-                logger.info(f"{len(synced)} slash commands synced")
-            except Exception as e:
-                logger.error(f"Failed to sync slash commands: {e}")
+            # Sync slash commands (once only — skip on reconnects)
+            if not self._commands_synced:
+                try:
+                    synced = await self.tree.sync()
+                    logger.info(f"{len(synced)} slash commands synced")
+                    self._commands_synced = True
+                except Exception as e:
+                    logger.error(f"Failed to sync slash commands: {e}")
 
             # Initialize OCR resource management if available
             try:
@@ -400,7 +405,8 @@ class MarioKartBot(commands.Bot):
             if not guild_id:
                 return
 
-            configured_channel_id = self.db.guilds.get_ocr_channel(guild_id)
+            loop = asyncio.get_running_loop()
+            configured_channel_id = await loop.run_in_executor(None, self.db.guilds.get_ocr_channel, guild_id)
             if not configured_channel_id or message.channel.id != configured_channel_id:
                 return
 

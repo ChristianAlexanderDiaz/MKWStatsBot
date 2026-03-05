@@ -92,35 +92,42 @@ class AddPlayerToWarConfirmView(discord.ui.View):
                     self.cog.bot.war_service.submit_appended_players,
                     self.war_id, self.new_players, self.guild_id,
                 )
-                stats_added = submission.stats_updated or []
-                stats_failed = submission.stats_failed or []
+                if submission.success:
+                    stats_added = submission.stats_updated or []
+                    stats_failed = submission.stats_failed or []
 
-                embed = discord.Embed(
-                    title="✅ Players Added Successfully!",
-                    description=f"War ID: {self.war_id} has been updated with {len(self.new_players)} new players.",
-                    color=0x00ff00
-                )
+                    embed = discord.Embed(
+                        title="✅ Players Added Successfully!",
+                        description=f"War ID: {self.war_id} has been updated with {len(self.new_players)} new players.",
+                        color=0x00ff00
+                    )
 
-                embed.add_field(
-                    name="Players Added",
-                    value=f"🏁 {self.races} races\n👥 {len(self.new_players)} new players\n📊 {len(stats_added)} stats updated" + (f", {len(stats_failed)} failed" if stats_failed else ""),
-                    inline=False
-                )
+                    embed.add_field(
+                        name="Players Added",
+                        value=f"🏁 {self.races} races\n👥 {len(self.new_players)} new players\n📊 {len(stats_added)} stats updated" + (f", {len(stats_failed)} failed" if stats_failed else ""),
+                        inline=False
+                    )
 
-                player_list = []
-                for p in self.new_players:
-                    if p['races_played'] == self.races:
-                        player_list.append(f"**{p['name']}**: {p['score']} points")
-                    else:
-                        player_list.append(f"**{p['name']}** ({p['races_played']}): {p['score']} points")
+                    player_list = []
+                    for p in self.new_players:
+                        if p['races_played'] == self.races:
+                            player_list.append(f"**{p['name']}**: {p['score']} points")
+                        else:
+                            player_list.append(f"**{p['name']}** ({p['races_played']}): {p['score']} points")
 
-                embed.add_field(
-                    name="🏁 New Players Added",
-                    value="\n".join(player_list[:10]) + (f"\n... +{len(player_list)-10} more" if len(player_list) > 10 else ""),
-                    inline=False
-                )
+                    embed.add_field(
+                        name="🏁 New Players Added",
+                        value="\n".join(player_list[:10]) + (f"\n... +{len(player_list)-10} more" if len(player_list) > 10 else ""),
+                        inline=False
+                    )
 
-                await interaction.edit_original_response(embed=embed, view=self)
+                    await interaction.edit_original_response(embed=embed, view=self)
+                else:
+                    await interaction.edit_original_response(
+                        content=f"❌ Players appended but stats update failed. {submission.error or 'Check logs for details.'}",
+                        view=self,
+                        embed=None
+                    )
             else:
                 await interaction.edit_original_response(
                     content="❌ Failed to add players to war. Check logs for details.",
@@ -655,7 +662,7 @@ class WarCog(BaseCog):
             war_date = war.get('war_date')
             race_count = war.get('race_count')
 
-            players_data = war.get('players_data', [])
+            players_data = war.get('results', war.get('players_data', []))
             if isinstance(players_data, dict) and 'results' in players_data:
                 players_data = players_data['results']
 

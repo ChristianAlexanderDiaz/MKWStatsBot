@@ -23,7 +23,7 @@ class NameResolver:
     def __init__(self, db_manager: object) -> None:
         self.db_manager = db_manager
 
-    def find_guild_name_in_substring(self, corrupted_token: str, guild_id: int) -> tuple:
+    def find_guild_name_in_substring(self, corrupted_token: str, guild_id: int) -> tuple[str | None, str | None]:
         """Find guild member names as substrings within corrupted OCR tokens."""
         try:
             if not self.db_manager:

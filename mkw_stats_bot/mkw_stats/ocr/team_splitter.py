@@ -38,7 +38,7 @@ class TeamSplitter:
         players = []
         i = 0
 
-        def find_guild_member_in_token(token: str, allow_substring_match: bool = True) -> str:
+        def find_guild_member_in_token(token: str, allow_substring_match: bool = True) -> str | None:
             """Check if token contains a guild member name or nickname."""
             token_lower = token.lower()
 
@@ -243,8 +243,8 @@ class TeamSplitter:
                     else:
                         team2_guild_members.append(result)
                 else:
-                    logging.warning(f"⚠️ Could not find position for guild member {member_name}")
-                    team1_guild_members.append(result)
+                    logging.warning(f"⚠️ Could not find position for guild member {member_name}, aborting team split")
+                    return guild_results
 
             team1_guild_count = len(team1_guild_members)
             team2_guild_count = len(team2_guild_members)

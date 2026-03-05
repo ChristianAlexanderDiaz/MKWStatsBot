@@ -83,7 +83,9 @@ class OCRHandler:
                 )
                 return False, embed, None
 
-            processed_results = ocr._parse_mario_kart_results(extracted_texts, guild_id)
+            processed_results = await loop.run_in_executor(
+                None, ocr._parse_mario_kart_results, extracted_texts, guild_id
+            )
 
             if processed_results:
                 embed = discord.Embed(

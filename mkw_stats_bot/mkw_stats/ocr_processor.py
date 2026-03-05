@@ -535,14 +535,15 @@ class OCRProcessor:
 
         except Exception as e:
             logging.error(f"Error in bulk async OCR processing: {e}")
-            # Fallback to individual synchronous processing
+            # Fallback to individual processing off the event loop
             results = []
             for image_data in image_data_list:
                 try:
-                    result = self.process_image(
+                    result = await asyncio.to_thread(
+                        self.process_image,
                         image_data['path'],
                         image_data.get('timestamp'),
-                        guild_id
+                        guild_id,
                     )
                     results.append(result)
                 except Exception as individual_error:
@@ -794,7 +795,7 @@ class OCRProcessor:
 
         return metadata
 
-    def create_debug_overlay(self, image_path: str) -> str:
+    def create_debug_overlay(self, image_path: str) -> str | None:
         """Create debug overlay showing OCR detection results."""
         try:
             logging.info("🎨 Creating debug visualization...")

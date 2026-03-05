@@ -7,6 +7,7 @@ import aiofiles
 import aiofiles.tempfile
 import aiohttp
 import discord
+from discord.ext import commands
 
 from ..dashboard_client import dashboard_client
 from ..logging_config import get_logger
@@ -32,7 +33,7 @@ class BulkScanHandler:
     - Building result/confirmation embeds
     """
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     async def handle_processing(self, message: discord.Message, confirmation_data: dict):
@@ -197,13 +198,14 @@ class BulkScanHandler:
         """Create a dashboard review session and send the review link."""
         try:
             api_results = []
+            roster_players = await asyncio.get_running_loop().run_in_executor(
+                None, self.bot.db.players.get_roster_players, guild_id
+            )
+            roster_set = set(p.lower() for p in roster_players) if roster_players else set()
             for war in successful_wars:
-                roster_players = self.bot.db.players.get_roster_players(guild_id)
-                roster_names = [p.lower() for p in roster_players] if roster_players else []
-
                 players_with_roster_check = []
                 for player in war['players']:
-                    is_roster = player['name'].lower() in roster_names
+                    is_roster = player['name'].lower() in roster_set
                     players_with_roster_check.append({
                         **player,
                         'is_roster_member': is_roster,
@@ -268,7 +270,7 @@ class BulkScanHandler:
                 embed.set_footer(text="Link expires in 24 hours")
                 await message.edit(embed=embed)
                 self.bot.confirmations.cleanup(str(message.id))
-                logger.info(f"Created dashboard review session {session['token']} for {len(successful_wars)} wars")
+                logger.info(f"Created dashboard review session for {len(successful_wars)} wars")
             else:
                 logger.warning("Dashboard API failed, falling back to Discord confirmation")
                 await self.create_confirmation_embed(
@@ -535,7 +537,7 @@ class BulkScanHandler:
             message_time = discord.utils.format_dt(war_info['message'].created_at, style='f')
             war_section = f"\U0001f4ca **{message_time}**\n" + "\n".join(players_list) + "\n\n"
 
-            if len(wars_text + war_section) > 1500:
+            if len(wars_text + war_section) > 1024:
                 wars_text += f"*(... and {len(successful_wars) - i} more wars)*\n"
                 break
 
