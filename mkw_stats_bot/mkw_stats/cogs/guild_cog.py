@@ -512,7 +512,7 @@ class GuildCog(BaseCog):
         embed.add_field(
             name="Teams",
             value=(
-                "`/showallteams` - View all teams\n"
+                "`/showmemberstatus` - View all players by member status\n"
                 "`/addteam <name>` - Create team\n"
                 "`/removeteam <name>` - Delete team\n"
                 "`/renameteam <old> <new>` - Rename team\n"

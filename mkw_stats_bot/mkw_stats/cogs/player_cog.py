@@ -74,7 +74,7 @@ class PlayerCog(BaseCog):
                         inline=False
                     )
 
-            embed.set_footer(text="Use /showallteams for detailed team view | Only results for these players will be saved from war images.")
+            embed.set_footer(text="Use /showmemberstatus to view players by member status | Only results for these players will be saved from war images.")
 
             await interaction.followup.send(embed=embed)
 

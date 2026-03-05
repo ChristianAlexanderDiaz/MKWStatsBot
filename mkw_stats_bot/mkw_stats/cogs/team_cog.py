@@ -72,7 +72,7 @@ class TeamCog(BaseCog):
             valid_teams = self.bot.db.guilds.get_guild_team_names(guild_id)
             valid_teams.append('Unassigned')
             if team_name not in valid_teams:
-                await interaction.response.send_message(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/showallteams` to see available teams or `/addteam` to create new teams.")
+                await interaction.response.send_message(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/roster` to see team assignments or `/addteam` to create new teams.")
                 return
 
             resolved_players = []
@@ -161,7 +161,7 @@ class TeamCog(BaseCog):
             except discord.errors.HTTPException:
                 await interaction.followup.send("❌ Error unassigning player from team", ephemeral=True)
 
-    @app_commands.command(name="showallteams", description="Show all players organized by member status")
+    @app_commands.command(name="showmemberstatus", description="Show all players organized by member status")
     @require_guild_setup(defer=True)
     async def show_teams(self, interaction: discord.Interaction):
         """Show all players organized by member status."""
@@ -235,7 +235,7 @@ class TeamCog(BaseCog):
             valid_teams = self.bot.db.guilds.get_guild_team_names(guild_id)
             valid_teams.append('Unassigned')
             if team_name not in valid_teams:
-                await interaction.followup.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/showallteams` to see available teams.")
+                await interaction.followup.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/roster` to see team assignments.")
                 return
 
             team_players = self.bot.db.players.get_team_roster(team_name, guild_id)
@@ -294,7 +294,7 @@ class TeamCog(BaseCog):
                 )
                 embed.add_field(
                     name="Next Steps",
-                    value=f"• Assign players with `/assignplayerstoteam <players> {team_name}`\n• View team roster with `/showspecificteamroster {team_name}`\n• List all teams with `/showallteams`",
+                    value=f"• Assign players with `/assignplayers players:player1,player2 team_name:{team_name}`\n• View team roster with `/showspecificteamroster {team_name}`\n• View player roster by team with `/roster`",
                     inline=False
                 )
                 embed.add_field(
@@ -325,7 +325,7 @@ class TeamCog(BaseCog):
             team_exists = any(team.lower() == team_name.lower() for team in current_teams)
 
             if not team_exists:
-                await interaction.response.send_message(f"❌ Team '{team_name}' not found. Use `/showallteams` to see available teams.")
+                await interaction.response.send_message(f"❌ Team '{team_name}' not found. Use `/roster` to see available teams.")
                 return
 
             teams_with_counts = self.bot.db.guilds.get_guild_teams_with_counts(guild_id)
@@ -464,7 +464,7 @@ class TeamCog(BaseCog):
             else:
                 await interaction.response.send_message(
                     f"❌ Failed to set tag for team '{team_name}'.\n"
-                    f"Make sure the team exists. Use `/showallteams` to see available teams.",
+                    f"Make sure the team exists. Use `/roster` to see available teams.",
                     ephemeral=True
                 )
 
