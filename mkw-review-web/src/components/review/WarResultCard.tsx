@@ -47,7 +47,7 @@ interface WarResultCardProps {
   onReject: (resultId: number) => void
   onEdit: (result: BulkResult) => void
   onSaveEdit: (resultId: number) => void
-  onPlayerChange: (index: number, field: keyof BulkPlayer, value: string | number) => void
+  onPlayerChange: (index: number, field: keyof BulkPlayer, value: string | number | boolean) => void
   onLinkPlayer: (resultId: number, playerIndex: number, detectedName: string, rosterPlayerName: string) => Promise<void>
   onAddNewPlayer: (resultId: number, playerIndex: number, name: string, memberStatus: string) => void
 }
