@@ -11,7 +11,7 @@
 
 <!-- [![Add to Server](#)](https://github.com/ChristianAlexanderDiaz/MKWStatsBot) [![Docs](https://img.shields.io/badge/Docs-Command%20Reference-blue)](docs/COMMANDS.md) [![Report Bug](https://img.shields.io/badge/Report-Bug-red)](https://github.com/ChristianAlexanderDiaz/MKWStatsBot/issues) -->
 
-<img width="1010" height="1502" alt="image" src="https://github.com/user-attachments/assets/2b7bac4c-c846-4569-81fa-62e3f21f5f08" />
+<img src="https://github.com/user-attachments/assets/2b7bac4c-c846-4569-81fa-62e3f21f5f08" width="50%" />
 
 Upload a screenshot of your war results. The bot reads it, logs the war, and updates every player's stats automatically — no manual entry needed.
 
