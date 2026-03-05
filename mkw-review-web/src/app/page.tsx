@@ -35,7 +35,7 @@ export default function HomePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="text-center text-sm text-muted-foreground">
-            <p>Sign in with Discord to access your guild's dashboard</p>
+            <p>Sign in with Discord to access your guild&apos;s dashboard</p>
           </div>
           <Button onClick={login} className="w-full" size="lg">
             <svg

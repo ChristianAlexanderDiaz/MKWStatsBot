@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useState } from "react"
 import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown } from "lucide-react"
+import { LoadingSpinner } from "@/components/shared/LoadingSpinner"
+import { EmptyState } from "@/components/shared/EmptyState"
 
 export default function WarsPage() {
   const { selectedGuild } = useAuth()
@@ -21,11 +23,7 @@ export default function WarsPage() {
   })
 
   if (!selectedGuild) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Select a guild to view wars</p>
-      </div>
-    )
+    return <EmptyState message="Select a guild to view wars" />
   }
 
   return (
@@ -38,9 +36,7 @@ export default function WarsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
+        <LoadingSpinner />
       ) : (
         <>
           <div className="grid gap-4">

@@ -2,12 +2,16 @@
 Dashboard API client for the MKW Stats Bot.
 Handles communication with the FastAPI dashboard service.
 """
-import aiohttp
 import logging
-from typing import List, Dict, Optional
-from datetime import datetime
 
-from .config import DASHBOARD_API_URL, DASHBOARD_API_KEY, DASHBOARD_WEB_URL, DASHBOARD_ENABLED
+import aiohttp
+
+from .config import (
+    DASHBOARD_API_KEY,
+    DASHBOARD_API_URL,
+    DASHBOARD_ENABLED,
+    DASHBOARD_WEB_URL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +24,24 @@ class DashboardClient:
         self.api_key = DASHBOARD_API_KEY
         self.web_url = DASHBOARD_WEB_URL
         self.enabled = DASHBOARD_ENABLED
+        self._session: aiohttp.ClientSession | None = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Return the shared session, creating it lazily on first use."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close(self) -> None:
+        """Close the shared session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     def is_enabled(self) -> bool:
         """Check if dashboard integration is enabled and configured."""
         return self.enabled and self.api_url and self.web_url
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         """Get headers for API requests."""
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -36,9 +52,9 @@ class DashboardClient:
         self,
         guild_id: int,
         user_id: int,
-        results: List[Dict],
-        failed_results: List[Dict] = None
-    ) -> Optional[Dict]:
+        results: list[dict],
+        failed_results: list[dict] | None = None
+    ) -> dict | None:
         """
         Create a bulk scan session in the dashboard API.
 
@@ -109,12 +125,12 @@ class DashboardClient:
             if formatted_failed_results:
                 payload["failed_results"] = formatted_failed_results
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            session = await self._get_session()
+            async with session.post(
                     f"{self.api_url}/api/bulk/sessions",
                     json=payload,
                     headers=self._get_headers()
-                ) as response:
+            ) as response:
                     if response.status == 200:
                         data = await response.json()
                         logger.info(f"Created bulk session: {data.get('token')}")
@@ -138,12 +154,12 @@ class DashboardClient:
             return False
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{self.api_url}/health",
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as response:
-                    return response.status == 200
+            session = await self._get_session()
+            async with session.get(
+                f"{self.api_url}/health",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as response:
+                return response.status == 200
         except Exception as e:
             logger.error(f"Dashboard health check failed: {e}")
             return False

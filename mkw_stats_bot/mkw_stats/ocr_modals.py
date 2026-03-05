@@ -2,12 +2,13 @@
 Discord UI Modals for OCR War Result Editing
 """
 
-import discord
-from discord import ui
 from typing import TYPE_CHECKING
 
+import discord
+from discord import ui
+
 if TYPE_CHECKING:
-    from .bot import OCRConfirmationView
+    from .bot import OCRConfirmationView, ReportIssueView
 
 
 class EditPlayerModal(ui.Modal, title="Edit Player"):
@@ -234,7 +235,7 @@ class ReportIssueModal(ui.Modal, title="Report OCR Issue"):
                         self.report_view.message.embeds[0] if self.report_view.message.embeds else None,
                         countdown_seconds=10
                     ))
-                except:
+                except Exception:  # noqa: S110 - UI cleanup is best-effort
                     pass
 
         except Exception as e:

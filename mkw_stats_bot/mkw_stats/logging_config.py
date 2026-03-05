@@ -1,286 +1,242 @@
 #!/usr/bin/env python3
-"""
-Centralized logging configuration for MKW Stats Bot.
+"""Centralized logging configuration for MKW Stats Bot.
 
-Provides structured logging with multiple handlers, proper formatting,
-and environment-based log levels for both development and production.
+Railway / container logging principles:
+- stdout only  (Railway captures stdout; file handlers waste ephemeral disk)
+- Single line per event  (multi-line SQL errors are truncated to the first line)
+- No ANSI colors on Railway  (auto-detected via sys.stdout.isatty())
+- Named loggers everywhere  (not root — tells you *where* the log came from)
+- Third-party noise suppressed  (paddle, PIL, urllib3, etc. silenced to WARNING)
+- LogBlock context manager wraps each event (command, OCR scan, etc.) in
+  bordered blocks so Railway's log stream is scannable at a glance.
 """
 
 import logging
-import logging.handlers
 import os
 import sys
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
+import threading
+import time
 
-# Log levels mapping
-LOG_LEVELS = {
-    'CRITICAL': logging.CRITICAL,
-    'ERROR': logging.ERROR,
-    'WARNING': logging.WARNING,
-    'INFO': logging.INFO,
-    'DEBUG': logging.DEBUG
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+BORDER_WIDTH = 62
+
+_LEVEL_MAP: dict[str, str] = {
+    "DEBUG":    "DEBUG",
+    "INFO":     "INFO ",
+    "WARNING":  "WARN ",
+    "ERROR":    "ERROR",
+    "CRITICAL": "CRIT ",
 }
 
+_USE_COLOR: bool = sys.stdout.isatty()
 
-class ColoredFormatter(logging.Formatter):
-    """Custom formatter with color support for console output."""
-    
-    # ANSI color codes
-    COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[32m',       # Green
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[41m',   # Red background
-        'RESET': '\033[0m'        # Reset
-    }
-    
-    def format(self, record):
-        """Format log record with colors for console output."""
-        # Add color to levelname
-        if record.levelname in self.COLORS:
-            record.levelname = (
-                f"{self.COLORS[record.levelname]}"
-                f"{record.levelname:8}"
-                f"{self.COLORS['RESET']}"
-            )
-        
-        # Format the message
-        formatted = super().format(record)
-        return formatted
+_ANSI: dict[str, str] = {
+    "DEBUG": "\033[36m",   # Cyan
+    "INFO ": "\033[32m",   # Green
+    "WARN ": "\033[33m",   # Yellow
+    "ERROR": "\033[31m",   # Red
+    "CRIT ": "\033[41m",   # Red background
+    "RESET": "\033[0m",
+}
+
+# Third-party loggers that produce too much noise at INFO
+_QUIET_LOGGERS = [
+    "paddle",
+    "ppocr",
+    "PIL",
+    "urllib3",
+    "aiohttp.access",
+    "discord.http",
+]
 
 
-def setup_logging(
-    log_level: Optional[str] = None,
-    log_file: Optional[str] = None,
-    enable_console: bool = True,
-    enable_file: bool = True
-) -> logging.Logger:
+# ---------------------------------------------------------------------------
+# Formatter
+# ---------------------------------------------------------------------------
+
+class _Formatter(logging.Formatter):
+    """Single-line formatter with short level labels and optional ANSI color."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        # Remap level names to fixed 5-char labels
+        original_levelname = record.levelname
+        short = _LEVEL_MAP.get(record.levelname, record.levelname[:5].ljust(5))
+
+        if _USE_COLOR:
+            color = _ANSI.get(short, "")
+            record.levelname = f"{color}{short}{_ANSI['RESET']}"
+        else:
+            record.levelname = short
+
+        result = super().format(record)
+        record.levelname = original_levelname  # Restore for other handlers
+        return result
+
+    def formatMessage(self, record: logging.LogRecord) -> str:
+        # Truncate multi-line messages to the first line.
+        # This removes the "LINE N: ..." SQL context that psycopg2 appends.
+        original_message = getattr(record, "message", None)
+        try:
+            if original_message and "\n" in original_message:
+                record.message = original_message.split("\n")[0].strip()
+            return super().formatMessage(record)
+        finally:
+            record.message = original_message
+
+
+# ---------------------------------------------------------------------------
+# LogBlock  (deferred header + empty-block collapse)
+# ---------------------------------------------------------------------------
+
+# Thread-local stack of active blocks so the filter can find the current one.
+_local = threading.local()
+
+
+def _active_blocks() -> list["LogBlock"]:
+    """Return the per-thread block stack (lazily created)."""
+    if not hasattr(_local, "blocks"):
+        _local.blocks: list[LogBlock] = []
+    return _local.blocks
+
+
+class _LogBlockFilter(logging.Filter):
+    """Intercepts log records on the stdout handler.
+
+    When a LogBlock is active and its header hasn't been emitted yet, this
+    filter emits the header *before* the first real log line inside the block.
+    A recursion guard prevents the header emission from re-triggering itself.
     """
-    Setup centralized logging configuration.
-    
-    Args:
-        log_level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_file: Path to log file (default: mario_kart_bot.log)
-        enable_console: Enable console logging
-        enable_file: Enable file logging
-        
-    Returns:
-        Configured logger instance
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._emitting_header = threading.local()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Recursion guard — don't intercept while we're emitting a header
+        if getattr(self._emitting_header, "active", False):
+            return True
+
+        stack = _active_blocks()
+        if not stack:
+            return True
+
+        block = stack[-1]
+        if not block._header_emitted:
+            block._header_emitted = True
+            self._emitting_header.active = True
+            try:
+                block._logger.info(block._header())
+            finally:
+                self._emitting_header.active = False
+
+        return True
+
+
+class LogBlock:
+    """Context manager that wraps a group of log lines in a bordered block.
+
+    The header is *deferred* — it only appears when the first real log line
+    is emitted inside the block.  If the block produces no log output the
+    header and footer collapse into a compact one-liner:
+
+        HH:MM:SS | INFO  | ── /wars [Cynical · BOT] (214ms)
+
+    Blocks that do produce output look like before:
+
+        HH:MM:SS | INFO  | ── /addwar player_scores="…" [Cynical · BOT] ──────
+        HH:MM:SS | INFO  | Player resolution: 'Cynical' -> Cynical
+        HH:MM:SS | INFO  | ──────────────────────────────────────────────  (292ms)
     """
-    
-    # Determine log level
-    if log_level is None:
-        log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
-    
-    if log_level not in LOG_LEVELS:
-        log_level = 'INFO'
-    
-    level = LOG_LEVELS[log_level]
-    
-    # Determine log file path
-    if log_file is None:
-        log_file = os.getenv('LOG_FILE', 'mario_kart_bot.log')
-    
-    # Create logs directory if it doesn't exist
-    log_path = Path(log_file)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Create root logger
-    logger = logging.getLogger()
-    logger.setLevel(level)
-    
-    # Clear any existing handlers
-    logger.handlers.clear()
-    
-    # Console handler with colors
-    if enable_console:
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(level)
-        
-        console_formatter = ColoredFormatter(
-            fmt='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
-            datefmt='%H:%M:%S'
+
+    def __init__(self, title: str, logger: logging.Logger | None = None) -> None:
+        self.title = title
+        self._logger = logger or logging.getLogger("mkw_stats")
+        self._start: float | None = None
+        self._header_emitted: bool = False
+
+    def _header(self) -> str:
+        inner = f" {self.title} "
+        dashes = "─" * max(0, BORDER_WIDTH - len(inner) - 3)
+        return f"──{inner}" + dashes
+
+    def _footer(self, elapsed_ms: float) -> str:
+        return "─" * BORDER_WIDTH + f"  ({elapsed_ms:.0f}ms)"
+
+    def _oneliner(self, elapsed_ms: float) -> str:
+        return f"── {self.title} ({elapsed_ms:.0f}ms)"
+
+    def __enter__(self) -> "LogBlock":
+        self._start = time.monotonic()
+        self._header_emitted = False
+        _active_blocks().append(self)
+        return self
+
+    def __exit__(self, *_: object) -> bool:
+        stack = _active_blocks()
+        # Locate and remove self from the stack.  Normally we're on top,
+        # but out-of-order exits (e.g. exceptions) could leave us deeper.
+        for i in range(len(stack) - 1, -1, -1):
+            if stack[i] is self:
+                if i != len(stack) - 1:
+                    self._logger.warning(
+                        "LogBlock %r exited out of order (index %d of %d)",
+                        self.title, i, len(stack),
+                    )
+                stack.pop(i)
+                break
+
+        elapsed_ms = (time.monotonic() - (self._start or 0)) * 1000
+        if self._header_emitted:
+            self._logger.info(self._footer(elapsed_ms))
+        else:
+            # No log output inside the block — collapse to one line
+            self._logger.info(self._oneliner(elapsed_ms))
+        return False  # Never suppress exceptions
+
+    async def __aenter__(self) -> "LogBlock":
+        return self.__enter__()
+
+    async def __aexit__(self, *args: object) -> bool:
+        return self.__exit__(*args)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def setup_logging(log_level: str | None = None) -> logging.Logger:
+    """Configure the root logger: stdout only, auto-color, suppress third-party noise.
+
+    Call once at startup (bot.py already does this).
+    """
+    level_name = (log_level or os.getenv("LOG_LEVEL", "INFO")).upper()
+    level = getattr(logging, level_name, logging.INFO)
+
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.handlers.clear()
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(level)
+    handler.setFormatter(
+        _Formatter(
+            fmt="%(asctime)s | %(levelname)s | %(message)s",
+            datefmt="%H:%M:%S",
         )
-        console_handler.setFormatter(console_formatter)
-        logger.addHandler(console_handler)
-    
-    # File handler with rotation
-    if enable_file:
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=10 * 1024 * 1024,  # 10MB
-            backupCount=5,
-            encoding='utf-8'
-        )
-        file_handler.setLevel(level)
-        
-        file_formatter = logging.Formatter(
-            fmt='%(asctime)s | %(levelname)-8s | %(name)-20s | %(funcName)-15s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        file_handler.setFormatter(file_formatter)
-        logger.addHandler(file_handler)
-    
-    # Log startup message
-    logger.info("=" * 80)
-    logger.info(f"🏁 MKW Stats Bot - Logging Initialized")
-    logger.info(f"📅 Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"📊 Log Level: {log_level}")
-    if enable_file:
-        logger.info(f"📁 Log File: {log_file}")
-    logger.info("=" * 80)
-    
-    return logger
+    )
+    handler.addFilter(_LogBlockFilter())
+    root.addHandler(handler)
+
+    # Silence noisy third-party libraries
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+    return root
 
 
 def get_logger(name: str) -> logging.Logger:
-    """
-    Get a logger instance for a specific module.
-    
-    Args:
-        name: Module name (usually __name__)
-        
-    Returns:
-        Logger instance
-    """
+    """Return a named logger for a module (use __name__)."""
     return logging.getLogger(name)
-
-
-def log_function_call(func):
-    """
-    Decorator to log function calls with parameters and execution time.
-    
-    Usage:
-        @log_function_call
-        def my_function(param1, param2):
-            pass
-    """
-    import functools
-    import time
-    
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        logger = get_logger(func.__module__)
-        
-        # Log function entry
-        logger.debug(f"🔵 Entering {func.__name__}()")
-        
-        start_time = time.time()
-        try:
-            result = func(*args, **kwargs)
-            execution_time = time.time() - start_time
-            
-            # Log successful completion
-            logger.debug(
-                f"✅ Completed {func.__name__}() in {execution_time:.3f}s"
-            )
-            return result
-            
-        except Exception as e:
-            execution_time = time.time() - start_time
-            
-            # Log exception
-            logger.error(
-                f"❌ Exception in {func.__name__}() after {execution_time:.3f}s: {e}"
-            )
-            raise
-    
-    return wrapper
-
-
-def log_database_operation(operation: str, table: str = None, count: int = None):
-    """
-    Log database operations for monitoring and debugging.
-    
-    Args:
-        operation: Type of operation (SELECT, INSERT, UPDATE, DELETE)
-        table: Table name (optional)
-        count: Number of records affected (optional)
-    """
-    logger = get_logger('mkw_stats.database')
-    
-    message = f"🗄️  Database {operation}"
-    if table:
-        message += f" on {table}"
-    if count is not None:
-        message += f" ({count} records)"
-    
-    logger.debug(message)
-
-
-def log_ocr_operation(image_path: str, success: bool, players_found: int = 0):
-    """
-    Log OCR operations for monitoring image processing.
-    
-    Args:
-        image_path: Path to processed image
-        success: Whether OCR was successful
-        players_found: Number of players detected
-    """
-    logger = get_logger('mkw_stats.ocr')
-    
-    if success:
-        logger.info(f"🖼️  OCR Success: {image_path} - Found {players_found} players")
-    else:
-        logger.warning(f"🖼️  OCR Failed: {image_path}")
-
-
-def log_discord_command(command: str, user: str, guild: str = None):
-    """
-    Log Discord command usage for monitoring.
-    
-    Args:
-        command: Command name
-        user: User who executed the command
-        guild: Guild name (optional)
-    """
-    logger = get_logger('mkw_stats.discord')
-    
-    message = f"💬 Command '{command}' by {user}"
-    if guild:
-        message += f" in {guild}"
-    
-    logger.info(message)
-
-
-# Configure logging on module import
-# Note: Logging setup is now handled explicitly in bot.py to avoid duplicate initialization
-
-
-# Test the logging configuration
-if __name__ == "__main__":
-    print("🧪 Testing logging configuration...")
-    
-    # Setup logging
-    logger = setup_logging(log_level='DEBUG')
-    
-    # Test different log levels
-    logger.debug("🔍 This is a debug message")
-    logger.info("ℹ️  This is an info message")
-    logger.warning("⚠️  This is a warning message")
-    logger.error("❌ This is an error message")
-    logger.critical("🚨 This is a critical message")
-    
-    # Test module logger
-    module_logger = get_logger('test_module')
-    module_logger.info("📦 This is from a module logger")
-    
-    # Test decorators
-    @log_function_call
-    def test_function():
-        import time
-        time.sleep(0.1)
-        return "Success"
-    
-    result = test_function()
-    logger.info(f"✅ Function result: {result}")
-    
-    # Test specialized logging functions
-    log_database_operation("SELECT", "players", 10)
-    log_ocr_operation("test_image.png", True, 6)
-    log_discord_command("mkstats", "TestUser", "TestGuild")
-    
-    print("✅ Logging test completed - check mario_kart_bot.log")
