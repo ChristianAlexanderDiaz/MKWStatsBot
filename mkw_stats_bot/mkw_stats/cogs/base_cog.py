@@ -107,11 +107,14 @@ def require_guild_setup(
                     await interaction.response.defer()
                     defer_ms = (time.monotonic() - t0) * 1000
                     logging.debug("/%s: DIAG defer_ok %.0fms", cmd_name, defer_ms)
-                except discord.errors.NotFound:
+                except discord.errors.NotFound as e:
                     defer_ms = (time.monotonic() - t0) * 1000
                     logging.warning(
-                        "/%s: DIAG defer_EXPIRED age=%.2fs defer_took=%.0fms",
+                        "/%s: DIAG defer_EXPIRED age=%.2fs defer_took=%.0fms "
+                        "discord_code=%s discord_text=%s is_done=%s interaction_id=%s guild=%s",
                         cmd_name, interaction_age, defer_ms,
+                        e.code, e.text, interaction.response.is_done(),
+                        interaction.id, guild_name,
                     )
                     try:
                         if interaction.channel is not None:
