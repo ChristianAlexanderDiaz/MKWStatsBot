@@ -425,9 +425,8 @@ class MarioKartBot(commands.Bot):
                 logger.warning(f"OCR resource management init failed: {e}")
 
         # Start event loop latency monitor (once, not on reconnects)
-        if not hasattr(self, '_latency_monitor_started'):
-            self._latency_monitor_started = True
-            asyncio.create_task(self._monitor_event_loop_latency())
+        if not hasattr(self, '_latency_monitor_task'):
+            self._latency_monitor_task = asyncio.create_task(self._monitor_event_loop_latency())
 
         # Set bot status
         await self.change_presence(
