@@ -328,9 +328,6 @@ class MarioKartBot(commands.Bot):
         # Shared HTTP client (created in setup_hook after the event loop is running)
         self.http_session: aiohttp.ClientSession | None = None
 
-        # One-time startup state
-        self._commands_synced = False
-
         # Confirmation state (accessed directly by commands.py)
         self.pending_confirmations = {}  # message_id -> confirmation_data
         self.timeout_tasks = {}  # message_id -> asyncio.Task
@@ -356,6 +353,14 @@ class MarioKartBot(commands.Bot):
                 wh.start(asyncio.get_running_loop())
             except Exception:
                 logger.warning("Failed to start webhook log handler", exc_info=True)
+
+        # Sync slash commands before gateway connects — gives Discord time
+        # to propagate before interactions start arriving (avoids 10062 race)
+        try:
+            synced = await self.tree.sync()
+            logger.info(f"{len(synced)} slash commands synced (global)")
+        except Exception as e:
+            logger.error(f"Failed to sync slash commands: {e}")
 
     async def close(self) -> None:
         """Clean up shared resources on shutdown."""
@@ -409,22 +414,6 @@ class MarioKartBot(commands.Bot):
         """Event handler called when bot is ready."""
         async with LogBlock("BOT STARTUP", logger):
             logger.info(f"{self.user} — v{config.BOT_VERSION} — {len(self.guilds)} guild(s)")
-
-            # Sync slash commands (once only — skip on reconnects)
-            if not self._commands_synced:
-                try:
-                    synced = await self.tree.sync()
-                    logger.info(f"{len(synced)} slash commands synced (global)")
-                    # Clear stale guild-level command overrides
-                    for guild in self.guilds:
-                        try:
-                            self.tree.clear_commands(guild=guild)
-                            await self.tree.sync(guild=guild)
-                        except Exception as e:
-                            logger.warning(f"Failed to clear guild commands for {guild.id}: {e}")
-                    self._commands_synced = True
-                except Exception as e:
-                    logger.error(f"Failed to sync slash commands: {e}")
 
             # Initialize OCR resource management if available
             try:
