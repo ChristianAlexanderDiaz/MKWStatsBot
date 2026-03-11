@@ -4,12 +4,7 @@ Formatting utility functions.
 Moved from commands.py to eliminate duplication and enable reuse.
 """
 
-from typing import TYPE_CHECKING
-
 from ..constants import ERROR_MSG_TRUNCATE_LENGTH, UNICODE_REGIONAL_INDICATOR_OFFSET
-
-if TYPE_CHECKING:
-    from ..database import DatabaseManager
 
 
 def country_code_to_flag(country_code: str) -> str:
@@ -28,8 +23,6 @@ def country_code_to_flag(country_code: str) -> str:
 def get_player_display_name(
     player_name: str,
     team_name: str,
-    guild_id: int,
-    db: "DatabaseManager",
     team_tags: dict[str, str] | None = None,
 ) -> str:
     """Return player name with team tag prefix if tag exists.
@@ -37,9 +30,7 @@ def get_player_display_name(
     Args:
         player_name: Player's name
         team_name: Player's team name
-        guild_id: Guild ID
-        db: Database manager instance
-        team_tags: Optional pre-fetched team tags dict to avoid DB calls
+        team_tags: Pre-fetched team tags dict
 
     Returns:
         'TAG Playername' if tag exists, 'Playername' otherwise
@@ -50,7 +41,8 @@ def get_player_display_name(
     if team_tags is not None:
         tag = team_tags.get(team_name)
     else:
-        tag = db.guilds.get_team_tag(guild_id, team_name)
+        # No sync DB fallback — callers must supply team_tags
+        tag = None
 
     if tag:
         return f"{tag} {player_name}"

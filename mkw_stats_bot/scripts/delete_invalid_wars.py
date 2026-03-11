@@ -2,9 +2,11 @@
 Script to delete invalid wars from the database.
 These wars were created via bulk review before the player stats update fix.
 """
+import asyncio
 import os
 import sys
-import psycopg2
+
+import asyncpg
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -16,51 +18,51 @@ if not DATABASE_URL:
     print("Error: DATABASE_URL or DATABASE_PUBLIC_URL not found in environment")
     sys.exit(1)
 
-print(f"Connecting to database...")
 
-try:
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
+async def main():
+    print("Connecting to database...")
+    conn = await asyncpg.connect(DATABASE_URL)
 
-    # First, check how many records will be deleted
-    cursor.execute("SELECT COUNT(*) FROM wars WHERE id >= 460")
-    war_count = cursor.fetchone()[0]
-    print(f"Found {war_count} wars with ID >= 460")
+    try:
+        war_count = await conn.fetchval("SELECT COUNT(*) FROM wars WHERE id >= 460")
+        print(f"Found {war_count} wars with ID >= 460")
 
-    cursor.execute("SELECT COUNT(*) FROM player_war_performances WHERE war_id >= 460")
-    perf_count = cursor.fetchone()[0]
-    print(f"Found {perf_count} player_war_performances records with war_id >= 460")
+        perf_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM player_war_performances WHERE war_id >= 460"
+        )
+        print(f"Found {perf_count} player_war_performances records with war_id >= 460")
 
-    if war_count == 0 and perf_count == 0:
-        print("No records to delete. Exiting.")
-        sys.exit(0)
+        if war_count == 0 and perf_count == 0:
+            print("No records to delete. Exiting.")
+            return
 
-    # Confirm deletion
-    confirm = input(f"\nAre you sure you want to delete {war_count} wars and {perf_count} performance records? (yes/no): ")
-    if confirm.lower() != 'yes':
-        print("Aborted.")
-        sys.exit(0)
+        confirm = await asyncio.to_thread(
+            input,
+            f"\nAre you sure you want to delete {war_count} wars "
+            f"and {perf_count} performance records? (yes/no): "
+        )
+        if confirm.lower() != 'yes':
+            print("Aborted.")
+            return
 
-    # First, delete related player_war_performances
-    cursor.execute("DELETE FROM player_war_performances WHERE war_id >= 460")
-    print(f"Deleted {cursor.rowcount} player_war_performances records")
+        async with conn.transaction():
+            status = await conn.execute(
+                "DELETE FROM player_war_performances WHERE war_id >= 460"
+            )
+            print(f"Deleted {status.split()[-1]} player_war_performances records")
 
-    # Then delete the wars
-    cursor.execute("DELETE FROM wars WHERE id >= 460")
-    print(f"Deleted {cursor.rowcount} wars")
+            status = await conn.execute("DELETE FROM wars WHERE id >= 460")
+            print(f"Deleted {status.split()[-1]} wars")
 
-    conn.commit()
-    print("\nDeletion committed successfully!")
+        print("\nDeletion committed successfully!")
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    finally:
+        await conn.close()
 
-except Exception as e:
-    print(f"Error: {e}")
-    if 'conn' in locals():
-        conn.rollback()
-    sys.exit(1)
-finally:
-    if 'cursor' in locals():
-        cursor.close()
-    if 'conn' in locals():
-        conn.close()
+    print("Done!")
 
-print("Done!")
+
+if __name__ == '__main__':
+    asyncio.run(main())

@@ -57,14 +57,17 @@ mkw_stats/
 ```
 
 ## Database Access Pattern
-Repositories are accessed via `self.bot.db.REPO.method()` in cogs and handlers:
+
+All DB calls are **async** (asyncpg). Repositories are accessed via `await self.bot.db.REPO.method()` in cogs and handlers:
+
 ```python
-self.bot.db.players.resolve_player_name(name, guild_id)
-self.bot.db.wars.add_race_results(results, guild_id=guild_id)
-self.bot.db.stats.get_player_stats(player_name, guild_id)
-self.bot.db.guilds.get_guild_config(guild_id)
+await self.bot.db.players.resolve_player_name(name, guild_id)
+await self.bot.db.wars.add_race_results(results, guild_id=guild_id)
+await self.bot.db.stats.get_player_stats(player_name, guild_id)
+await self.bot.db.guilds.get_guild_config(guild_id)
 ```
-Connection pool access: `self.bot.db.get_connection()` (context manager).
+
+Connection pool access: `async with self.bot.db.get_connection() as conn:` (async context manager).
 
 ## Critical Patterns
 

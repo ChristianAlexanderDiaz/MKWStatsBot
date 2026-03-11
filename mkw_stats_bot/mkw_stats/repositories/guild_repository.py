@@ -2,81 +2,74 @@
 Guild repository: Guild configuration, teams, tags, roles, and OCR channel settings.
 """
 
-import json
 import logging
 
 from .base import BaseRepository
+
+_SQL_SELECT_TEAM_TAGS = "SELECT team_tags FROM guild_configs WHERE guild_id = $1"
 
 
 class GuildRepository(BaseRepository):
     """Handles all guild configuration database operations."""
 
-    def set_ocr_channel(self, guild_id: int, channel_id: int, cursor=None) -> bool:
+    async def set_ocr_channel(self, guild_id: int, channel_id: int, conn=None) -> bool:
         """Set the OCR channel for automatic image processing in a guild.
 
-        If *cursor* is provided the caller owns the connection/transaction and
-        this method will NOT commit — the caller is responsible for committing.
-        If *cursor* is None (the default) a new connection is opened, the row
-        is written, and committed immediately.
+        If *conn* is provided the caller owns the connection/transaction and
+        this method will use it directly.
+        If *conn* is None (the default) a new connection is opened and the row
+        is written directly.
         """
         self._validate_guild_id(guild_id, "set_ocr_channel")
         sql = """
             INSERT INTO guild_configs (guild_id, ocr_channel_id, is_active)
-            VALUES (%s, %s, TRUE)
+            VALUES ($1, $2, TRUE)
             ON CONFLICT (guild_id) DO UPDATE SET
                 ocr_channel_id = EXCLUDED.ocr_channel_id,
                 updated_at = CURRENT_TIMESTAMP
         """
         try:
-            if cursor is not None:
-                cursor.execute(sql, (guild_id, channel_id))
-                logging.info(f"✅ Set OCR channel {channel_id} for guild {guild_id} (deferred commit)")
+            if conn is not None:
+                await conn.execute(sql, guild_id, channel_id)
+                logging.info(f"Set OCR channel {channel_id} for guild {guild_id} (caller transaction)")
                 return True
 
-            with self.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(sql, (guild_id, channel_id))
-                conn.commit()
-                logging.info(f"✅ Set OCR channel {channel_id} for guild {guild_id}")
+            async with self.get_connection() as conn:
+                await conn.execute(sql, guild_id, channel_id)
+                logging.info(f"Set OCR channel {channel_id} for guild {guild_id}")
                 return True
 
         except Exception as e:
-            logging.error(f"❌ Error setting OCR channel: {e}")
+            logging.error(f"Error setting OCR channel: {e}")
             return False
 
-    def get_ocr_channel(self, guild_id: int) -> int | None:
+    async def get_ocr_channel(self, guild_id: int) -> int | None:
         """Get the OCR channel ID for a guild."""
         self._validate_guild_id(guild_id, "get_ocr_channel")
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-
-                cursor.execute("""
+            async with self.get_connection() as conn:
+                result = await conn.fetchrow("""
                     SELECT ocr_channel_id
                     FROM guild_configs
-                    WHERE guild_id = %s AND is_active = TRUE
-                """, (guild_id,))
+                    WHERE guild_id = $1 AND is_active = TRUE
+                """, guild_id)
 
-                result = cursor.fetchone()
                 return result[0] if result and result[0] else None
 
         except Exception as e:
-            logging.error(f"❌ Error getting OCR channel: {e}")
+            logging.error(f"Error getting OCR channel: {e}")
             return None
 
-    def get_guild_config(self, guild_id: int) -> dict | None:
+    async def get_guild_config(self, guild_id: int) -> dict | None:
         """Get guild configuration settings."""
         self._validate_guild_id(guild_id, "get_guild_config")
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-
-                cursor.execute("""
+            async with self.get_connection() as conn:
+                result = await conn.fetchrow("""
                     SELECT guild_id, guild_name, team_names, is_active, created_at, updated_at
-                    FROM guild_configs WHERE guild_id = %s
-                """, (guild_id,))
+                    FROM guild_configs WHERE guild_id = $1
+                """, guild_id)
 
-                result = cursor.fetchone()
                 if not result:
                     return None
 
@@ -90,79 +83,76 @@ class GuildRepository(BaseRepository):
                 }
 
         except Exception as e:
-            logging.error(f"❌ Error getting guild config: {e}")
+            logging.error(f"Error getting guild config: {e}")
             return None
 
-    def create_guild_config(self, guild_id: int, guild_name: str = None, team_names: list[str] = None) -> bool:
+    async def create_guild_config(self, guild_id: int, guild_name: str | None = None, team_names: list[str] | None = None) -> bool:
         """Create a new guild configuration."""
         self._validate_guild_id(guild_id, "create_guild_config")
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-
+            async with self.get_connection() as conn:
                 if team_names is None:
                     team_names = []
 
-                cursor.execute("""
+                await conn.execute("""
                     INSERT INTO guild_configs (guild_id, guild_name, team_names)
-                    VALUES (%s, %s, %s)
+                    VALUES ($1, $2, $3)
                     ON CONFLICT (guild_id) DO UPDATE SET
                         guild_name = EXCLUDED.guild_name,
                         team_names = EXCLUDED.team_names,
                         is_active = TRUE,
                         updated_at = CURRENT_TIMESTAMP
-                """, (guild_id, guild_name, json.dumps(team_names)))
+                """, guild_id, guild_name, team_names)
 
-                conn.commit()
-                logging.info(f"✅ Created/updated guild config for {guild_id}")
+                logging.info(f"Created/updated guild config for {guild_id}")
                 return True
 
         except Exception as e:
-            logging.error(f"❌ Error creating guild config: {e}")
+            logging.error(f"Error creating guild config: {e}")
             return False
 
-    def update_guild_config(self, guild_id: int, cursor=None, **kwargs) -> bool:
+    async def update_guild_config(self, guild_id: int, conn=None, **kwargs) -> bool:
         """Update guild configuration settings.
 
-        If *cursor* is provided the caller owns the connection/transaction and
-        this method will NOT commit — the caller is responsible for committing.
+        If *conn* is provided the caller owns the connection/transaction and
+        this method will use it directly.
         """
         self._validate_guild_id(guild_id, "update_guild_config")
         try:
             update_fields = []
             values = []
+            param_idx = 1
 
             for key, value in kwargs.items():
                 if key in ['guild_name', 'team_names', 'is_active']:
-                    update_fields.append(f"{key} = %s")
-                    values.append(json.dumps(value) if key == 'team_names' else value)
+                    update_fields.append(f"{key} = ${param_idx}")
+                    values.append(value)
+                    param_idx += 1
 
             if not update_fields:
                 return False
 
             update_fields.append("updated_at = CURRENT_TIMESTAMP")
             values.append(guild_id)
-            query = f"UPDATE guild_configs SET {', '.join(update_fields)} WHERE guild_id = %s"  # noqa: S608
+            query = f"UPDATE guild_configs SET {', '.join(update_fields)} WHERE guild_id = ${param_idx}"  # noqa: S608
 
-            if cursor is not None:
-                cursor.execute(query, values)
-                logging.info(f"✅ Updated guild config for {guild_id} (deferred commit)")
+            if conn is not None:
+                await conn.execute(query, *values)
+                logging.info(f"Updated guild config for {guild_id} (caller transaction)")
                 return True
 
-            with self.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, values)
-                conn.commit()
-                logging.info(f"✅ Updated guild config for {guild_id}")
+            async with self.get_connection() as conn:
+                await conn.execute(query, *values)
+                logging.info(f"Updated guild config for {guild_id}")
                 return True
 
         except Exception as e:
-            logging.error(f"❌ Error updating guild config: {e}")
+            logging.error(f"Error updating guild config: {e}")
             return False
 
-    def get_guild_team_names(self, guild_id: int) -> list[str]:
+    async def get_guild_team_names(self, guild_id: int) -> list[str]:
         """Get valid team names for a guild."""
-        config = self.get_guild_config(guild_id)
+        config = await self.get_guild_config(guild_id)
         if config:
             return config.get('team_names', [])
         return []
@@ -173,13 +163,13 @@ class GuildRepository(BaseRepository):
 
     # Team Management Methods
 
-    def add_guild_team(self, guild_id: int, team_name: str) -> bool:
+    async def add_guild_team(self, guild_id: int, team_name: str) -> bool:
         """Add a new team to a guild's configuration."""
         try:
             if not self.validate_team_name(team_name):
                 return False
 
-            current_teams = self.get_guild_team_names(guild_id)
+            current_teams = await self.get_guild_team_names(guild_id)
 
             if any(team.lower() == team_name.lower() for team in current_teams):
                 logging.error(f"Team '{team_name}' already exists in guild {guild_id}")
@@ -190,21 +180,21 @@ class GuildRepository(BaseRepository):
                 return False
 
             new_teams = current_teams + [team_name]
-            success = self.update_guild_config(guild_id, team_names=new_teams)
+            success = await self.update_guild_config(guild_id, team_names=new_teams)
 
             if success:
-                logging.info(f"✅ Added team '{team_name}' to guild {guild_id}")
+                logging.info(f"Added team '{team_name}' to guild {guild_id}")
 
             return success
 
         except Exception as e:
-            logging.error(f"❌ Error adding team to guild: {e}")
+            logging.error(f"Error adding team to guild: {e}")
             return False
 
-    def remove_guild_team(self, guild_id: int, team_name: str) -> bool:
+    async def remove_guild_team(self, guild_id: int, team_name: str) -> bool:
         """Remove a team from a guild's configuration and move players to Unassigned."""
         try:
-            current_teams = self.get_guild_team_names(guild_id)
+            current_teams = await self.get_guild_team_names(guild_id)
 
             team_to_remove = None
             for team in current_teams:
@@ -216,39 +206,36 @@ class GuildRepository(BaseRepository):
                 logging.error(f"Team '{team_name}' not found in guild {guild_id}")
                 return False
 
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            async with self.get_connection() as conn:
+                async with conn.transaction():
+                    status = await conn.execute("""
+                        UPDATE players
+                        SET team = 'Unassigned', updated_at = CURRENT_TIMESTAMP
+                        WHERE guild_id = $1 AND team = $2
+                    """, guild_id, team_to_remove)
 
-                cursor.execute("""
-                    UPDATE players
-                    SET team = 'Unassigned', updated_at = CURRENT_TIMESTAMP
-                    WHERE guild_id = %s AND team = %s
-                """, (guild_id, team_to_remove))
+                    moved_players = int(status.split()[-1])
 
-                moved_players = cursor.rowcount
+                    new_teams = [team for team in current_teams if team != team_to_remove]
+                    success = await self.update_guild_config(guild_id, conn=conn, team_names=new_teams)
 
-                new_teams = [team for team in current_teams if team != team_to_remove]
-                success = self.update_guild_config(guild_id, cursor=cursor, team_names=new_teams)
+                    if not success:
+                        raise RuntimeError("Failed to update guild config during team removal")
 
-                if success:
-                    conn.commit()
-                    logging.info(f"✅ Removed team '{team_to_remove}' from guild {guild_id}, moved {moved_players} players to Unassigned")
-                    return True
-                else:
-                    conn.rollback()
-                    return False
+                logging.info(f"Removed team '{team_to_remove}' from guild {guild_id}, moved {moved_players} players to Unassigned")
+                return True
 
         except Exception as e:
-            logging.error(f"❌ Error removing team from guild: {e}")
+            logging.error(f"Error removing team from guild: {e}")
             return False
 
-    def rename_guild_team(self, guild_id: int, old_name: str, new_name: str) -> bool:
+    async def rename_guild_team(self, guild_id: int, old_name: str, new_name: str) -> bool:
         """Rename a team in a guild's configuration and update player assignments."""
         try:
             if not self.validate_team_name(new_name):
                 return False
 
-            current_teams = self.get_guild_team_names(guild_id)
+            current_teams = await self.get_guild_team_names(guild_id)
 
             team_to_rename = None
             for team in current_teams:
@@ -264,30 +251,27 @@ class GuildRepository(BaseRepository):
                 logging.error(f"Team '{new_name}' already exists in guild {guild_id}")
                 return False
 
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            async with self.get_connection() as conn:
+                async with conn.transaction():
+                    status = await conn.execute("""
+                        UPDATE players
+                        SET team = $1, updated_at = CURRENT_TIMESTAMP
+                        WHERE guild_id = $2 AND team = $3
+                    """, new_name, guild_id, team_to_rename)
 
-                cursor.execute("""
-                    UPDATE players
-                    SET team = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE guild_id = %s AND team = %s
-                """, (new_name, guild_id, team_to_rename))
+                    updated_players = int(status.split()[-1])
 
-                updated_players = cursor.rowcount
+                    new_teams = [new_name if team == team_to_rename else team for team in current_teams]
+                    success = await self.update_guild_config(guild_id, conn=conn, team_names=new_teams)
 
-                new_teams = [new_name if team == team_to_rename else team for team in current_teams]
-                success = self.update_guild_config(guild_id, cursor=cursor, team_names=new_teams)
+                    if not success:
+                        raise RuntimeError("Failed to update guild config during team rename")
 
-                if success:
-                    conn.commit()
-                    logging.info(f"✅ Renamed team '{team_to_rename}' to '{new_name}' in guild {guild_id}, updated {updated_players} players")
-                    return True
-                else:
-                    conn.rollback()
-                    return False
+                logging.info(f"Renamed team '{team_to_rename}' to '{new_name}' in guild {guild_id}, updated {updated_players} players")
+                return True
 
         except Exception as e:
-            logging.error(f"❌ Error renaming team in guild: {e}")
+            logging.error(f"Error renaming team in guild: {e}")
             return False
 
     def validate_team_name(self, team_name: str) -> bool:
@@ -306,19 +290,19 @@ class GuildRepository(BaseRepository):
 
         return True
 
-    def get_guild_teams_with_counts(self, guild_id: int) -> dict[str, int]:
+    async def get_guild_teams_with_counts(self, guild_id: int) -> dict[str, int]:
         """Get all teams for a guild with player counts."""
         try:
-            teams = self._db.players.get_players_by_team(guild_id=guild_id)
+            teams = await self._db.players.get_players_by_team(guild_id=guild_id)
             return {team_name: len(players) for team_name, players in teams.items()}
 
         except Exception as e:
-            logging.error(f"❌ Error getting guild teams with counts: {e}")
+            logging.error(f"Error getting guild teams with counts: {e}")
             return {}
 
     # Team Tag Management Methods
 
-    def set_team_tag(self, guild_id: int, team_name: str, tag: str) -> bool:
+    async def set_team_tag(self, guild_id: int, team_name: str, tag: str) -> bool:
         """Set a tag for a team in a guild's configuration."""
         try:
             self._validate_guild_id(guild_id, "set_team_tag")
@@ -337,7 +321,7 @@ class GuildRepository(BaseRepository):
                 logging.error("Tag cannot contain newline characters")
                 return False
 
-            current_teams = self.get_guild_team_names(guild_id)
+            current_teams = await self.get_guild_team_names(guild_id)
 
             team_to_tag = None
             for team in current_teams:
@@ -349,48 +333,33 @@ class GuildRepository(BaseRepository):
                 logging.error(f"Team '{team_name}' not found in guild {guild_id}")
                 return False
 
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            async with self.get_connection() as conn:
+                status = await conn.execute("""
+                    UPDATE guild_configs
+                    SET team_tags = COALESCE(team_tags, '{}'::jsonb) || $1::jsonb,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE guild_id = $2
+                """, {team_to_tag: tag}, guild_id)
 
-                cursor.execute("""
-                    SELECT team_tags FROM guild_configs WHERE guild_id = %s
-                """, (guild_id,))
-
-                result = cursor.fetchone()
-                if not result:
+                if int(status.split()[-1]) == 0:
                     logging.error(f"Guild {guild_id} not found in guild_configs")
                     return False
 
-                team_tags = result[0] if result[0] else {}
-                team_tags[team_to_tag] = tag
-
-                cursor.execute("""
-                    UPDATE guild_configs
-                    SET team_tags = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE guild_id = %s
-                """, (json.dumps(team_tags), guild_id))
-
-                conn.commit()
-                logging.info(f"✅ Set tag '{tag}' for team '{team_to_tag}' in guild {guild_id}")
+                logging.info(f"Set tag '{tag}' for team '{team_to_tag}' in guild {guild_id}")
                 return True
 
         except Exception as e:
-            logging.error(f"❌ Error setting team tag: {e}")
+            logging.error(f"Error setting team tag: {e}")
             return False
 
-    def get_team_tag(self, guild_id: int, team_name: str) -> str | None:
+    async def get_team_tag(self, guild_id: int, team_name: str) -> str | None:
         """Get the tag for a team in a guild."""
         try:
             self._validate_guild_id(guild_id, "get_team_tag")
 
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            async with self.get_connection() as conn:
+                result = await conn.fetchrow(_SQL_SELECT_TEAM_TAGS, guild_id)
 
-                cursor.execute("""
-                    SELECT team_tags FROM guild_configs WHERE guild_id = %s
-                """, (guild_id,))
-
-                result = cursor.fetchone()
                 if not result or not result[0]:
                     return None
 
@@ -406,92 +375,82 @@ class GuildRepository(BaseRepository):
                 return None
 
         except Exception as e:
-            logging.error(f"❌ Error getting team tag: {e}")
+            logging.error(f"Error getting team tag: {e}")
             return None
 
-    def remove_team_tag(self, guild_id: int, team_name: str) -> bool:
+    async def remove_team_tag(self, guild_id: int, team_name: str) -> bool:
         """Remove the tag from a team in a guild's configuration."""
         try:
             self._validate_guild_id(guild_id, "remove_team_tag")
 
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            async with self.get_connection() as conn:
+                async with conn.transaction():
+                    result = await conn.fetchrow(
+                        "SELECT team_tags FROM guild_configs WHERE guild_id = $1 FOR UPDATE",
+                        guild_id,
+                    )
 
-                cursor.execute("""
-                    SELECT team_tags FROM guild_configs WHERE guild_id = %s
-                """, (guild_id,))
+                    if not result:
+                        logging.error(f"Guild {guild_id} not found in guild_configs")
+                        return False
 
-                result = cursor.fetchone()
-                if not result:
-                    logging.error(f"Guild {guild_id} not found in guild_configs")
-                    return False
+                    team_tags = result[0] if result[0] else {}
 
-                team_tags = result[0] if result[0] else {}
+                    team_to_remove = None
+                    for team in team_tags.keys():
+                        if team.lower() == team_name.lower():
+                            team_to_remove = team
+                            break
 
-                team_to_remove = None
-                for team in team_tags.keys():
-                    if team.lower() == team_name.lower():
-                        team_to_remove = team
-                        break
+                    if not team_to_remove:
+                        logging.error(f"No tag set for team '{team_name}' in guild {guild_id}")
+                        return False
 
-                if not team_to_remove:
-                    logging.error(f"No tag set for team '{team_name}' in guild {guild_id}")
-                    return False
+                    del team_tags[team_to_remove]
 
-                del team_tags[team_to_remove]
+                    await conn.execute("""
+                        UPDATE guild_configs
+                        SET team_tags = $1, updated_at = CURRENT_TIMESTAMP
+                        WHERE guild_id = $2
+                    """, team_tags, guild_id)
 
-                cursor.execute("""
-                    UPDATE guild_configs
-                    SET team_tags = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE guild_id = %s
-                """, (json.dumps(team_tags), guild_id))
-
-                conn.commit()
-                logging.info(f"✅ Removed tag from team '{team_to_remove}' in guild {guild_id}")
+                logging.info(f"Removed tag from team '{team_to_remove}' in guild {guild_id}")
                 return True
 
         except Exception as e:
-            logging.error(f"❌ Error removing team tag: {e}")
+            logging.error(f"Error removing team tag: {e}")
             return False
 
-    def get_all_team_tags(self, guild_id: int) -> dict[str, str]:
+    async def get_all_team_tags(self, guild_id: int) -> dict[str, str]:
         """Get all team tags for a guild."""
         try:
             self._validate_guild_id(guild_id, "get_all_team_tags")
 
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            async with self.get_connection() as conn:
+                result = await conn.fetchrow(_SQL_SELECT_TEAM_TAGS, guild_id)
 
-                cursor.execute("""
-                    SELECT team_tags FROM guild_configs WHERE guild_id = %s
-                """, (guild_id,))
-
-                result = cursor.fetchone()
                 if not result or not result[0]:
                     return {}
 
                 return result[0]
 
         except Exception as e:
-            logging.error(f"❌ Error getting all team tags: {e}")
+            logging.error(f"Error getting all team tags: {e}")
             return {}
 
     # Role Configuration Methods
 
-    def get_guild_role_config(self, guild_id: int) -> dict | None:
+    async def get_guild_role_config(self, guild_id: int) -> dict | None:
         """Get the role configuration for a guild."""
         self._validate_guild_id(guild_id, "get_guild_role_config")
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-
-                cursor.execute("""
+            async with self.get_connection() as conn:
+                result = await conn.fetchrow("""
                     SELECT role_member_id, role_trial_id, role_ally_id
                     FROM guild_configs
-                    WHERE guild_id = %s AND is_active = TRUE
-                """, (guild_id,))
+                    WHERE guild_id = $1 AND is_active = TRUE
+                """, guild_id)
 
-                result = cursor.fetchone()
                 if result:
                     return {
                         'role_member_id': result[0],
@@ -501,10 +460,10 @@ class GuildRepository(BaseRepository):
                 return None
 
         except Exception as e:
-            logging.error(f"❌ Error getting guild role config: {e}")
+            logging.error(f"Error getting guild role config: {e}")
             return None
 
-    def set_guild_role_config(
+    async def set_guild_role_config(
         self,
         guild_id: int,
         role_member_id: int,
@@ -514,34 +473,69 @@ class GuildRepository(BaseRepository):
         """Set the role configuration for a guild."""
         self._validate_guild_id(guild_id, "set_guild_role_config")
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            async with self.get_connection() as conn:
+                existing = await conn.fetchrow("""
+                    SELECT id FROM guild_configs WHERE guild_id = $1
+                """, guild_id)
 
-                cursor.execute("""
-                    SELECT id FROM guild_configs WHERE guild_id = %s
-                """, (guild_id,))
-
-                if cursor.fetchone():
-                    cursor.execute("""
+                if existing:
+                    await conn.execute("""
                         UPDATE guild_configs
-                        SET role_member_id = %s,
-                            role_trial_id = %s,
-                            role_ally_id = %s,
+                        SET role_member_id = $1,
+                            role_trial_id = $2,
+                            role_ally_id = $3,
                             updated_at = CURRENT_TIMESTAMP
-                        WHERE guild_id = %s
-                    """, (role_member_id, role_trial_id, role_ally_id, guild_id))
+                        WHERE guild_id = $4
+                    """, role_member_id, role_trial_id, role_ally_id, guild_id)
                 else:
-                    cursor.execute("""
+                    await conn.execute("""
                         INSERT INTO guild_configs (
                             guild_id, role_member_id, role_trial_id, role_ally_id, is_active
                         )
-                        VALUES (%s, %s, %s, %s, TRUE)
-                    """, (guild_id, role_member_id, role_trial_id, role_ally_id))
+                        VALUES ($1, $2, $3, $4, TRUE)
+                    """, guild_id, role_member_id, role_trial_id, role_ally_id)
 
-                conn.commit()
-                logging.info(f"✅ Set role config for guild {guild_id}")
+                logging.info(f"Set role config for guild {guild_id}")
                 return True
 
         except Exception as e:
-            logging.error(f"❌ Error setting guild role config: {e}")
+            logging.error(f"Error setting guild role config: {e}")
+            return False
+
+    # Setup Method
+
+    async def setup_guild(self, guild_id: int, guild_name: str, ocr_channel_id: int, team_names: list[str]) -> bool:
+        """Initialize guild configuration during /setup command.
+
+        Inserts or updates guild_configs with guild_name, team_names,
+        ocr_channel_id, and sets is_active=TRUE.
+
+        Args:
+            guild_id: Discord guild ID
+            guild_name: Display name of the guild
+            ocr_channel_id: Channel ID for OCR processing
+            team_names: List of team names for the guild
+
+        Returns:
+            True if setup succeeded, False otherwise
+        """
+        self._validate_guild_id(guild_id, "setup_guild")
+        try:
+            async with self.get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO guild_configs (guild_id, guild_name, team_names, ocr_channel_id, is_active)
+                    VALUES ($1, $2, $3, $4, TRUE)
+                    ON CONFLICT (guild_id) DO UPDATE SET
+                        guild_name = EXCLUDED.guild_name,
+                        team_names = EXCLUDED.team_names,
+                        ocr_channel_id = EXCLUDED.ocr_channel_id,
+                        is_active = TRUE,
+                        updated_at = CURRENT_TIMESTAMP
+                """, guild_id, guild_name, team_names, ocr_channel_id)
+
+                logging.info(f"Setup guild config for {guild_id} ({guild_name})")
+                return True
+
+        except Exception as e:
+            logging.error(f"Error setting up guild: {e}")
             return False

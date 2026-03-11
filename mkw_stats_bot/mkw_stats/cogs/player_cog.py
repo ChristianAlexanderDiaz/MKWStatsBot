@@ -39,7 +39,7 @@ class PlayerCog(BaseCog):
         """Show the complete clan roster organized by teams."""
         try:
             guild_id = self.get_guild_id(interaction)
-            all_players = self.bot.db.players.get_all_players_stats(guild_id)
+            all_players = await self.bot.db.players.get_all_players_stats(guild_id)
 
             if not all_players:
                 await interaction.followup.send("❌ No players found in players table. Use `/addplayer <player>` to add players.")
@@ -50,6 +50,8 @@ class PlayerCog(BaseCog):
                 description=f"All {len(all_players)} clan members organized by teams:",
                 color=0x9932cc
             )
+
+            team_tags = await self.bot.db.guilds.get_all_team_tags(guild_id)
 
             teams = {}
             for player in all_players:
@@ -63,7 +65,7 @@ class PlayerCog(BaseCog):
                     player_list = []
 
                     for player in players:
-                        display_name = get_player_display_name(player['player_name'], team_name, guild_id, self.bot.db)
+                        display_name = get_player_display_name(player['player_name'], team_name, team_tags=team_tags)
                         nickname_count = len(player.get('nicknames', []))
                         nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
                         player_list.append(f"• **{display_name}**{nickname_text}")
@@ -94,7 +96,7 @@ class PlayerCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
+            role_config = await self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
                 await interaction.response.send_message(
                     "❌ Guild roles are not configured. Please run `/setup` first to configure Member, Trial, and Ally roles.",
@@ -135,7 +137,7 @@ class PlayerCog(BaseCog):
 
             player_name = ingame_name if ingame_name else user.display_name
 
-            success = self.bot.db.players.add_roster_player_with_discord(
+            success = await self.bot.db.players.add_roster_player_with_discord(
                 discord_user_id=user.id,
                 player_name=player_name,
                 display_name=user.display_name,
@@ -189,7 +191,7 @@ class PlayerCog(BaseCog):
                 return
 
             guild_id = self.get_guild_id(interaction)
-            success = self.bot.db.players.remove_roster_player(player_name, guild_id)
+            success = await self.bot.db.players.remove_roster_player(player_name, guild_id)
 
             if success:
                 embed = discord.Embed(
@@ -231,7 +233,7 @@ class PlayerCog(BaseCog):
 
             guild_id = self.get_guild_id(interaction)
 
-            role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
+            role_config = await self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
                 await interaction.response.send_message(
                     "❌ Guild roles are not configured. Please run `/setup` first.",
@@ -258,7 +260,7 @@ class PlayerCog(BaseCog):
                 )
                 return
 
-            success = self.bot.db.players.link_player_to_discord_user(
+            success = await self.bot.db.players.link_player_to_discord_user(
                 player_name=player_name,
                 discord_user_id=user.id,
                 display_name=user.display_name,
@@ -295,7 +297,7 @@ class PlayerCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            unlinked_players = self.bot.db.players.get_unlinked_players(guild_id)
+            unlinked_players = await self.bot.db.players.get_unlinked_players(guild_id)
 
             if not unlinked_players:
                 embed = discord.Embed(
@@ -359,7 +361,7 @@ class PlayerCog(BaseCog):
 
             guild_id = self.get_guild_id(interaction)
 
-            role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
+            role_config = await self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
                 await interaction.response.send_message(
                     "❌ Guild roles are not configured. Please run `/setup` first.",
@@ -367,7 +369,7 @@ class PlayerCog(BaseCog):
                 )
                 return
 
-            all_players = self.bot.db.players.get_all_players_stats(guild_id)
+            all_players = await self.bot.db.players.get_all_players_stats(guild_id)
             linked_players = [p for p in all_players if p.get('discord_user_id')]
 
             if not linked_players:
@@ -405,12 +407,12 @@ class PlayerCog(BaseCog):
                     role_name = "Ally"
 
                 if new_status and new_status != current_status:
-                    self.bot.db.players.sync_player_role(discord_user_id, new_status, guild_id)
-                    self.bot.db.players.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
+                    await self.bot.db.players.sync_player_role(discord_user_id, new_status, guild_id)
+                    await self.bot.db.players.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
                     changes.append(f"• **{player['player_name']}**: {current_status.title()} → {role_name}")
                     synced += 1
                 elif new_status:
-                    self.bot.db.players.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
+                    await self.bot.db.players.sync_player_discord_info(discord_user_id, member.display_name, member.name, guild_id)
                     synced += 1
 
             embed = discord.Embed(
@@ -471,23 +473,14 @@ class PlayerCog(BaseCog):
                     )
                     return
 
-            with self.bot.db.get_connection() as conn:
-                cursor = conn.cursor()
+            success = await self.bot.db.players.set_country_code_by_discord_id(target_member.id, country, guild_id)
 
-                cursor.execute("""
-                    UPDATE players
-                    SET country_code = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE discord_user_id = %s AND guild_id = %s AND is_active = TRUE
-                """, (country, target_member.id, guild_id))
-
-                if cursor.rowcount == 0:
-                    await interaction.response.send_message(
-                        f"❌ {target_member.mention} is not in the active roster.",
-                        ephemeral=True
-                    )
-                    return
-
-                conn.commit()
+            if not success:
+                await interaction.response.send_message(
+                    f"❌ {target_member.mention} is not in the active roster.",
+                    ephemeral=True
+                )
+                return
 
             flag = country_code_to_flag(country)
 
@@ -548,23 +541,14 @@ class PlayerCog(BaseCog):
             guild = self.bot.get_guild(target_guild_id)
             guild_display_name = guild.name if guild else f"Guild {target_guild_id}"
 
-            with self.bot.db.get_connection() as conn:
-                cursor = conn.cursor()
+            success = await self.bot.db.players.set_country_code(player_name, country, target_guild_id)
 
-                cursor.execute("""
-                    UPDATE players
-                    SET country_code = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE LOWER(player_name) = LOWER(%s) AND guild_id = %s AND is_active = TRUE
-                """, (country, player_name, target_guild_id))
-
-                if cursor.rowcount == 0:
-                    await interaction.response.send_message(
-                        f"❌ Player '{player_name}' not found in **{guild_display_name}**. Check the player name (case-insensitive) or spelling.",
-                        ephemeral=True
-                    )
-                    return
-
-                conn.commit()
+            if not success:
+                await interaction.response.send_message(
+                    f"❌ Player '{player_name}' not found in **{guild_display_name}**. Check the player name (case-insensitive) or spelling.",
+                    ephemeral=True
+                )
+                return
 
             flag = country_code_to_flag(country)
 
@@ -611,59 +595,46 @@ class PlayerCog(BaseCog):
 
             mention_pattern = re.compile(r'<@!?(\d+)>')
 
-            with self.bot.db.get_connection() as conn:
-                cursor = conn.cursor()
+            for pair in pairs:
+                if ':' not in pair:
+                    errors.append(f"❌ Invalid format: `{pair}` (use @User:CC or Player:CC)")
+                    continue
 
-                for pair in pairs:
-                    if ':' not in pair:
-                        errors.append(f"❌ Invalid format: `{pair}` (use @User:CC or Player:CC)")
+                player_identifier, country_code = pair.split(':', 1)
+                player_identifier = player_identifier.strip()
+                country_code = country_code.strip().upper()
+
+                if len(country_code) != 2 or not country_code.isalpha():
+                    errors.append(f"❌ Invalid country code: `{country_code}`")
+                    continue
+
+                mention_match = mention_pattern.search(player_identifier)
+
+                if mention_match:
+                    user_id = int(mention_match.group(1))
+                    member = interaction.guild.get_member(user_id)
+
+                    if not member:
+                        errors.append(f"❌ User not found in server: <@{user_id}>")
                         continue
 
-                    player_identifier, country_code = pair.split(':', 1)
-                    player_identifier = player_identifier.strip()
-                    country_code = country_code.strip().upper()
+                    success = await self.bot.db.players.set_country_code_by_discord_id(user_id, country_code, guild_id)
 
-                    if len(country_code) != 2 or not country_code.isalpha():
-                        errors.append(f"❌ Invalid country code: `{country_code}`")
-                        continue
-
-                    mention_match = mention_pattern.search(player_identifier)
-
-                    if mention_match:
-                        user_id = int(mention_match.group(1))
-                        member = interaction.guild.get_member(user_id)
-
-                        if not member:
-                            errors.append(f"❌ User not found in server: <@{user_id}>")
-                            continue
-
-                        cursor.execute("""
-                            UPDATE players
-                            SET country_code = %s, updated_at = CURRENT_TIMESTAMP
-                            WHERE discord_user_id = %s AND guild_id = %s AND is_active = TRUE
-                        """, (country_code, user_id, guild_id))
-
-                        if cursor.rowcount > 0:
-                            flag = country_code_to_flag(country_code)
-                            updated.append(f"{flag} {member.mention}")
-                        else:
-                            errors.append(f"❌ {member.mention} not in active roster")
+                    if success:
+                        flag = country_code_to_flag(country_code)
+                        updated.append(f"{flag} {member.mention}")
                     else:
-                        player_name = player_identifier
+                        errors.append(f"❌ {member.mention} not in active roster")
+                else:
+                    player_name = player_identifier
 
-                        cursor.execute("""
-                            UPDATE players
-                            SET country_code = %s, updated_at = CURRENT_TIMESTAMP
-                            WHERE player_name = %s AND guild_id = %s AND is_active = TRUE
-                        """, (country_code, player_name, guild_id))
+                    success = await self.bot.db.players.set_country_code(player_name, country_code, guild_id)
 
-                        if cursor.rowcount > 0:
-                            flag = country_code_to_flag(country_code)
-                            updated.append(f"{flag} {player_name}")
-                        else:
-                            errors.append(f"❌ Player not found: {player_name}")
-
-                conn.commit()
+                    if success:
+                        flag = country_code_to_flag(country_code)
+                        updated.append(f"{flag} {player_name}")
+                    else:
+                        errors.append(f"❌ Player not found: {player_name}")
 
             embed = discord.Embed(
                 title="🌍 Bulk Country Update",

@@ -7,20 +7,35 @@ from .name_resolver import extract_score_from_corrupted_token
 
 
 class TeamSplitter:
-    """Splits multi-team OCR results to isolate the guild's own team."""
+    """Splits multi-team OCR results to isolate the guild's own team.
 
-    def __init__(self, db_manager: object) -> None:
-        self.db_manager = db_manager
+    Designed to run inside sync executor contexts. All DB data must be
+    pre-fetched and passed in — this class never makes DB calls itself.
+    """
+
+    def __init__(self, db_manager: object = None, *, roster_data: list[dict] | None = None, guild_id: int = 0) -> None:
+        self.db_manager = db_manager  # Kept for backward compat; unused when roster_data supplied
+        self._roster_data_by_guild: dict[int, list[dict]] = {}
+        if roster_data:
+            self._roster_data_by_guild[guild_id] = roster_data
+
+    def set_roster_data(self, guild_id: int, roster_data: list[dict]) -> None:
+        """Update pre-fetched roster data for a specific guild (call before executor work)."""
+        self._roster_data_by_guild[guild_id] = roster_data
+
+    def _get_roster_data(self, guild_id: int) -> list[dict]:
+        """Return pre-fetched roster data for the given guild."""
+        roster = self._roster_data_by_guild.get(guild_id)
+        if roster is not None:
+            return roster
+        logging.warning(f"No pre-fetched roster data available for guild {guild_id} — team splitting will be limited")
+        return []
 
     def extract_all_players_from_tokens(self, tokens: list[str], guild_id: int = 0) -> list[tuple]:
         """Extract all player-score pairs using database-first approach for proper 6v6 splitting."""
-        if not self.db_manager:
-            logging.error("❌ No database manager available for guild member lookup")
-            return []
-
-        guild_players = self.db_manager.players.get_all_players_stats(guild_id)
+        guild_players = self._get_roster_data(guild_id)
         if not guild_players:
-            logging.warning("⚠️ No guild players found in database")
+            logging.warning("⚠️ No guild players found in roster data")
             return []
 
         guild_names = set()
@@ -277,7 +292,7 @@ class TeamSplitter:
             winning_team_start = 0 if winning_team_num == 1 else 6
             winning_team_end = 6 if winning_team_num == 1 else 12
 
-            guild_players = self.db_manager.players.get_all_players_stats(guild_id) if self.db_manager else []
+            guild_players = self._get_roster_data(guild_id)
             guild_names_list = {p.get('player_name', '').lower(): p.get('player_name', '') for p in guild_players}
 
             for result in winning_team:

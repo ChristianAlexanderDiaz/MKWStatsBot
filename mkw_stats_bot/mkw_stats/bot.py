@@ -56,7 +56,7 @@ class OCRConfirmationView(discord.ui.View):
             return False
 
         # Get guild role configuration
-        role_config = await asyncio.to_thread(self.bot.db.guilds.get_guild_role_config, self.guild_id)
+        role_config = await self.bot.db.guilds.get_guild_role_config(self.guild_id)
 
         # If no role config is set, prompt user to set it up
         if not role_config or not role_config.get('role_member_id'):
@@ -336,6 +336,9 @@ class MarioKartBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Initialize async resources (HTTP session, webhook logger) after login, before gateway connection."""
+        # Initialize database connection pool (async — must happen in event loop)
+        await self.db.connect()
+
         self.http_session = aiohttp.ClientSession()
 
         # Start Discord webhook log handler (if LOG_WEBHOOK_URL is set)
@@ -363,8 +366,14 @@ class MarioKartBot(commands.Bot):
             await dashboard_client.close()
         except Exception as e:
             logger.warning(f"Error closing dashboard client: {e}")
-        finally:
-            await super().close()
+
+        # Close database pool
+        try:
+            await self.db.close()
+        except Exception as e:
+            logger.warning(f"Error closing database pool: {e}")
+
+        await super().close()
 
     async def on_ready(self) -> None:
         """Event handler called when bot is ready."""
@@ -421,8 +430,7 @@ class MarioKartBot(commands.Bot):
             if not guild_id:
                 return
 
-            loop = asyncio.get_running_loop()
-            configured_channel_id = await loop.run_in_executor(None, self.db.guilds.get_ocr_channel, guild_id)
+            configured_channel_id = await self.db.guilds.get_ocr_channel(guild_id)
             if not configured_channel_id or message.channel.id != configured_channel_id:
                 return
 

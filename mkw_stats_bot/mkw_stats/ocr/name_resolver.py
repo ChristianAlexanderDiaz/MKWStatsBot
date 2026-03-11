@@ -18,18 +18,85 @@ def extract_score_from_corrupted_token(token: str) -> int | None:
 
 
 class NameResolver:
-    """Resolves player names from OCR token streams using database validation."""
+    """Resolves player names from OCR token streams using pre-fetched roster data.
 
-    def __init__(self, db_manager: object) -> None:
-        self.db_manager = db_manager
+    Designed to run inside sync executor contexts. All DB data must be
+    pre-fetched and passed in — this class never makes DB calls itself.
+
+    Roster data is stored per guild_id for multi-tenant isolation.
+    """
+
+    def __init__(self, db_manager: object = None, *, roster_data: list[dict] | None = None, guild_id: int = 0) -> None:
+        self.db_manager = db_manager  # Kept for backward compat; unused when roster_data supplied
+        self._roster_data_by_guild: dict[int, list[dict]] = {}
+        # Build lookup structures per guild
+        self._name_set_by_guild: dict[int, set[str]] = {}
+        self._nickname_map_by_guild: dict[int, dict[str, str]] = {}
+        if roster_data:
+            self.set_roster_data(guild_id, roster_data)
+
+    def set_roster_data(self, guild_id: int, roster_data: list[dict]) -> None:
+        """Update pre-fetched roster data for a specific guild (call before executor work)."""
+        self._roster_data_by_guild[guild_id] = roster_data
+        self._build_lookups(guild_id, roster_data)
+
+    def _build_lookups(self, guild_id: int, roster_data: list[dict]) -> None:
+        """Build fast lookup structures from roster data for a specific guild."""
+        name_set: set[str] = set()
+        nickname_map: dict[str, str] = {}
+        for player in roster_data:
+            pname = player.get('player_name', '')
+            if pname:
+                name_set.add(pname.lower())
+            for nick in (player.get('nicknames') or []):
+                nick_lower = nick.lower()
+                if nick_lower in nickname_map:
+                    existing_player = nickname_map[nick_lower]
+                    logging.warning(
+                        f"Nickname collision in guild {guild_id}: '{nick}' maps to both "
+                        f"'{existing_player}' and '{pname}' — keeping '{existing_player}'"
+                    )
+                else:
+                    nickname_map[nick_lower] = pname
+        self._name_set_by_guild[guild_id] = name_set
+        self._nickname_map_by_guild[guild_id] = nickname_map
+
+    def _get_roster_data(self, guild_id: int) -> list[dict]:
+        """Return pre-fetched roster data for the given guild."""
+        roster = self._roster_data_by_guild.get(guild_id)
+        if roster is not None:
+            return roster
+        logging.warning(f"No pre-fetched roster data available for guild {guild_id} — OCR name resolution will be limited")
+        return []
+
+    def _resolve_name(self, name: str, guild_id: int) -> str | None:
+        """Resolve a name/nickname to canonical player name using pre-fetched data."""
+        roster_data = self._roster_data_by_guild.get(guild_id)
+        if roster_data is None:
+            return None
+
+        name_lower = name.lower()
+        name_set = self._name_set_by_guild.get(guild_id, set())
+        nickname_map = self._nickname_map_by_guild.get(guild_id, {})
+
+        # Exact player name match
+        if name_lower in name_set:
+            for player in roster_data:
+                if player.get('player_name', '').lower() == name_lower:
+                    return player['player_name']
+        # Nickname match
+        if name_lower in nickname_map:
+            canonical = nickname_map[name_lower]
+            for player in roster_data:
+                if player.get('player_name', '').lower() == canonical.lower():
+                    return player['player_name']
+            return canonical
+        return None
 
     def find_guild_name_in_substring(self, corrupted_token: str, guild_id: int) -> tuple[str | None, str | None]:
         """Find guild member names as substrings within corrupted OCR tokens."""
         try:
-            if not self.db_manager:
-                return None, None
-
-            guild_players = self.db_manager.players.get_all_players_stats(guild_id)
+            guild_players = self._get_roster_data(guild_id)
             if not guild_players:
                 return None, None
 
@@ -116,7 +183,7 @@ class NameResolver:
                                 logging.debug(f"🏁 Extracted race count from 2-word + token '{two_word}' + '{next_token}': {two_word_to_check} → {race_count_2word} races")
                             break
 
-                resolved = self.db_manager.players.resolve_player_name(two_word_to_check, guild_id, log_level='debug')
+                resolved = self._resolve_name(two_word_to_check, guild_id)
                 if resolved:
                     valid_names.append((i, resolved, raw_name_2word, None, race_count_2word))
                     logging.info(f"✅ Found 2-word name: '{raw_name_2word}' → '{resolved}' at position {i} ({race_count_2word} races)")
@@ -170,7 +237,7 @@ class NameResolver:
                         break
 
             # Now try to resolve the clean name
-            resolved = self.db_manager.players.resolve_player_name(token_to_check, guild_id, log_level='debug')
+            resolved = self._resolve_name(token_to_check, guild_id)
             if resolved:
                 valid_names.append((i, resolved, raw_name, None, race_count))
                 logging.info(f"✅ Found 1-word name: '{raw_name}' → '{resolved}' at position {i} ({race_count} races)")

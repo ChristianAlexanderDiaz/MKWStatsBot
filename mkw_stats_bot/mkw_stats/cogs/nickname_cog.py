@@ -19,7 +19,7 @@ class NicknameCog(BaseCog):
         """Add a single nickname to a player."""
         try:
             guild_id = self.get_guild_id(interaction)
-            resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
+            resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table. Use `/addplayer {player_name}` to add them first.", ephemeral=True)
                 return
@@ -28,7 +28,7 @@ class NicknameCog(BaseCog):
                 await interaction.response.send_message(f"❌ No need to add **{nickname}** as a nickname for **{resolved_player}** - name matching is case-insensitive!", ephemeral=True)
                 return
 
-            success = self.bot.db.players.add_nickname(resolved_player, nickname, guild_id)
+            success = await self.bot.db.players.add_nickname(resolved_player, nickname, guild_id)
 
             if success:
                 embed = discord.Embed(
@@ -59,12 +59,12 @@ class NicknameCog(BaseCog):
         """Remove a nickname from a player."""
         try:
             guild_id = self.get_guild_id(interaction)
-            resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
+            resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.", ephemeral=True)
                 return
 
-            success = self.bot.db.players.remove_nickname(resolved_player, nickname, guild_id)
+            success = await self.bot.db.players.remove_nickname(resolved_player, nickname, guild_id)
 
             if success:
                 embed = discord.Embed(
@@ -90,12 +90,12 @@ class NicknameCog(BaseCog):
         """Show all nicknames for a player."""
         try:
             guild_id = self.get_guild_id(interaction)
-            resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
+            resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.", ephemeral=True)
                 return
 
-            nicknames = self.bot.db.players.get_player_nicknames(resolved_player, guild_id)
+            nicknames = await self.bot.db.players.get_player_nicknames(resolved_player, guild_id)
 
             embed = discord.Embed(
                 title=f"🏷️ Nicknames for {resolved_player}",

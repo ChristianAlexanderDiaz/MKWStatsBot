@@ -112,7 +112,7 @@ class ConfirmationManager:
                     return
 
                 race_count = confirmation_data.get('race_count', 12)
-                submission = await self.bot.war_service.submit_war_async(results, race_count, guild_id)
+                submission = await self.bot.war_service.submit_war(results, race_count, guild_id)
 
                 if submission.success:
                     logger.info(f"War saved — {len(results)} players, {race_count} races")

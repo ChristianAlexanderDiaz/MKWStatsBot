@@ -147,9 +147,9 @@ class AddPlayerModal(ui.Modal, title="Add Player"):
             db = self.view.bot.db
 
             # Check if player already exists in roster
-            existing_player = db.players.get_player_info(name, guild_id)
+            existing_player = await db.players.get_player_info(name, guild_id)
             if not existing_player:
-                added = db.players.add_roster_player(
+                added = await db.players.add_roster_player(
                     name,
                     added_by=str(interaction.user),
                     guild_id=guild_id,

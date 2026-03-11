@@ -19,6 +19,23 @@ def _log_task_error(t: asyncio.Task) -> None:
         logger.debug(f"Background task failed: {exc}")
 
 
+_VALID_TEXT_PATTERN = re.compile(r'^[^\x00-\x1f]+$')
+
+
+def _filter_ocr_texts(ocr_results: list[dict]) -> list[dict]:
+    """Extract valid text items from raw OCR results."""
+    texts = []
+    for item in ocr_results:
+        text = item.get("text", "").strip()
+        if text and _VALID_TEXT_PATTERN.match(text):
+            texts.append({
+                'text': text,
+                'confidence': item.get("confidence", 0.0),
+                'bbox': item.get("bbox"),
+            })
+    return texts
+
+
 class OCRHandler:
     """Handles all OCR-related processing flows.
 
@@ -64,16 +81,7 @@ class OCRHandler:
                 )
                 return False, embed, None
 
-            extracted_texts = []
-            if ocr_result.get("results"):
-                for item in ocr_result["results"]:
-                    text = item.get("text", "").strip()
-                    if text and re.match(r'^[a-zA-Z0-9\s.,\-+%$()]+$', text):
-                        extracted_texts.append({
-                            'text': text,
-                            'confidence': item.get("confidence", 0.0),
-                            'bbox': item.get("bbox"),
-                        })
+            extracted_texts = _filter_ocr_texts(ocr_result.get("results") or [])
 
             if not extracted_texts:
                 embed = discord.Embed(
@@ -83,8 +91,11 @@ class OCRHandler:
                 )
                 return False, embed, None
 
+            # Pre-fetch roster data before entering executor (async DB -> sync code)
+            roster_data = await self.bot.db.players.get_all_players_stats(guild_id) or []
+
             processed_results = await loop.run_in_executor(
-                None, ocr._parse_mario_kart_results, extracted_texts, guild_id
+                None, ocr._parse_mario_kart_results, extracted_texts, guild_id, roster_data
             )
 
             if processed_results:
@@ -152,7 +163,7 @@ class OCRHandler:
                         await processing_msg.edit(content="\u274c **Error:** Could not determine guild ID.")
                         return
 
-                    configured_channel_id = self.bot.db.guilds.get_ocr_channel(guild_id)
+                    configured_channel_id = await self.bot.db.guilds.get_ocr_channel(guild_id)
                     if not configured_channel_id:
                         embed = discord.Embed(
                             title="\u274c No OCR Channel Set",
@@ -236,7 +247,7 @@ class OCRHandler:
 
             total_race_count = max(r.get('races', 12) for r in results)
 
-            submission = await self.bot.war_service.submit_war_async(results, total_race_count, guild_id)
+            submission = await self.bot.war_service.submit_war(results, total_race_count, guild_id)
 
             if submission.success:
                 try:
@@ -300,7 +311,7 @@ class OCRHandler:
 
             total_race_count = max(r.get('races', 12) for r in results)
 
-            submission = await self.bot.war_service.submit_war_async(results, total_race_count, guild_id)
+            submission = await self.bot.war_service.submit_war(results, total_race_count, guild_id)
 
             if submission.success:
                 if 'original_message_obj' in confirmation_data:

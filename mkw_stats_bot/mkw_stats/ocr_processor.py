@@ -32,6 +32,16 @@ except ImportError:
 # Thread lock for OCR operations (preserved for compatibility)
 ocr_lock = threading.Lock()
 
+
+def _is_race_count_token(stripped: str, patterns: list[re.Pattern]) -> bool:
+    """Return True if token matches a race-count pattern like (5) or 5)."""
+    for pattern in patterns:
+        m = pattern.match(stripped)
+        if m and 1 <= int(m.group(1)) <= 11:
+            logging.debug(f"Skipping race count token '{stripped}' in score detection")
+            return True
+    return False
+
 class TableFormat(Enum):
     """Enumeration of supported Mario Kart table formats."""
     LARGE = "large"
@@ -102,6 +112,16 @@ class OCRProcessor:
             logging.info("📝 OCR Processor initialized in basic mode (no resource management)")
 
         self._initialize_ocr()
+
+    def set_roster_data(self, guild_id: int, roster_data: list[dict]) -> None:
+        """Inject pre-fetched roster data into OCR sub-modules for a specific guild.
+
+        Call this from async context BEFORE dispatching sync work to an
+        executor so that NameResolver and TeamSplitter can operate without
+        making database calls.
+        """
+        self.name_resolver.set_roster_data(guild_id, roster_data)
+        self.team_splitter.set_roster_data(guild_id, roster_data)
 
     def _initialize_ocr(self):
         """Initialize PaddleOCR with optimized settings."""
@@ -280,7 +300,7 @@ class OCRProcessor:
             logging.error(traceback.format_exc())
             return {"success": False, "error": str(e)}
 
-    def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0) -> dict:
+    def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0, roster_data: list[dict] | None = None) -> dict:
         """Process image using PaddleOCR and return parsed Mario Kart results."""
         try:
             logging.info(f"🔍 Processing image with PaddleOCR: {image_path}")
@@ -327,7 +347,7 @@ class OCRProcessor:
                 }
 
             # Parse Mario Kart results
-            parsed_results = self._parse_mario_kart_results(extracted_texts, guild_id)
+            parsed_results = self._parse_mario_kart_results(extracted_texts, guild_id, roster_data=roster_data)
 
             if not parsed_results:
                 return {
@@ -368,12 +388,24 @@ class OCRProcessor:
         """
         Async process image with resource management and priority allocation.
         Falls back to sync processing if resource management is unavailable.
+
+        Pre-fetches roster data before entering the executor so that sync
+        OCR sub-modules (NameResolver, TeamSplitter) can work without DB calls.
         """
+        # Pre-fetch roster data for sync sub-modules (async DB -> sync executor)
+        roster_data: list[dict] = []
+        if self.db_manager and hasattr(self.db_manager, 'players'):
+            try:
+                roster_data = await self.db_manager.players.get_all_players_stats(guild_id) or []
+            except Exception as e:
+                logging.error(f"Failed to pre-fetch roster data for guild {guild_id}: {e}")
+                raise
+
         if not self.resource_management_enabled:
             # Fallback: run sync processing in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self.process_image, image_path, message_timestamp, guild_id
+                None, self.process_image, image_path, message_timestamp, guild_id, roster_data
             )
 
         try:
@@ -400,7 +432,8 @@ class OCRProcessor:
                         self.process_image,
                         image_path,
                         message_timestamp,
-                        guild_id
+                        guild_id,
+                        roster_data
                     )
 
                     # Update performance metrics
@@ -428,7 +461,7 @@ class OCRProcessor:
             # Fallback: run sync processing in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self.process_image, image_path, message_timestamp, guild_id
+                None, self.process_image, image_path, message_timestamp, guild_id, roster_data
             )
 
     async def process_bulk_images_async(self, image_data_list: list[dict], guild_id: int,
@@ -436,7 +469,19 @@ class OCRProcessor:
         """
         Process multiple images with intelligent batching and resource management.
         Falls back to individual sync processing if resource management is unavailable.
+
+        Pre-fetches roster data once before processing any images so that sync
+        OCR sub-modules can work without DB calls.
         """
+        # Pre-fetch roster data for sync sub-modules (async DB -> sync executor)
+        roster_data: list[dict] = []
+        if self.db_manager and hasattr(self.db_manager, 'players'):
+            try:
+                roster_data = await self.db_manager.players.get_all_players_stats(guild_id) or []
+            except Exception as e:
+                logging.error(f"Failed to pre-fetch roster data for bulk processing in guild {guild_id}: {e}")
+                raise
+
         if not self.resource_management_enabled:
             # Fallback: run sync processing in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
@@ -444,7 +489,7 @@ class OCRProcessor:
             for image_data in image_data_list:
                 result = await loop.run_in_executor(
                     None, self.process_image,
-                    image_data['path'], image_data.get('timestamp'), guild_id
+                    image_data['path'], image_data.get('timestamp'), guild_id, roster_data
                 )
                 results.append(result)
             return results
@@ -485,7 +530,8 @@ class OCRProcessor:
                                 self.process_image,
                                 image_data['path'],
                                 image_data.get('timestamp'),
-                                guild_id
+                                guild_id,
+                                roster_data
                             )
                             batch_tasks.append(task)
 
@@ -544,6 +590,7 @@ class OCRProcessor:
                         image_data['path'],
                         image_data.get('timestamp'),
                         guild_id,
+                        roster_data,
                     )
                     results.append(result)
                 except Exception as individual_error:
@@ -577,99 +624,87 @@ class OCRProcessor:
                 'error': str(e)
             }
 
-    def _parse_mario_kart_results(self, extracted_texts: list[dict], guild_id: int = 0) -> list[dict]:
-        """Parse extracted text to find Mario Kart player results using database validation."""
+    @staticmethod
+    def _build_token_bboxes(extracted_texts: list[dict], tokens: list[str]) -> dict[int, list]:
+        """Map each token index to the bounding box of its source OCR line."""
+        token_bboxes: dict[int, list] = {}
+        token_idx = 0
+        for item in extracted_texts:
+            item_tokens = item['text'].split()
+            bbox = item.get('bbox')
+            for _ in item_tokens:
+                if token_idx < len(tokens) and bbox:
+                    token_bboxes[token_idx] = bbox
+                token_idx += 1
+        return token_bboxes
+
+    @staticmethod
+    def _find_score_positions(tokens: list[str]) -> list[int]:
+        """Identify token indices that represent valid scores (1-180)."""
         from .ocr import extract_score_from_corrupted_token
+
+        race_count_patterns = [
+            re.compile(r'^\((\d+)\)$'),
+            re.compile(r'^\((\d+)$'),
+            re.compile(r'^(\d+)\)$'),
+        ]
+        score_positions: list[int] = []
+
+        for i, token in enumerate(tokens):
+            stripped = token.strip()
+            if _is_race_count_token(stripped, race_count_patterns):
+                continue
+
+            if token.isdigit() and 1 <= int(token) <= 180:
+                score_positions.append(i)
+                logging.debug(f"Found score: {token} at position {i}")
+                continue
+
+            # Embedded scores in corrupted tokens (e.g. "RIC69")
+            # Only if NOT followed by a valid standalone score
+            if i < len(tokens) - 1 and tokens[i + 1].isdigit() and 1 <= int(tokens[i + 1]) <= 180:
+                logging.debug(f"Skipping potential embedded score in '{token}' because followed by valid score '{tokens[i + 1]}'")
+                continue
+
+            embedded_score = extract_score_from_corrupted_token(token)
+            if embedded_score:
+                score_positions.append(i)
+                logging.debug(f"Found embedded score: {embedded_score} in token '{token}' at position {i}")
+
+        return score_positions
+
+    def _parse_mario_kart_results(self, extracted_texts: list[dict], guild_id: int = 0, roster_data: list[dict] | None = None) -> list[dict]:
+        """Parse extracted text to find Mario Kart player results using database validation."""
         try:
-            if not self.db_manager:
-                logging.error("❌ No database manager available for player validation")
+            if not self.db_manager and roster_data is None:
+                logging.error("No database manager or roster data available for player validation")
                 return []
 
-            # Combine all OCR text into single string and tokenize
-            # Also build token-to-bbox mapping for spatial disambiguation
+            if roster_data is not None:
+                self.name_resolver.set_roster_data(guild_id, roster_data)
+                self.team_splitter.set_roster_data(guild_id, roster_data)
+
             combined_text = ' '.join([item['text'] for item in extracted_texts])
             tokens = combined_text.split()
+            token_bboxes = self._build_token_bboxes(extracted_texts, tokens)
 
-            # Build token-to-bbox mapping
-            token_bboxes = {}
-            token_idx = 0
-            for item in extracted_texts:
-                item_tokens = item['text'].split()
-                bbox = item.get('bbox')
-                # Assign same bbox to all tokens from this OCR line (approximation)
-                # In practice, each word in a line has similar x-position
-                for _ in item_tokens:
-                    if token_idx < len(tokens) and bbox:
-                        token_bboxes[token_idx] = bbox
-                    token_idx += 1
+            logging.debug(f"OCR tokens: {tokens}")
 
-            logging.debug(f"🔍 OCR tokens: {tokens}")
-
-            # Find all valid scores (1-180)
-            score_positions = []
-            for i, token in enumerate(tokens):
-                # Skip race count tokens like (5), (3), etc.
-                race_count_patterns = [
-                    r'^\((\d+)\)$',  # (5)
-                    r'^\((\d+)$',    # (5
-                    r'^(\d+)\)$'     # 5)
-                ]
-
-                is_race_count_token = False
-                for pattern in race_count_patterns:
-                    match = re.match(pattern, token.strip())
-                    if match:
-                        race_num = int(match.group(1))
-                        if 1 <= race_num <= 11:  # Valid race count range
-                            is_race_count_token = True
-                            logging.debug(f"🏁 Skipping race count token '{token}' in score detection")
-                            break
-
-                if is_race_count_token:
-                    continue
-
-                if token.isdigit() and 1 <= int(token) <= 180:
-                    score_positions.append(i)
-                    logging.debug(f"📊 Found score: {token} at position {i}")
-                else:
-                    # Check for embedded scores in corrupted tokens (like "RIC69")
-                    # But only if this token is NOT followed by another valid score
-                    has_following_score = False
-                    if i < len(tokens) - 1:
-                        next_token = tokens[i + 1]
-                        if next_token.isdigit() and 1 <= int(next_token) <= 180:
-                            has_following_score = True
-
-                    # Only treat as embedded score if NO following score exists
-                    if not has_following_score:
-                        embedded_score = extract_score_from_corrupted_token(token)
-                        if embedded_score:
-                            score_positions.append(i)
-                            logging.debug(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
-                    else:
-                        logging.debug(f"🔍 Skipping potential embedded score in '{token}' because followed by valid score '{next_token}'")
-
-            # Find all valid player names using sliding window
+            score_positions = self._find_score_positions(tokens)
             valid_names = self.name_resolver.find_valid_names_with_window(tokens, guild_id)
-
-            # Pair names with scores using proximity (with bbox-based disambiguation)
             results = self.score_pairer.pair_names_with_scores(valid_names, score_positions, tokens, token_bboxes)
 
-            # Count total detected vs guild players
             all_detected_scores = len(score_positions)
             guild_players_found = len(results)
-            opponent_players = all_detected_scores - guild_players_found
 
-            # Check for team splitting (handles 11-20 players dynamically)
             if 11 <= all_detected_scores <= 20:
-                logging.debug(f"🔀 Team Split Detection: {all_detected_scores} players, {guild_players_found} guild members")
+                logging.debug(f"Team Split Detection: {all_detected_scores} players, {guild_players_found} guild members")
                 results = self.team_splitter.apply_dynamic_team_splitting(results, tokens, guild_id, all_detected_scores)
-                guild_players_found = len(results)  # Update count after splitting
-                opponent_players = all_detected_scores - guild_players_found
+                guild_players_found = len(results)
 
-            logging.info(f"🎯 OCR Results: {guild_players_found} guild players found, {opponent_players} opponent players detected")
+            opponent_players = all_detected_scores - guild_players_found
+            logging.info(f"OCR Results: {guild_players_found} guild players found, {opponent_players} opponent players detected")
 
-            # Log guild team summary
             if results:
                 team_summary = ", ".join([f"{result['name']} {result['score']}" for result in results])
                 logging.info(f"Your team: {team_summary}")
@@ -677,7 +712,7 @@ class OCRProcessor:
             return results
 
         except Exception as e:
-            logging.error(f"❌ Error parsing Mario Kart results: {e}")
+            logging.error(f"Error parsing Mario Kart results: {e}")
             return []
 
     # ------------------------------------------------------------------

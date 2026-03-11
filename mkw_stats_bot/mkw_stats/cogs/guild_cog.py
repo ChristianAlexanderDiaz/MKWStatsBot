@@ -1,6 +1,5 @@
 """Guild setup and configuration commands."""
 
-import json
 import logging
 import re
 import traceback
@@ -83,82 +82,76 @@ class GuildCog(BaseCog):
 
             servername = interaction.guild.name if interaction.guild else f"Guild {guild_id}"
 
-            with self.bot.db.get_connection() as conn:
-                cursor = conn.cursor()
+            added_players = []
+            role_detection = []
 
-                cursor.execute("""
-                    INSERT INTO guild_configs (
-                        guild_id, guild_name, team_names, is_active,
-                        role_member_id, role_trial_id, role_ally_id
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (guild_id) DO UPDATE SET
-                        guild_name = EXCLUDED.guild_name,
-                        is_active = EXCLUDED.is_active,
-                        role_member_id = EXCLUDED.role_member_id,
-                        role_trial_id = EXCLUDED.role_trial_id,
-                        role_ally_id = EXCLUDED.role_ally_id,
-                        updated_at = CURRENT_TIMESTAMP
-                """, (guild_id, servername, json.dumps([teamname]), True, role_member.id, role_trial.id, role_ally.id))
+            # Validate all player roles before making any DB changes
+            player_data = []
+            for member in player_members:
+                user_role_ids = [role.id for role in member.roles]
 
-                added_players = []
-                role_detection = []
-
-                for member in player_members:
-                    user_role_ids = [role.id for role in member.roles]
-
-                    if role_member.id in user_role_ids:
-                        member_status = 'member'
-                        role_name = role_member.name
-                    elif role_trial.id in user_role_ids:
-                        member_status = 'trial'
-                        role_name = role_trial.name
-                    elif role_ally.id in user_role_ids:
-                        member_status = 'ally'
-                        role_name = role_ally.name
-                    else:
-                        conn.rollback()
-                        await interaction.response.send_message(
-                            f"❌ {member.mention} doesn't have a Member, Trial, or Ally role.\n"
-                            f"Please assign them one of these roles first: {role_member.mention}, {role_trial.mention}, or {role_ally.mention}",
-                            ephemeral=True
-                        )
-                        return
-
-                    player_name = member.display_name
-
-                    cursor.execute("""
-                        INSERT INTO players (
-                            discord_user_id, player_name, display_name, discord_username,
-                            added_by, guild_id, team, nicknames, is_active, member_status,
-                            last_role_sync
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                        ON CONFLICT (player_name, guild_id) DO UPDATE SET
-                            discord_user_id = EXCLUDED.discord_user_id,
-                            display_name = EXCLUDED.display_name,
-                            discord_username = EXCLUDED.discord_username,
-                            is_active = TRUE,
-                            team = EXCLUDED.team,
-                            member_status = EXCLUDED.member_status,
-                            last_role_sync = CURRENT_TIMESTAMP,
-                            updated_at = CURRENT_TIMESTAMP
-                    """, (member.id, player_name, member.display_name, member.name,
-                          f"setup_{interaction.user.name}", guild_id, teamname, [], True, member_status))
-
-                    added_players.append(player_name)
-                    role_detection.append(f"{player_name} → {role_name}")
-
-                ocr_success = self.bot.db.guilds.set_ocr_channel(guild_id, results_channel.id, cursor=cursor)
-                if not ocr_success:
-                    conn.rollback()
+                if role_member.id in user_role_ids:
+                    member_status = 'member'
+                    role_name = role_member.name
+                elif role_trial.id in user_role_ids:
+                    member_status = 'trial'
+                    role_name = role_trial.name
+                elif role_ally.id in user_role_ids:
+                    member_status = 'ally'
+                    role_name = role_ally.name
+                else:
                     await interaction.response.send_message(
-                        "❌ Failed to set OCR channel during setup. Please try again.",
+                        f"❌ {member.mention} doesn't have a Member, Trial, or Ally role.\n"
+                        f"Please assign them one of these roles first: {role_member.mention}, {role_trial.mention}, or {role_ally.mention}",
                         ephemeral=True
                     )
                     return
 
-                conn.commit()
+                player_data.append({
+                    'discord_user_id': member.id,
+                    'player_name': member.display_name,
+                    'display_name': member.display_name,
+                    'discord_username': member.name,
+                    'member_status': member_status,
+                    'role_name': role_name,
+                })
+
+            # Setup DB calls (each opens its own connection; rollback deactivates guild on failure)
+            try:
+                # Guild config (team names, OCR channel)
+                await self.bot.db.guilds.setup_guild(
+                    guild_id, servername, results_channel.id, [teamname],
+                )
+
+                # Role config
+                await self.bot.db.guilds.set_guild_role_config(
+                    guild_id, role_member.id, role_trial.id, role_ally.id,
+                )
+
+                # Add each player to roster
+                added_by = f"setup_{interaction.user.name}"
+                for pd in player_data:
+                    await self.bot.db.players.add_roster_player_with_discord(
+                        discord_user_id=pd['discord_user_id'],
+                        player_name=pd['player_name'],
+                        display_name=pd['display_name'],
+                        discord_username=pd['discord_username'],
+                        member_status=pd['member_status'],
+                        added_by=added_by,
+                        guild_id=guild_id,
+                    )
+            except Exception:
+                # Compensating cleanup: deactivate the partially-created guild config
+                logging.error(f"Setup failed mid-transaction for guild {guild_id}, rolling back guild config")
+                try:
+                    await self.bot.db.guilds.update_guild_config(guild_id, is_active=False)
+                except Exception as cleanup_err:
+                    logging.error(f"Failed to roll back guild config: {cleanup_err}")
+                raise
+
+            for pd in player_data:
+                added_players.append(pd['player_name'])
+                role_detection.append(f"{pd['player_name']} → {pd['role_name']}")
 
             embed = discord.Embed(
                 title="🚀 Guild Setup Complete!",
@@ -223,7 +216,7 @@ class GuildCog(BaseCog):
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
 
-            success = self.bot.db.guilds.set_guild_role_config(
+            success = await self.bot.db.guilds.set_guild_role_config(
                 guild_id=guild_id,
                 role_member_id=role_member.id,
                 role_trial_id=role_trial.id,
@@ -299,7 +292,7 @@ class GuildCog(BaseCog):
                 )
                 return
 
-            success = self.bot.db.guilds.set_ocr_channel(guild_id, channel.id)
+            success = await self.bot.db.guilds.set_ocr_channel(guild_id, channel.id)
 
             if success:
                 embed = discord.Embed(
@@ -400,7 +393,7 @@ class GuildCog(BaseCog):
 
         guild_id = self.get_guild_id(interaction)
 
-        role_config = self.bot.db.guilds.get_guild_role_config(guild_id)
+        role_config = await self.bot.db.guilds.get_guild_role_config(guild_id)
 
         debug_lines = []
         debug_lines.append("=== ROLE CONFIGURATION ===")
@@ -419,7 +412,7 @@ class GuildCog(BaseCog):
 
         debug_lines.append("\n=== LINKED PLAYERS ===")
 
-        roster_stats = self.bot.db.players.get_all_players_stats(guild_id)
+        roster_stats = await self.bot.db.players.get_all_players_stats(guild_id)
 
         linked_players = [p for p in roster_stats if p.get('discord_user_id')]
         debug_lines.append(f"Total linked players: {len(linked_players)}\n")

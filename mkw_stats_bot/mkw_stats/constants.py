@@ -79,7 +79,7 @@ BOT_OWNER_ID: int = 291621912914821120
 DB_POOL_MIN: int = 1
 DB_POOL_MAX: int = 10
 DB_CONNECT_TIMEOUT: int = 10
-DB_STATEMENT_TIMEOUT: int = 30000  # milliseconds
+DB_STATEMENT_TIMEOUT: int = 30  # seconds (asyncpg command_timeout)
 
 # =============================================================================
 # Form Score Calculation
