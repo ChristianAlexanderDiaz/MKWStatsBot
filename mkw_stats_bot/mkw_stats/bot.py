@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from . import config
 from .database import DatabaseManager
 from .handlers import BulkScanHandler, ConfirmationManager, MessageManager, OCRHandler
-from .logging_config import LogBlock, get_logger, setup_logging
+from .logging_config import LogBlock, get_logger, get_webhook_handler, setup_logging
 from .ocr_modals import AddPlayerModal, EditPlayerModal, ReportIssueModal
 from .ocr_processor import OCRProcessor
 from .services import WarService
@@ -335,11 +335,27 @@ class MarioKartBot(commands.Bot):
         self.bulk_scan_handler = BulkScanHandler(self)
 
     async def setup_hook(self) -> None:
-        """Create shared aiohttp session after login, before gateway connection."""
+        """Initialize async resources (HTTP session, webhook logger) after login, before gateway connection."""
         self.http_session = aiohttp.ClientSession()
+
+        # Start Discord webhook log handler (if LOG_WEBHOOK_URL is set)
+        wh = get_webhook_handler()
+        if wh:
+            try:
+                wh.start(asyncio.get_running_loop())
+            except Exception:
+                logger.warning("Failed to start webhook log handler", exc_info=True)
 
     async def close(self) -> None:
         """Clean up shared resources on shutdown."""
+        # Stop webhook handler first so it can send final flush
+        wh = get_webhook_handler()
+        if wh:
+            try:
+                await wh.stop()
+            except Exception:
+                logger.warning("Webhook handler stop failed during shutdown", exc_info=True)
+
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         from .dashboard_client import dashboard_client

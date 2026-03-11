@@ -11,11 +11,14 @@ Railway / container logging principles:
   bordered blocks so Railway's log stream is scannable at a glance.
 """
 
+import asyncio
 import logging
 import os
 import sys
+import traceback as _traceback_mod
 import threading
 import time
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -204,8 +207,156 @@ class LogBlock:
 
 
 # ---------------------------------------------------------------------------
+# Discord Webhook Handler
+# ---------------------------------------------------------------------------
+
+_webhook_handler: "DiscordWebhookHandler | None" = None
+
+
+class _QuietLoggerFilter(logging.Filter):
+    """Reject log records from noisy third-party loggers."""
+
+    def __init__(self, prefixes: tuple[str, ...]) -> None:
+        super().__init__()
+        self._prefixes = prefixes
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not record.name.startswith(self._prefixes)
+
+
+class DiscordWebhookHandler(logging.Handler):
+    """Forwards WARNING+ log records to a Discord webhook as batched embeds.
+
+    ``emit()`` is synchronous (Python logging requirement) — it appends
+    records to a thread-safe queue.  A background asyncio task flushes the
+    queue every 5 seconds as a single Discord embed, staying well within
+    Discord's webhook rate limit.
+    """
+
+    _FLUSH_INTERVAL = 5  # seconds
+    _MAX_EMBED_LEN = 4000  # Discord embed description limit (4096), leave margin
+
+    def __init__(self, webhook_url: str) -> None:
+        super().__init__(level=logging.WARNING)
+        self._webhook_url = webhook_url
+        self._queue: list[logging.LogRecord] = []
+        self._lock = threading.Lock()
+        self._flush_task: "asyncio.Task[None] | None" = None
+        self._session: Any = None  # aiohttp.ClientSession, created in start()
+
+        # Filter out noisy third-party loggers
+        self.addFilter(_QuietLoggerFilter(tuple(_QUIET_LOGGERS)))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Thread-safe enqueue (called by Python logging from any thread)."""
+        try:
+            with self._lock:
+                self._queue.append(record)
+        except Exception:  # noqa: S110 — never risk recursive logging
+            pass
+
+    # ── Async lifecycle (called from bot.py) ──────────────────────────
+
+    def start(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Start the background flush loop.  Called once the event loop is running."""
+        import aiohttp
+        self._session = aiohttp.ClientSession()
+        self._flush_task = loop.create_task(self._flush_loop())
+
+    async def stop(self) -> None:
+        """Detach from logger, cancel flush task, deliver remaining records, and close session."""
+        # Detach so no new records arrive after final flush
+        logging.getLogger().removeHandler(self)
+        if self._flush_task:
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
+        # Final flush
+        await self._flush_once()
+        if self._session and not self._session.closed:
+            await self._session.close()
+
+    # ── Internal ──────────────────────────────────────────────────────
+
+    async def _flush_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self._FLUSH_INTERVAL)
+            await self._flush_once()
+
+    async def _flush_once(self) -> None:
+        with self._lock:
+            batch, self._queue = self._queue, []
+        if not batch or not self._session:
+            return
+
+        # Build embed description from queued records
+        lines: list[str] = []
+        level_colors = {"WARNING": 0xFFA500, "ERROR": 0xFF0000, "CRITICAL": 0x8B0000}
+        highest_level = logging.WARNING
+        for record in batch:
+            if record.levelno > highest_level:
+                highest_level = record.levelno
+            ts = time.strftime("%H:%M:%S", time.localtime(record.created))
+            short_level = _LEVEL_MAP.get(record.levelname, record.levelname[:5])
+            msg = record.getMessage()
+            if len(msg) > 300:
+                msg = msg[:297] + "..."
+            line = f"`{ts}` **{short_level}** {msg}"
+            # Append truncated traceback for errors
+            if record.exc_info and record.exc_info[1]:
+                tb = "".join(_traceback_mod.format_exception(*record.exc_info))
+                if len(tb) > 500:
+                    tb = tb[:497] + "..."
+                line += f"\n```\n{tb}\n```"
+            lines.append(line)
+
+        description = "\n".join(lines)
+        if len(description) > self._MAX_EMBED_LEN:
+            description = description[: self._MAX_EMBED_LEN - 3] + "..."
+
+        color = level_colors.get(logging.getLevelName(highest_level), 0xFFA500)
+        payload = {
+            "embeds": [{
+                "title": f"Bot Log ({len(batch)} record{'s' if len(batch) != 1 else ''})",
+                "description": description,
+                "color": color,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }]
+        }
+
+        try:
+            async with self._session.post(self._webhook_url, json=payload) as resp:
+                if resp.status == 429:
+                    retry_after = (await resp.json()).get("retry_after", 5)
+                    await asyncio.sleep(retry_after)
+                    # Re-queue so next flush retries
+                    with self._lock:
+                        self._queue = batch + self._queue
+                elif 400 <= resp.status < 500:
+                    # Permanent error — write to stderr, not logging (avoids recursion)
+                    print(
+                        f"DiscordWebhookHandler: webhook returned {resp.status} "
+                        f"— check LOG_WEBHOOK_URL (dropped {len(batch)} records)",
+                        file=sys.stderr,
+                    )
+        except Exception as exc:
+            # Write to stderr to avoid recursive logging
+            print(
+                f"DiscordWebhookHandler flush error: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def get_webhook_handler() -> "DiscordWebhookHandler | None":
+    """Return the active webhook handler (if any), for lifecycle management."""
+    return _webhook_handler
+
 
 def setup_logging(log_level: str | None = None) -> logging.Logger:
     """Configure the root logger: stdout only, auto-color, suppress third-party noise.
@@ -233,6 +384,13 @@ def setup_logging(log_level: str | None = None) -> logging.Logger:
     # Silence noisy third-party libraries
     for name in _QUIET_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
+
+    # Discord webhook handler (if configured)
+    global _webhook_handler
+    webhook_url = os.getenv("LOG_WEBHOOK_URL")
+    if webhook_url:
+        _webhook_handler = DiscordWebhookHandler(webhook_url)
+        root.addHandler(_webhook_handler)
 
     return root
 

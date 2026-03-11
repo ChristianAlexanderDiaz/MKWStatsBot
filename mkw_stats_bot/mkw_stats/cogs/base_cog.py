@@ -3,6 +3,7 @@
 import asyncio
 import functools
 import logging
+import time
 from collections.abc import Callable, Coroutine
 from typing import (
     Any,
@@ -102,7 +103,20 @@ def require_guild_setup(
                     return  # type: ignore[return-value]
 
             guild_id = self.get_guild_id_from_interaction(interaction)
-            if not await self.is_guild_initialized(guild_id):
+            try:
+                initialized = await self.is_guild_initialized(guild_id)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "DB error during guild init check for guild %s", guild_id
+                )
+                msg = "❌ Database temporarily unavailable, please try again in a moment."
+                if defer:
+                    await interaction.followup.send(msg, ephemeral=True)
+                else:
+                    await interaction.response.send_message(msg, ephemeral=True)
+                return  # type: ignore[return-value]
+
+            if not initialized:
                 msg = "❌ Guild not set up! Please run `/setup` first to initialize your clan."
                 if defer:
                     await interaction.followup.send(msg, ephemeral=True)
@@ -160,22 +174,53 @@ class BaseCog(commands.Cog):
         """Get guild ID from interaction."""
         return interaction.guild.id if interaction.guild else 0
 
-    async def is_guild_initialized(self, guild_id: int) -> bool:
-        """Check if guild is properly initialized (async, offloads blocking DB call)."""
-        def _check() -> bool:
-            try:
-                with self.bot.db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "SELECT COUNT(*) FROM guild_configs WHERE guild_id = %s AND is_active = TRUE",
-                        (guild_id,)
-                    )
-                    return cursor.fetchone()[0] > 0
-            except Exception:
-                return False
+    # Intentionally class-level: shared singleton cache across all cog instances
+    # guild_id -> (result, expiry_timestamp)
+    _guild_init_cache: dict[int, tuple[bool, float]] = {}
+    _POSITIVE_TTL = 300  # 5 min — guild init status rarely changes
+    _NEGATIVE_TTL = 30   # 30 sec — so /setup takes effect quickly
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _check)
+    async def is_guild_initialized(self, guild_id: int) -> bool:
+        """Check if guild is properly initialized (async, offloads blocking DB call).
+
+        Uses a simple TTL cache to reduce pool pressure.  On DB error, returns
+        a cached value if one exists; otherwise re-raises so the caller can
+        show an appropriate message.
+        """
+        now = time.monotonic()
+        cached = self._guild_init_cache.get(guild_id)
+        if cached is not None:
+            value, expiry = cached
+            if now < expiry:
+                return value
+
+        def _check() -> bool:
+            with self.bot.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT COUNT(*) FROM guild_configs WHERE guild_id = %s AND is_active = TRUE",
+                    (guild_id,)
+                )
+                return cursor.fetchone()[0] > 0
+
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, _check)
+        except Exception:
+            # Return stale cached value if available, otherwise propagate
+            if cached is not None:
+                logging.getLogger(__name__).warning(
+                    "DB error during guild init check for guild %s; "
+                    "returning stale cached value (expired %.0fs ago)",
+                    guild_id,
+                    now - cached[1],
+                )
+                return cached[0]
+            raise
+
+        ttl = self._POSITIVE_TTL if result else self._NEGATIVE_TTL
+        self._guild_init_cache[guild_id] = (result, now + ttl)
+        return result
 
     def _format_error_for_user(self, error: Exception, context: str = "") -> str:
         """Convert exception to user-friendly message with technical details."""
