@@ -235,13 +235,14 @@ class DiscordWebhookHandler(logging.Handler):
 
     _FLUSH_INTERVAL = 5  # seconds
     _MAX_EMBED_LEN = 4000  # Discord embed description limit (4096), leave margin
+    _POST_TIMEOUT = 10  # seconds — total timeout for webhook POST requests
 
     def __init__(self, webhook_url: str) -> None:
         super().__init__(level=logging.WARNING)
         self._webhook_url = webhook_url
         self._queue: list[logging.LogRecord] = []
         self._lock = threading.Lock()
-        self._flush_task: "asyncio.Task[None] | None" = None
+        self._flush_task: asyncio.Task[None] | None = None
         self._session: Any = None  # aiohttp.ClientSession, created in start()
 
         # Filter out noisy third-party loggers
@@ -260,7 +261,8 @@ class DiscordWebhookHandler(logging.Handler):
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start the background flush loop.  Called once the event loop is running."""
         import aiohttp
-        self._session = aiohttp.ClientSession()
+        timeout = aiohttp.ClientTimeout(total=self._POST_TIMEOUT)
+        self._session = aiohttp.ClientSession(timeout=timeout)
         self._flush_task = loop.create_task(self._flush_loop())
 
     async def stop(self) -> None:
@@ -283,39 +285,38 @@ class DiscordWebhookHandler(logging.Handler):
             await asyncio.sleep(self._FLUSH_INTERVAL)
             await self._flush_once()
 
-    async def _flush_once(self) -> None:
-        with self._lock:
-            batch, self._queue = self._queue, []
-        if not batch or not self._session:
-            return
+    @staticmethod
+    def _format_record(record: logging.LogRecord) -> str:
+        """Format a single log record as a Discord-flavored markdown line."""
+        ts = time.strftime("%H:%M:%S", time.localtime(record.created))
+        short_level = _LEVEL_MAP.get(record.levelname, record.levelname[:5])
+        msg = record.getMessage()
+        if len(msg) > 300:
+            msg = msg[:297] + "..."
+        line = f"`{ts}` **{short_level}** {msg}"
+        if record.exc_info and record.exc_info[1]:
+            tb = "".join(_traceback_mod.format_exception(*record.exc_info))
+            if len(tb) > 500:
+                tb = tb[:497] + "..."
+            line += f"\n```\n{tb}\n```"
+        return line
 
-        # Build embed description from queued records
-        lines: list[str] = []
+    def _build_embed_payload(self, batch: list[logging.LogRecord]) -> dict:
+        """Build a Discord embed payload from a batch of log records."""
         level_colors = {"WARNING": 0xFFA500, "ERROR": 0xFF0000, "CRITICAL": 0x8B0000}
         highest_level = logging.WARNING
+        lines: list[str] = []
         for record in batch:
             if record.levelno > highest_level:
                 highest_level = record.levelno
-            ts = time.strftime("%H:%M:%S", time.localtime(record.created))
-            short_level = _LEVEL_MAP.get(record.levelname, record.levelname[:5])
-            msg = record.getMessage()
-            if len(msg) > 300:
-                msg = msg[:297] + "..."
-            line = f"`{ts}` **{short_level}** {msg}"
-            # Append truncated traceback for errors
-            if record.exc_info and record.exc_info[1]:
-                tb = "".join(_traceback_mod.format_exception(*record.exc_info))
-                if len(tb) > 500:
-                    tb = tb[:497] + "..."
-                line += f"\n```\n{tb}\n```"
-            lines.append(line)
+            lines.append(self._format_record(record))
 
         description = "\n".join(lines)
         if len(description) > self._MAX_EMBED_LEN:
             description = description[: self._MAX_EMBED_LEN - 3] + "..."
 
         color = level_colors.get(logging.getLevelName(highest_level), 0xFFA500)
-        payload = {
+        return {
             "embeds": [{
                 "title": f"Bot Log ({len(batch)} record{'s' if len(batch) != 1 else ''})",
                 "description": description,
@@ -324,23 +325,41 @@ class DiscordWebhookHandler(logging.Handler):
             }]
         }
 
+    async def _handle_post_response(
+        self, resp: Any, batch: list[logging.LogRecord],
+    ) -> None:
+        """Handle the HTTP response from a webhook POST."""
+        if resp.status == 429:
+            retry_after = (await resp.json()).get("retry_after", 5)
+            await asyncio.sleep(retry_after)
+            with self._lock:
+                self._queue = batch + self._queue
+        elif 400 <= resp.status < 500:
+            print(
+                f"DiscordWebhookHandler: webhook returned {resp.status} "
+                f"— check LOG_WEBHOOK_URL (dropped {len(batch)} records)",
+                file=sys.stderr,
+            )
+        elif 500 <= resp.status < 600:
+            print(
+                f"DiscordWebhookHandler: webhook returned {resp.status} "
+                f"— re-queuing {len(batch)} records for retry",
+                file=sys.stderr,
+            )
+            with self._lock:
+                self._queue = batch + self._queue
+
+    async def _flush_once(self) -> None:
+        with self._lock:
+            batch, self._queue = self._queue, []
+        if not batch or not self._session:
+            return
+
+        payload = self._build_embed_payload(batch)
         try:
             async with self._session.post(self._webhook_url, json=payload) as resp:
-                if resp.status == 429:
-                    retry_after = (await resp.json()).get("retry_after", 5)
-                    await asyncio.sleep(retry_after)
-                    # Re-queue so next flush retries
-                    with self._lock:
-                        self._queue = batch + self._queue
-                elif 400 <= resp.status < 500:
-                    # Permanent error — write to stderr, not logging (avoids recursion)
-                    print(
-                        f"DiscordWebhookHandler: webhook returned {resp.status} "
-                        f"— check LOG_WEBHOOK_URL (dropped {len(batch)} records)",
-                        file=sys.stderr,
-                    )
+                await self._handle_post_response(resp, batch)
         except Exception as exc:
-            # Write to stderr to avoid recursive logging
             print(
                 f"DiscordWebhookHandler flush error: {type(exc).__name__}: {exc}",
                 file=sys.stderr,
