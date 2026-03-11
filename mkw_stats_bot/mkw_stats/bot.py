@@ -396,6 +396,15 @@ class MarioKartBot(commands.Bot):
             if latency > 1.0:
                 logger.warning(f"Event loop blocked for {latency:.1f}s (>1s threshold)")
 
+    async def on_connect(self) -> None:
+        logger.warning("GATEWAY: connected")
+
+    async def on_disconnect(self) -> None:
+        logger.warning("GATEWAY: disconnected")
+
+    async def on_resumed(self) -> None:
+        logger.warning("GATEWAY: resumed session")
+
     async def on_ready(self) -> None:
         """Event handler called when bot is ready."""
         async with LogBlock("BOT STARTUP", logger):
@@ -405,7 +414,14 @@ class MarioKartBot(commands.Bot):
             if not self._commands_synced:
                 try:
                     synced = await self.tree.sync()
-                    logger.info(f"{len(synced)} slash commands synced")
+                    logger.info(f"{len(synced)} slash commands synced (global)")
+                    # Clear stale guild-level command overrides
+                    for guild in self.guilds:
+                        try:
+                            self.tree.clear_commands(guild=guild)
+                            await self.tree.sync(guild=guild)
+                        except Exception as e:
+                            logger.warning(f"Failed to clear guild commands for {guild.id}: {e}")
                     self._commands_synced = True
                 except Exception as e:
                     logger.error(f"Failed to sync slash commands: {e}")
