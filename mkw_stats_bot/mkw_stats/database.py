@@ -16,9 +16,11 @@ Usage:
     await db.close()           # shuts down pool
 """
 
+import asyncio
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -122,8 +124,24 @@ class DatabaseManager:
                 "Ensure 'await db.connect()' is called before any database operations."
             )
         try:
-            async with self.pool.acquire() as conn:
+            t0 = time.monotonic()
+            async with self.pool.acquire(timeout=5) as conn:
+                acquire_time = time.monotonic() - t0
+                if acquire_time > 0.5:
+                    logging.warning(
+                        "Slow pool.acquire: %.1fs (pool: %d/%d used)",
+                        acquire_time,
+                        self.pool.get_size() - self.pool.get_idle_size(),
+                        self.pool.get_size(),
+                    )
                 yield conn
+        except asyncio.TimeoutError:
+            logging.error(
+                "Database pool.acquire timed out after 5s (pool: %d/%d used)",
+                self.pool.get_size() - self.pool.get_idle_size(),
+                self.pool.get_size(),
+            )
+            raise
         except asyncpg.QueryCanceledError as e:
             logging.error(f"Database query timeout (exceeded command_timeout): {e}")
             raise

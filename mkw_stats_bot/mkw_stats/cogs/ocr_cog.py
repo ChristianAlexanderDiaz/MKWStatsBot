@@ -521,13 +521,18 @@ class OCRCog(BaseCog):
                     # Add handler to capture all OCR processing logs
                     logging.getLogger().addHandler(debug_handler)
 
-                    # Step 1: Crop and detect format
-                    cropped_path, visual_path, crop_coords = ocr.crop_image_to_target_region(temp_path)
+                    # Step 1: Crop and detect format (offload to OCR executor)
+                    loop = asyncio.get_running_loop()
+                    cropped_path, visual_path, crop_coords = await loop.run_in_executor(
+                        self.bot.ocr_executor, ocr.crop_image_to_target_region, temp_path
+                    )
                     table_format = ocr.detect_table_format(img_width, img_height)
                     debug_lines.append(f"Dim: {img_width}x{img_height} | Format: {table_format.value} | Crop: {crop_coords}")
 
-                    # Step 2: Perform OCR
-                    ocr_result = ocr.perform_ocr_on_file(temp_path)
+                    # Step 2: Perform OCR (offload to OCR executor)
+                    ocr_result = await loop.run_in_executor(
+                        self.bot.ocr_executor, ocr.perform_ocr_on_file, temp_path
+                    )
 
                     if not ocr_result["success"]:
                         error_msg = ocr_result.get('error', 'Unknown error')
@@ -552,7 +557,9 @@ class OCRCog(BaseCog):
                     # Step 5: Parse results with detailed logging
                     extracted_texts = [{'text': raw_text, 'confidence': 0.9}]
                     roster_data = await self.bot.db.players.get_all_players_stats(guild_id) or []
-                    processed_results = ocr._parse_mario_kart_results(extracted_texts, guild_id, roster_data)
+                    processed_results = await loop.run_in_executor(
+                        self.bot.ocr_executor, ocr._parse_mario_kart_results, extracted_texts, guild_id, roster_data
+                    )
 
                     # Step 6: Log player extraction results
                     if processed_results:
