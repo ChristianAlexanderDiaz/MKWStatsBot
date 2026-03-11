@@ -8,12 +8,51 @@ import traceback
 from ..constants import EXCLUDED_GUILD_IDS
 from .base import BaseRepository
 
+_SQL_PLAYER_EXISTS = (
+    "SELECT id FROM players WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE"
+)
+_SQL_SELECT_NICKNAMES = (
+    "SELECT nicknames FROM players "
+    "WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE"
+)
+_SQL_UPDATE_NICKNAMES = (
+    "UPDATE players SET nicknames = $1, updated_at = CURRENT_TIMESTAMP "
+    "WHERE player_name = $2 AND guild_id = $3 AND is_active = TRUE"
+)
+
+# Resolution strategies: (tag, description, SQL query)
+# All use params (name_or_nickname, guild_id) in $1/$2 order
+_RESOLVE_QUERIES_EARLY: list[tuple[str, str, str]] = [
+    ("STRATEGY1", "Exact player_name match",
+     "SELECT player_name FROM players "
+     "WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE"),
+    ("STRATEGY2", "Case-insensitive player_name match",
+     "SELECT player_name FROM players "
+     "WHERE LOWER(player_name) = LOWER($1) AND guild_id = $2 AND is_active = TRUE"),
+    ("STRATEGY3", "Exact nickname match",
+     "SELECT player_name FROM players "
+     "WHERE nicknames IS NOT NULL AND nicknames ? $1 AND guild_id = $2 AND is_active = TRUE"),
+]
+
+_RESOLVE_QUERIES_LATE: list[tuple[str, str, str]] = [
+    ("STRATEGY6", "Display name match",
+     "SELECT player_name FROM players "
+     "WHERE LOWER(display_name) = LOWER($1) AND guild_id = $2 AND is_active = TRUE"),
+    ("STRATEGY7", "Discord username match",
+     "SELECT player_name FROM players "
+     "WHERE LOWER(discord_username) = LOWER($1) AND guild_id = $2 AND is_active = TRUE"),
+]
+
 
 class PlayerRepository(BaseRepository):
     """Handles all player-related database operations."""
 
     async def resolve_player_name(self, name_or_nickname: str, guild_id: int = 0, log_level: str = 'error') -> str | None:
         """Resolve a name or nickname to players table player name.
+
+        Tries 7 strategies in order: exact name, case-insensitive name,
+        exact nickname, case-insensitive nickname iteration, JSONB text search,
+        display name, and Discord username.
 
         Args:
             name_or_nickname: The name or nickname to resolve
@@ -25,189 +64,133 @@ class PlayerRepository(BaseRepository):
                 logging.warning(f"resolve_player_name called with invalid guild_id={guild_id!r} for name '{name_or_nickname}'")
             return None
 
+        debug = log_level == 'debug'
         try:
             async with self.get_connection() as conn:
-
-                # Enhanced debug logging
-                if log_level == 'debug':
+                if debug:
                     logging.debug(f"[RESOLVE] Starting resolution for: '{name_or_nickname}' (guild_id: {guild_id})")
 
-                # Strategy 1: Exact match with player_name
-                strategy1_query = """
-                    SELECT player_name FROM players
-                    WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE
-                """
-                if log_level == 'debug':
-                    logging.debug(f"[STRATEGY1] Exact player_name match: {strategy1_query}")
-                    logging.debug(f"[STRATEGY1] Parameters: ({name_or_nickname}, {guild_id})")
+                match = await self._run_resolve_strategies(conn, name_or_nickname, guild_id, debug)
 
-                result = await conn.fetchrow(strategy1_query, name_or_nickname, guild_id)
-                if result:
-                    if log_level == 'debug':
-                        logging.debug(f"[STRATEGY1] Found exact player_name match: {result[0]}")
-                    return result[0]
-                elif log_level == 'debug':
-                    logging.debug("[STRATEGY1] No exact player_name match found")
+                if not match and debug:
+                    await self._log_all_players(conn, name_or_nickname, guild_id)
 
-                # Strategy 2: Case-insensitive match with player_name
-                strategy2_query = """
-                    SELECT player_name FROM players
-                    WHERE LOWER(player_name) = LOWER($1) AND guild_id = $2 AND is_active = TRUE
-                """
-                if log_level == 'debug':
-                    logging.debug(f"[STRATEGY2] Case-insensitive player_name match: {strategy2_query}")
-                    logging.debug(f"[STRATEGY2] Parameters: ({name_or_nickname}, {guild_id})")
-
-                result = await conn.fetchrow(strategy2_query, name_or_nickname, guild_id)
-                if result:
-                    if log_level == 'debug':
-                        logging.debug(f"[STRATEGY2] Found case-insensitive player_name match: {result[0]}")
-                    return result[0]
-                elif log_level == 'debug':
-                    logging.debug("[STRATEGY2] No case-insensitive player_name match found")
-
-                # Strategy 3: Exact nickname match (case-sensitive)
-                strategy3_query = """
-                    SELECT player_name FROM players
-                    WHERE nicknames IS NOT NULL
-                    AND nicknames ? $1
-                    AND guild_id = $2
-                    AND is_active = TRUE
-                """
-                if log_level == 'debug':
-                    logging.debug(f"[STRATEGY3] Exact nickname match: {strategy3_query}")
-                    logging.debug(f"[STRATEGY3] Parameters: ({name_or_nickname}, {guild_id})")
-
-                result = await conn.fetchrow(strategy3_query, name_or_nickname, guild_id)
-                if result:
-                    if log_level == 'debug':
-                        logging.debug(f"[STRATEGY3] Found exact nickname match: {result[0]}")
-                    return result[0]
-                elif log_level == 'debug':
-                    logging.debug("[STRATEGY3] No exact nickname match found")
-
-                # Strategy 4: Case-insensitive nickname match (Python list approach)
-                if log_level == 'debug':
-                    logging.debug("[STRATEGY4] Starting Python list-based nickname matching")
-
-                nickname_results = await conn.fetch("""
-                    SELECT player_name, nicknames
-                    FROM players
-                    WHERE guild_id = $1 AND is_active = TRUE AND nicknames IS NOT NULL
-                """, guild_id)
-
-                if log_level == 'debug':
-                    logging.debug(f"[STRATEGY4] Found {len(nickname_results)} players with nicknames in guild {guild_id}")
-
-                for row in nickname_results:
-                    player_name = row[0]
-                    nicknames = row[1]
-                    if log_level == 'debug':
-                        logging.debug(f"[STRATEGY4] Checking {player_name}: {nicknames} (type: {type(nicknames)})")
-
-                    if isinstance(nicknames, list):
-                        for nickname in nicknames:
-                            if isinstance(nickname, str):
-                                if log_level == 'debug':
-                                    logging.debug(f"[STRATEGY4]   Testing nickname: '{nickname}' vs '{name_or_nickname}'")
-                                    logging.debug(f"[STRATEGY4]   LOWER comparison: '{nickname.lower()}' == '{name_or_nickname.lower()}' => {nickname.lower() == name_or_nickname.lower()}")
-
-                                if nickname.lower() == name_or_nickname.lower():
-                                    if log_level == 'debug':
-                                        logging.debug(f"[STRATEGY4] Found case-insensitive nickname match: '{nickname}' -> {player_name}")
-                                    return player_name
-                    elif isinstance(nicknames, dict):
-                        if log_level == 'debug':
-                            logging.debug(f"[STRATEGY4]   Skipping dict (empty placeholder): {nicknames}")
-                        continue
-                    else:
-                        if log_level == 'debug':
-                            logging.debug(f"[STRATEGY4]   Unexpected nickname format: {type(nicknames)}")
-
-                if log_level == 'debug':
-                    logging.debug("[STRATEGY4] No case-insensitive nickname match found")
-
-                # Strategy 5: Alternative JSONB case-insensitive approach (fallback)
-                try:
-                    strategy5_query = """
-                        SELECT player_name FROM players
-                        WHERE guild_id = $1
-                        AND is_active = TRUE
-                        AND nicknames IS NOT NULL
-                        AND LOWER(nicknames::text) LIKE LOWER($2)
-                    """
-                    if log_level == 'debug':
-                        logging.debug(f"[STRATEGY5] Alternative JSONB text search: {strategy5_query}")
-                        logging.debug(f"[STRATEGY5] Parameters: ({guild_id}, '%{name_or_nickname}%')")
-
-                    result = await conn.fetchrow(strategy5_query, guild_id, f'%"{name_or_nickname}"%')
-                    if result:
-                        if log_level == 'debug':
-                            logging.debug(f"[STRATEGY5] Found alternative JSONB match: {result[0]}")
-                        return result[0]
-                    elif log_level == 'debug':
-                        logging.debug("[STRATEGY5] No alternative JSONB match found")
-
-                except Exception as e:
-                    if log_level == 'debug':
-                        logging.debug(f"[STRATEGY5] Alternative JSONB strategy failed: {e}")
-
-                # Strategy 6: Match display_name (Discord display name)
-                strategy6_query = """
-                    SELECT player_name FROM players
-                    WHERE LOWER(display_name) = LOWER($1) AND guild_id = $2 AND is_active = TRUE
-                """
-                if log_level == 'debug':
-                    logging.debug(f"[STRATEGY6] Display name match: {strategy6_query}")
-                    logging.debug(f"[STRATEGY6] Parameters: ({name_or_nickname}, {guild_id})")
-
-                result = await conn.fetchrow(strategy6_query, name_or_nickname, guild_id)
-                if result:
-                    if log_level == 'debug':
-                        logging.debug(f"[STRATEGY6] Found display_name match: {result[0]}")
-                    return result[0]
-                elif log_level == 'debug':
-                    logging.debug("[STRATEGY6] No display_name match found")
-
-                # Strategy 7: Match discord_username (Discord username)
-                strategy7_query = """
-                    SELECT player_name FROM players
-                    WHERE LOWER(discord_username) = LOWER($1) AND guild_id = $2 AND is_active = TRUE
-                """
-                if log_level == 'debug':
-                    logging.debug(f"[STRATEGY7] Discord username match: {strategy7_query}")
-                    logging.debug(f"[STRATEGY7] Parameters: ({name_or_nickname}, {guild_id})")
-
-                result = await conn.fetchrow(strategy7_query, name_or_nickname, guild_id)
-                if result:
-                    if log_level == 'debug':
-                        logging.debug(f"[STRATEGY7] Found discord_username match: {result[0]}")
-                    return result[0]
-                elif log_level == 'debug':
-                    logging.debug("[STRATEGY7] No discord_username match found")
-
-                # Final debugging: show all available data
-                if log_level == 'debug':
-                    all_players = await conn.fetch("""
-                        SELECT player_name, nicknames
-                        FROM players
-                        WHERE guild_id = $1 AND is_active = TRUE
-                    """, guild_id)
-
-                    logging.debug(f"[FINAL] Resolution failed for '{name_or_nickname}' in guild {guild_id}")
-                    logging.debug("[FINAL] All active players in this guild:")
-                    for row in all_players:
-                        logging.debug(f"[FINAL]   - {row[0]}: {row[1] if row[1] else 'No nicknames'}")
-
-                return None  # Not found
+                return match
 
         except Exception as e:
             if log_level == 'error':
                 logging.error(f"Database error resolving player name '{name_or_nickname}' (guild: {guild_id}): {e}")
                 logging.error(f"Full traceback: {traceback.format_exc()}")
-            elif log_level == 'debug':
+            elif debug:
                 logging.debug(f"Database lookup failed for '{name_or_nickname}' (expected if opponent): {e}")
             return None
+
+    async def _run_resolve_strategies(self, conn, name: str, guild_id: int, debug: bool) -> str | None:
+        """Run all resolution strategies in order, return first match."""
+        # Strategies 1-3: exact name, case-insensitive name, exact nickname
+        for tag, desc, query in _RESOLVE_QUERIES_EARLY:
+            match = await self._try_resolve_query(conn, tag, desc, query, name, guild_id, debug)
+            if match:
+                return match
+
+        # Strategy 4: Case-insensitive nickname match (Python iteration)
+        match = await self._try_nickname_match(conn, name, guild_id, debug)
+        if match:
+            return match
+
+        # Strategy 5: Alternative JSONB text search (fallback)
+        match = await self._try_jsonb_fallback(conn, name, guild_id, debug)
+        if match:
+            return match
+
+        # Strategies 6-7: display name, Discord username
+        for tag, desc, query in _RESOLVE_QUERIES_LATE:
+            match = await self._try_resolve_query(conn, tag, desc, query, name, guild_id, debug)
+            if match:
+                return match
+
+        return None
+
+    @staticmethod
+    async def _try_resolve_query(
+        conn, tag: str, desc: str, query: str,
+        name: str, guild_id: int, debug: bool,
+    ) -> str | None:
+        """Try a single SQL-based resolution strategy."""
+        if debug:
+            logging.debug(f"[{tag}] {desc}: {query}")
+            logging.debug(f"[{tag}] Parameters: ({name}, {guild_id})")
+        result = await conn.fetchrow(query, name, guild_id)
+        if result:
+            if debug:
+                logging.debug(f"[{tag}] Found match: {result[0]}")
+            return result[0]
+        if debug:
+            logging.debug(f"[{tag}] No match found")
+        return None
+
+    @staticmethod
+    async def _try_nickname_match(conn, name: str, guild_id: int, debug: bool) -> str | None:
+        """Strategy 4: Case-insensitive nickname match via Python iteration."""
+        if debug:
+            logging.debug("[STRATEGY4] Starting Python list-based nickname matching")
+        rows = await conn.fetch(
+            "SELECT player_name, nicknames FROM players "
+            "WHERE guild_id = $1 AND is_active = TRUE AND nicknames IS NOT NULL",
+            guild_id,
+        )
+        if debug:
+            logging.debug(f"[STRATEGY4] Found {len(rows)} players with nicknames in guild {guild_id}")
+        target = name.lower()
+        for row in rows:
+            nicknames = row[1]
+            if not isinstance(nicknames, list):
+                continue
+            for nickname in nicknames:
+                if nickname.lower() == target:
+                    if debug:
+                        logging.debug(f"[STRATEGY4] Found match: '{nickname}' -> {row[0]}")
+                    return row[0]
+        if debug:
+            logging.debug("[STRATEGY4] No case-insensitive nickname match found")
+        return None
+
+    @staticmethod
+    async def _try_jsonb_fallback(conn, name: str, guild_id: int, debug: bool) -> str | None:
+        """Strategy 5: Alternative JSONB text search."""
+        try:
+            query = (
+                "SELECT player_name FROM players "
+                "WHERE guild_id = $1 AND is_active = TRUE "
+                "AND nicknames IS NOT NULL AND LOWER(nicknames::text) LIKE LOWER($2)"
+            )
+            if debug:
+                logging.debug(f"[STRATEGY5] Alternative JSONB text search: {query}")
+                logging.debug(f"[STRATEGY5] Parameters: ({guild_id}, '%{name}%')")
+            result = await conn.fetchrow(query, guild_id, f'%"{name}"%')
+            if result:
+                if debug:
+                    logging.debug(f"[STRATEGY5] Found alternative JSONB match: {result[0]}")
+                return result[0]
+            if debug:
+                logging.debug("[STRATEGY5] No alternative JSONB match found")
+        except Exception as e:
+            if debug:
+                logging.debug(f"[STRATEGY5] Alternative JSONB strategy failed: {e}")
+        return None
+
+    @staticmethod
+    async def _log_all_players(conn, name: str, guild_id: int) -> None:
+        """Log all active players for debugging failed resolution."""
+        all_players = await conn.fetch(
+            "SELECT player_name, nicknames FROM players "
+            "WHERE guild_id = $1 AND is_active = TRUE",
+            guild_id,
+        )
+        logging.debug(f"[FINAL] Resolution failed for '{name}' in guild {guild_id}")
+        logging.debug("[FINAL] All active players in this guild:")
+        for row in all_players:
+            logging.debug(f"[FINAL]   - {row[0]}: {row[1] if row[1] else 'No nicknames'}")
 
     async def get_player_info(self, name_or_nickname: str, guild_id: int = 0) -> dict | None:
         """Get basic roster info for a player."""
@@ -249,21 +232,20 @@ class PlayerRepository(BaseRepository):
                     ORDER BY member_status, player_name
                 """, guild_id)
 
-                results = []
-                for row in rows:
-                    results.append({
+                return [
+                    {
                         'player_name': row[0],
                         'added_by': row[1],
                         'created_at': row[2].isoformat() if row[2] else None,
                         'updated_at': row[3].isoformat() if row[3] else None,
-                        'team': row[4] if row[4] else 'Unassigned',
-                        'nicknames': row[5] if row[5] else [],
-                        'member_status': row[6] if row[6] else 'member',
-                        'country_code': row[7] if row[7] else None,
-                        'discord_user_id': row[8] if row[8] else None
-                    })
-
-                return results
+                        'team': row[4] or 'Unassigned',
+                        'nicknames': row[5] or [],
+                        'member_status': row[6] or 'member',
+                        'country_code': row[7] or None,
+                        'discord_user_id': row[8] or None,
+                    }
+                    for row in rows
+                ]
 
         except Exception as e:
             logging.error(f"Error getting all player stats: {e}")
@@ -376,9 +358,7 @@ class PlayerRepository(BaseRepository):
         self._validate_guild_id(guild_id, "remove_roster_player")
         try:
             async with self.get_connection() as conn:
-                existing = await conn.fetchrow("""
-                    SELECT id FROM players WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE
-                """, player_name, guild_id)
+                existing = await conn.fetchrow(_SQL_PLAYER_EXISTS, player_name, guild_id)
 
                 if not existing:
                     logging.info(f"Player {player_name} is not in the active roster")
@@ -411,9 +391,7 @@ class PlayerRepository(BaseRepository):
 
         try:
             async with self.get_connection() as conn:
-                existing = await conn.fetchrow("""
-                    SELECT id FROM players WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE
-                """, player_name, guild_id)
+                existing = await conn.fetchrow(_SQL_PLAYER_EXISTS, player_name, guild_id)
 
                 if not existing:
                     logging.error(f"Player {player_name} not found in active roster")
@@ -492,10 +470,7 @@ class PlayerRepository(BaseRepository):
         self._validate_guild_id(guild_id, "add_nickname")
         try:
             async with self.get_connection() as conn:
-                result = await conn.fetchrow("""
-                    SELECT nicknames FROM players
-                    WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE
-                """, player_name, guild_id)
+                result = await conn.fetchrow(_SQL_SELECT_NICKNAMES, player_name, guild_id)
 
                 if not result:
                     logging.error(f"Player {player_name} not found in active roster")
@@ -509,11 +484,7 @@ class PlayerRepository(BaseRepository):
 
                 updated_nicknames = current_nicknames + [nickname]
 
-                await conn.execute("""
-                    UPDATE players
-                    SET nicknames = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE player_name = $2 AND guild_id = $3 AND is_active = TRUE
-                """, updated_nicknames, player_name, guild_id)
+                await conn.execute(_SQL_UPDATE_NICKNAMES, updated_nicknames, player_name, guild_id)
 
                 logging.info(f"Added nickname '{nickname}' to {player_name}")
                 return True
@@ -527,10 +498,7 @@ class PlayerRepository(BaseRepository):
         self._validate_guild_id(guild_id, "remove_nickname")
         try:
             async with self.get_connection() as conn:
-                result = await conn.fetchrow("""
-                    SELECT nicknames FROM players
-                    WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE
-                """, player_name, guild_id)
+                result = await conn.fetchrow(_SQL_SELECT_NICKNAMES, player_name, guild_id)
 
                 if not result:
                     logging.error(f"Player {player_name} not found in active roster")
@@ -544,11 +512,7 @@ class PlayerRepository(BaseRepository):
 
                 updated_nicknames = [n for n in current_nicknames if n != nickname]
 
-                await conn.execute("""
-                    UPDATE players
-                    SET nicknames = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE player_name = $2 AND guild_id = $3 AND is_active = TRUE
-                """, updated_nicknames, player_name, guild_id)
+                await conn.execute(_SQL_UPDATE_NICKNAMES, updated_nicknames, player_name, guild_id)
 
                 logging.info(f"Removed nickname '{nickname}' from {player_name}")
                 return True
@@ -562,10 +526,7 @@ class PlayerRepository(BaseRepository):
         self._validate_guild_id(guild_id, "get_player_nicknames")
         try:
             async with self.get_connection() as conn:
-                result = await conn.fetchrow("""
-                    SELECT nicknames FROM players
-                    WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE
-                """, player_name, guild_id)
+                result = await conn.fetchrow(_SQL_SELECT_NICKNAMES, player_name, guild_id)
 
                 return result[0] if result and result[0] else []
 
@@ -578,9 +539,7 @@ class PlayerRepository(BaseRepository):
         self._validate_guild_id(guild_id, "set_player_nicknames")
         try:
             async with self.get_connection() as conn:
-                existing = await conn.fetchrow("""
-                    SELECT id FROM players WHERE player_name = $1 AND guild_id = $2 AND is_active = TRUE
-                """, player_name, guild_id)
+                existing = await conn.fetchrow(_SQL_PLAYER_EXISTS, player_name, guild_id)
 
                 if not existing:
                     logging.error(f"Player {player_name} not found in active roster")
@@ -591,11 +550,7 @@ class PlayerRepository(BaseRepository):
                     if nickname not in unique_nicknames:
                         unique_nicknames.append(nickname)
 
-                await conn.execute("""
-                    UPDATE players
-                    SET nicknames = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE player_name = $2 AND guild_id = $3 AND is_active = TRUE
-                """, unique_nicknames, player_name, guild_id)
+                await conn.execute(_SQL_UPDATE_NICKNAMES, unique_nicknames, player_name, guild_id)
 
                 logging.info(f"Set nicknames for {player_name}: {unique_nicknames}")
                 return True

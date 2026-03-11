@@ -32,6 +32,16 @@ except ImportError:
 # Thread lock for OCR operations (preserved for compatibility)
 ocr_lock = threading.Lock()
 
+
+def _is_race_count_token(stripped: str, patterns: list[re.Pattern]) -> bool:
+    """Return True if token matches a race-count pattern like (5) or 5)."""
+    for pattern in patterns:
+        m = pattern.match(stripped)
+        if m and 1 <= int(m.group(1)) <= 11:
+            logging.debug(f"Skipping race count token '{stripped}' in score detection")
+            return True
+    return False
+
 class TableFormat(Enum):
     """Enumeration of supported Mario Kart table formats."""
     LARGE = "large"
@@ -614,104 +624,87 @@ class OCRProcessor:
                 'error': str(e)
             }
 
+    @staticmethod
+    def _build_token_bboxes(extracted_texts: list[dict], tokens: list[str]) -> dict[int, list]:
+        """Map each token index to the bounding box of its source OCR line."""
+        token_bboxes: dict[int, list] = {}
+        token_idx = 0
+        for item in extracted_texts:
+            item_tokens = item['text'].split()
+            bbox = item.get('bbox')
+            for _ in item_tokens:
+                if token_idx < len(tokens) and bbox:
+                    token_bboxes[token_idx] = bbox
+                token_idx += 1
+        return token_bboxes
+
+    @staticmethod
+    def _find_score_positions(tokens: list[str]) -> list[int]:
+        """Identify token indices that represent valid scores (1-180)."""
+        from .ocr import extract_score_from_corrupted_token
+
+        race_count_patterns = [
+            re.compile(r'^\((\d+)\)$'),
+            re.compile(r'^\((\d+)$'),
+            re.compile(r'^(\d+)\)$'),
+        ]
+        score_positions: list[int] = []
+
+        for i, token in enumerate(tokens):
+            stripped = token.strip()
+            if _is_race_count_token(stripped, race_count_patterns):
+                continue
+
+            if token.isdigit() and 1 <= int(token) <= 180:
+                score_positions.append(i)
+                logging.debug(f"Found score: {token} at position {i}")
+                continue
+
+            # Embedded scores in corrupted tokens (e.g. "RIC69")
+            # Only if NOT followed by a valid standalone score
+            if i < len(tokens) - 1 and tokens[i + 1].isdigit() and 1 <= int(tokens[i + 1]) <= 180:
+                logging.debug(f"Skipping potential embedded score in '{token}' because followed by valid score '{tokens[i + 1]}'")
+                continue
+
+            embedded_score = extract_score_from_corrupted_token(token)
+            if embedded_score:
+                score_positions.append(i)
+                logging.debug(f"Found embedded score: {embedded_score} in token '{token}' at position {i}")
+
+        return score_positions
+
     def _parse_mario_kart_results(self, extracted_texts: list[dict], guild_id: int = 0, roster_data: list[dict] | None = None) -> list[dict]:
         """Parse extracted text to find Mario Kart player results using database validation."""
-        from .ocr import extract_score_from_corrupted_token
         try:
             if not self.db_manager:
-                logging.error("❌ No database manager available for player validation")
+                logging.error("No database manager available for player validation")
                 return []
 
-            # Set per-request roster data for this guild to avoid shared state mutation
             if roster_data is not None:
                 self.name_resolver.set_roster_data(guild_id, roster_data)
                 self.team_splitter.set_roster_data(guild_id, roster_data)
 
-            # Combine all OCR text into single string and tokenize
-            # Also build token-to-bbox mapping for spatial disambiguation
             combined_text = ' '.join([item['text'] for item in extracted_texts])
             tokens = combined_text.split()
+            token_bboxes = self._build_token_bboxes(extracted_texts, tokens)
 
-            # Build token-to-bbox mapping
-            token_bboxes = {}
-            token_idx = 0
-            for item in extracted_texts:
-                item_tokens = item['text'].split()
-                bbox = item.get('bbox')
-                # Assign same bbox to all tokens from this OCR line (approximation)
-                # In practice, each word in a line has similar x-position
-                for _ in item_tokens:
-                    if token_idx < len(tokens) and bbox:
-                        token_bboxes[token_idx] = bbox
-                    token_idx += 1
+            logging.debug(f"OCR tokens: {tokens}")
 
-            logging.debug(f"🔍 OCR tokens: {tokens}")
-
-            # Find all valid scores (1-180)
-            score_positions = []
-            for i, token in enumerate(tokens):
-                # Skip race count tokens like (5), (3), etc.
-                race_count_patterns = [
-                    r'^\((\d+)\)$',  # (5)
-                    r'^\((\d+)$',    # (5
-                    r'^(\d+)\)$'     # 5)
-                ]
-
-                is_race_count_token = False
-                for pattern in race_count_patterns:
-                    match = re.match(pattern, token.strip())
-                    if match:
-                        race_num = int(match.group(1))
-                        if 1 <= race_num <= 11:  # Valid race count range
-                            is_race_count_token = True
-                            logging.debug(f"🏁 Skipping race count token '{token}' in score detection")
-                            break
-
-                if is_race_count_token:
-                    continue
-
-                if token.isdigit() and 1 <= int(token) <= 180:
-                    score_positions.append(i)
-                    logging.debug(f"📊 Found score: {token} at position {i}")
-                else:
-                    # Check for embedded scores in corrupted tokens (like "RIC69")
-                    # But only if this token is NOT followed by another valid score
-                    has_following_score = False
-                    if i < len(tokens) - 1:
-                        next_token = tokens[i + 1]
-                        if next_token.isdigit() and 1 <= int(next_token) <= 180:
-                            has_following_score = True
-
-                    # Only treat as embedded score if NO following score exists
-                    if not has_following_score:
-                        embedded_score = extract_score_from_corrupted_token(token)
-                        if embedded_score:
-                            score_positions.append(i)
-                            logging.debug(f"📊 Found embedded score: {embedded_score} in token '{token}' at position {i}")
-                    else:
-                        logging.debug(f"🔍 Skipping potential embedded score in '{token}' because followed by valid score '{next_token}'")
-
-            # Find all valid player names using sliding window
+            score_positions = self._find_score_positions(tokens)
             valid_names = self.name_resolver.find_valid_names_with_window(tokens, guild_id)
-
-            # Pair names with scores using proximity (with bbox-based disambiguation)
             results = self.score_pairer.pair_names_with_scores(valid_names, score_positions, tokens, token_bboxes)
 
-            # Count total detected vs guild players
             all_detected_scores = len(score_positions)
             guild_players_found = len(results)
-            opponent_players = all_detected_scores - guild_players_found
 
-            # Check for team splitting (handles 11-20 players dynamically)
             if 11 <= all_detected_scores <= 20:
-                logging.debug(f"🔀 Team Split Detection: {all_detected_scores} players, {guild_players_found} guild members")
+                logging.debug(f"Team Split Detection: {all_detected_scores} players, {guild_players_found} guild members")
                 results = self.team_splitter.apply_dynamic_team_splitting(results, tokens, guild_id, all_detected_scores)
-                guild_players_found = len(results)  # Update count after splitting
-                opponent_players = all_detected_scores - guild_players_found
+                guild_players_found = len(results)
 
-            logging.info(f"🎯 OCR Results: {guild_players_found} guild players found, {opponent_players} opponent players detected")
+            opponent_players = all_detected_scores - guild_players_found
+            logging.info(f"OCR Results: {guild_players_found} guild players found, {opponent_players} opponent players detected")
 
-            # Log guild team summary
             if results:
                 team_summary = ", ".join([f"{result['name']} {result['score']}" for result in results])
                 logging.info(f"Your team: {team_summary}")
@@ -719,7 +712,7 @@ class OCRProcessor:
             return results
 
         except Exception as e:
-            logging.error(f"❌ Error parsing Mario Kart results: {e}")
+            logging.error(f"Error parsing Mario Kart results: {e}")
             return []
 
     # ------------------------------------------------------------------

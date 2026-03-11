@@ -18,6 +18,110 @@ from ..constants import (
 from .base import BaseRepository
 
 
+def _float_or_none(val) -> float | None:
+    """Convert to float if not None, else return None."""
+    return float(val) if val is not None else None
+
+
+def _build_player_stats_dict(player_name: str, result) -> dict:
+    """Build player stats dict from a database row."""
+    avg = float(result[4]) if result[4] else 0.0
+    stddev = float(result[13]) if result[13] else 0.0
+    wars = float(result[3]) if result[3] else 0.0
+    cv = (stddev / avg * 100) if avg > 0 and wars >= 2 else None
+
+    return {
+        'player_name': player_name,
+        'total_score': result[1],
+        'total_races': result[2],
+        'war_count': result[3],
+        'average_score': avg,
+        'last_war_date': result[5].isoformat() if result[5] else None,
+        'stats_created_at': result[6].isoformat() if result[6] else None,
+        'stats_updated_at': result[7].isoformat() if result[7] else None,
+        'team': result[8] or 'Unassigned',
+        'nicknames': result[9] or [],
+        'added_by': result[10],
+        'total_team_differential': result[11] if result[11] is not None else 0,
+        'country_code': result[12] or None,
+        'highest_score': result[15] or 0,
+        'lowest_score': result[16] or 0,
+        'score_stddev': stddev,
+        'cv_percent': cv,
+        'consistency_score': _float_or_none(result[14]),
+        'wins': result[17] or 0,
+        'losses': result[18] or 0,
+        'ties': result[19] or 0,
+        'win_percentage': float(result[20]) if result[20] else 0.0,
+        'avg10_score': _float_or_none(result[21]),
+        'form_score': _float_or_none(result[22]),
+        'clutch_factor': _float_or_none(result[23]),
+        'potential': _float_or_none(result[24]),
+        'hotstreak': _float_or_none(result[25]),
+    }
+
+
+def _accumulate_war_stats(performances: list) -> dict:
+    """Accumulate statistics from a list of war performance records.
+
+    Returns a dict with totals, win/loss/tie counts, score tracking, etc.
+    """
+    total_score = 0
+    total_races = 0
+    total_war_participation = 0.0
+    total_team_differential = 0
+    last_war_date = None
+    highest_score = 0
+    lowest_score: int | None = None
+    wins = 0
+    losses = 0
+    ties = 0
+    scores_list: list[float] = []
+
+    for perf in performances:
+        war_date, _, team_diff, score, races_played_val, war_participation = (
+            perf[0], perf[1], perf[2], perf[3], perf[4], perf[5]
+        )
+        total_score += score
+        total_races += races_played_val
+        wp = float(war_participation)
+        total_war_participation += wp
+        normalized_score = score / wp if wp > 0 else score
+        scores_list.append(normalized_score)
+        total_team_differential += int((team_diff or 0) * wp)
+
+        if team_diff is not None:
+            if team_diff > 0:
+                wins += 1
+            elif team_diff < 0:
+                losses += 1
+            else:
+                ties += 1
+
+        if races_played_val == 12:
+            if score > highest_score:
+                highest_score = score
+            if lowest_score is None or score < lowest_score:
+                lowest_score = score
+
+        if war_date and (not last_war_date or war_date > last_war_date):
+            last_war_date = war_date
+
+    return {
+        'total_score': total_score,
+        'total_races': total_races,
+        'total_war_participation': total_war_participation,
+        'total_team_differential': total_team_differential,
+        'last_war_date': last_war_date,
+        'highest_score': highest_score,
+        'lowest_score': lowest_score if lowest_score is not None else 0,
+        'wins': wins,
+        'losses': losses,
+        'ties': ties,
+        'scores_list': scores_list,
+    }
+
+
 class StatsRepository(BaseRepository):
     """Handles all player statistics and metrics operations."""
 
@@ -304,42 +408,7 @@ class StatsRepository(BaseRepository):
                 if not result:
                     return None
 
-                average_score = float(result[4]) if result[4] else 0.0
-                score_stddev = float(result[13]) if result[13] else 0.0
-                total_wars = float(result[3]) if result[3] else 0.0
-                cv_percent = (score_stddev / average_score * 100) if average_score > 0 and total_wars >= 2 else None
-
-                return {
-                    'player_name': player_name,
-                    'total_score': result[1],
-                    'total_races': result[2],
-                    'war_count': result[3],
-                    'average_score': average_score,
-                    'last_war_date': result[5].isoformat() if result[5] else None,
-                    'stats_created_at': result[6].isoformat() if result[6] else None,
-                    'stats_updated_at': result[7].isoformat() if result[7] else None,
-                    'team': result[8] if result[8] else 'Unassigned',
-                    'nicknames': result[9] if result[9] else [],
-                    'added_by': result[10],
-                    'total_team_differential': result[11] if result[11] is not None else 0,
-                    'country_code': result[12] if result[12] else None,
-                    # Cached stable metrics
-                    'highest_score': result[15] or 0,
-                    'lowest_score': result[16] or 0,
-                    'score_stddev': score_stddev,
-                    'cv_percent': cv_percent,
-                    'consistency_score': float(result[14]) if result[14] is not None else None,
-                    'wins': result[17] or 0,
-                    'losses': result[18] or 0,
-                    'ties': result[19] or 0,
-                    'win_percentage': float(result[20]) if result[20] else 0.0,
-                    # Cached volatile metrics (may be NULL)
-                    'avg10_score': float(result[21]) if result[21] is not None else None,
-                    'form_score': float(result[22]) if result[22] is not None else None,
-                    'clutch_factor': float(result[23]) if result[23] is not None else None,
-                    'potential': float(result[24]) if result[24] is not None else None,
-                    'hotstreak': float(result[25]) if result[25] is not None else None,
-                }
+                return _build_player_stats_dict(player_name, result)
 
         except Exception as e:
             logging.error(f"Error getting player stats: {e}")
@@ -359,7 +428,7 @@ class StatsRepository(BaseRepository):
                 if not result:
                     return False
 
-                player_id, war_count, avg_score = result[0], result[1], result[2]
+                _, war_count, avg_score = result[0], result[1], result[2]
                 war_count = float(war_count) if war_count else 0.0
                 avg_score = float(avg_score) if avg_score else 0.0
 
@@ -434,86 +503,41 @@ class StatsRepository(BaseRepository):
                 if not performances:
                     return None
 
-                total_score = 0
-                total_races = 0
-                total_war_participation = 0.0
-                total_team_differential = 0
-                last_war_date = None
-                highest_score = 0
-                lowest_score = None
-                wins = 0
-                losses = 0
-                ties = 0
-                scores_list = []
-                num_wars = len(performances)
+                acc = _accumulate_war_stats(performances)
+                twp = acc['total_war_participation']
+                average_score = round(acc['total_score'] / twp, 2) if twp > 0 else 0.0
 
-                for perf in performances:
-                    war_date, race_count, team_diff, score, races_played_val, war_participation = perf[0], perf[1], perf[2], perf[3], perf[4], perf[5]
-                    total_score += score
-                    total_races += races_played_val
-                    war_participation_float = float(war_participation)
-                    total_war_participation += war_participation_float
-                    normalized_score = score / war_participation_float if war_participation_float > 0 else score
-                    scores_list.append(normalized_score)
-                    scaled_differential = int((team_diff or 0) * war_participation_float)
-                    total_team_differential += scaled_differential
+                total_wars = acc['wins'] + acc['losses'] + acc['ties']
+                win_percentage = (acc['wins'] / total_wars * 100) if total_wars > 0 else 0.0
 
-                    if team_diff is not None:
-                        if team_diff > 0:
-                            wins += 1
-                        elif team_diff < 0:
-                            losses += 1
-                        else:
-                            ties += 1
-
-                    if races_played_val == 12:
-                        if score > highest_score:
-                            highest_score = score
-                        if lowest_score is None or score < lowest_score:
-                            lowest_score = score
-
-                    if war_date and (not last_war_date or war_date > last_war_date):
-                        last_war_date = war_date
-
-                average_score = round(total_score / total_war_participation, 2) if total_war_participation > 0 else 0.0
-
-                total_wars = wins + losses + ties
-                win_percentage = (wins / total_wars * 100) if total_wars > 0 else 0.0
-
-                if lowest_score is None:
-                    lowest_score = 0
-
-                if len(scores_list) > 0:
-                    score_stddev = statistics.pstdev(scores_list)
-                else:
-                    score_stddev = 0.0
-
+                scores_list = acc['scores_list']
+                score_stddev = statistics.pstdev(scores_list) if scores_list else 0.0
                 cv_percent = (score_stddev / average_score * 100) if average_score > 0 and len(scores_list) >= 2 else None
                 consistency_score = max(0, 100 - cv_percent) if cv_percent is not None else None
 
                 return {
                     'player_name': player_name,
-                    'total_score': total_score,
-                    'total_races': total_races,
-                    'war_count': total_war_participation,
-                    'num_wars': num_wars,
+                    'total_score': acc['total_score'],
+                    'total_races': acc['total_races'],
+                    'war_count': twp,
+                    'num_wars': len(performances),
                     'average_score': float(average_score),
-                    'last_war_date': last_war_date.isoformat() if last_war_date else None,
+                    'last_war_date': acc['last_war_date'].isoformat() if acc['last_war_date'] else None,
                     'stats_created_at': player_info[4].isoformat() if player_info[4] else None,
                     'stats_updated_at': None,
                     'team': player_info[1] if player_info[1] else 'Unassigned',
                     'nicknames': player_info[2] if player_info[2] else [],
                     'added_by': player_info[3],
-                    'total_team_differential': total_team_differential,
-                    'highest_score': highest_score,
-                    'lowest_score': lowest_score,
+                    'total_team_differential': acc['total_team_differential'],
+                    'highest_score': acc['highest_score'],
+                    'lowest_score': acc['lowest_score'],
                     'score_stddev': score_stddev,
                     'cv_percent': cv_percent,
                     'consistency_score': consistency_score,
-                    'wins': wins,
-                    'losses': losses,
-                    'ties': ties,
-                    'win_percentage': win_percentage
+                    'wins': acc['wins'],
+                    'losses': acc['losses'],
+                    'ties': acc['ties'],
+                    'win_percentage': win_percentage,
                 }
 
         except Exception as e:

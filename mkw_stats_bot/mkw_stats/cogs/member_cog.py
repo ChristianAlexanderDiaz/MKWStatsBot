@@ -70,7 +70,7 @@ class MemberCog(BaseCog):
                 trial_list = []
                 for player in trials:
                     team_name = player.get('team', 'Unassigned')
-                    display_name = get_player_display_name(player['player_name'], team_name, guild_id, self.bot.db, team_tags=team_tags)
+                    display_name = get_player_display_name(player['player_name'], team_name, team_tags=team_tags)
                     nickname_count = len(player.get('nicknames', []))
                     nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
                     team_text = f" - {team_name}" if team_name != 'Unassigned' else ""

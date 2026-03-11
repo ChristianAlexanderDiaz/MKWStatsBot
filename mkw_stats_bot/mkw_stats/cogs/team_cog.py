@@ -207,7 +207,7 @@ class TeamCog(BaseCog):
                     player_list = []
                     for player in players:
                         team_name = player.get('team', 'Unassigned')
-                        display_name = get_player_display_name(player['player_name'], team_name, guild_id, self.bot.db, team_tags=team_tags)
+                        display_name = get_player_display_name(player['player_name'], team_name, team_tags=team_tags)
                         nickname_count = len(player.get('nicknames', []))
                         nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
                         player_list.append(f"• **{display_name}**{nickname_text}")
@@ -253,7 +253,7 @@ class TeamCog(BaseCog):
             if team_players:
                 detailed_players = []
                 for player in team_players:
-                    display_name = get_player_display_name(player, team_name, guild_id, self.bot.db, team_tags=team_tags)
+                    display_name = get_player_display_name(player, team_name, team_tags=team_tags)
                     player_stats = await self.bot.db.players.get_player_info(player, guild_id)
                     if player_stats:
                         nicknames = player_stats.get('nicknames', [])

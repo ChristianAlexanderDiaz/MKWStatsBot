@@ -19,6 +19,23 @@ def _log_task_error(t: asyncio.Task) -> None:
         logger.debug(f"Background task failed: {exc}")
 
 
+_VALID_TEXT_PATTERN = re.compile(r'^[a-zA-Z0-9\s.,\-+%$()]+$')
+
+
+def _filter_ocr_texts(ocr_results: list[dict]) -> list[dict]:
+    """Extract valid text items from raw OCR results."""
+    texts = []
+    for item in ocr_results:
+        text = item.get("text", "").strip()
+        if text and _VALID_TEXT_PATTERN.match(text):
+            texts.append({
+                'text': text,
+                'confidence': item.get("confidence", 0.0),
+                'bbox': item.get("bbox"),
+            })
+    return texts
+
+
 class OCRHandler:
     """Handles all OCR-related processing flows.
 
@@ -64,16 +81,7 @@ class OCRHandler:
                 )
                 return False, embed, None
 
-            extracted_texts = []
-            if ocr_result.get("results"):
-                for item in ocr_result["results"]:
-                    text = item.get("text", "").strip()
-                    if text and re.match(r'^[a-zA-Z0-9\s.,\-+%$()]+$', text):
-                        extracted_texts.append({
-                            'text': text,
-                            'confidence': item.get("confidence", 0.0),
-                            'bbox': item.get("bbox"),
-                        })
+            extracted_texts = _filter_ocr_texts(ocr_result.get("results") or [])
 
             if not extracted_texts:
                 embed = discord.Embed(

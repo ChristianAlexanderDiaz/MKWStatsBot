@@ -528,7 +528,7 @@ class StatsCog(BaseCog):
         # Get player display name with team tag
         team_name = stats.get('team', 'Unassigned')
         team_tags = await self.bot.db.guilds.get_all_team_tags(guild_id) if guild_id else None
-        display_name = get_player_display_name(stats['player_name'], team_name, guild_id, self.bot.db, team_tags=team_tags)
+        display_name = get_player_display_name(stats['player_name'], team_name, team_tags=team_tags)
 
         # Determine title and color based on context
         if lastxwars is not None:

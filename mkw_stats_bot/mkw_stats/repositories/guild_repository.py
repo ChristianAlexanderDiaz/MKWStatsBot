@@ -6,6 +6,8 @@ import logging
 
 from .base import BaseRepository
 
+_SQL_SELECT_TEAM_TAGS = "SELECT team_tags FROM guild_configs WHERE guild_id = $1"
+
 
 class GuildRepository(BaseRepository):
     """Handles all guild configuration database operations."""
@@ -332,9 +334,7 @@ class GuildRepository(BaseRepository):
                 return False
 
             async with self.get_connection() as conn:
-                result = await conn.fetchrow("""
-                    SELECT team_tags FROM guild_configs WHERE guild_id = $1
-                """, guild_id)
+                result = await conn.fetchrow(_SQL_SELECT_TEAM_TAGS, guild_id)
 
                 if not result:
                     logging.error(f"Guild {guild_id} not found in guild_configs")
@@ -362,9 +362,7 @@ class GuildRepository(BaseRepository):
             self._validate_guild_id(guild_id, "get_team_tag")
 
             async with self.get_connection() as conn:
-                result = await conn.fetchrow("""
-                    SELECT team_tags FROM guild_configs WHERE guild_id = $1
-                """, guild_id)
+                result = await conn.fetchrow(_SQL_SELECT_TEAM_TAGS, guild_id)
 
                 if not result or not result[0]:
                     return None
@@ -390,9 +388,7 @@ class GuildRepository(BaseRepository):
             self._validate_guild_id(guild_id, "remove_team_tag")
 
             async with self.get_connection() as conn:
-                result = await conn.fetchrow("""
-                    SELECT team_tags FROM guild_configs WHERE guild_id = $1
-                """, guild_id)
+                result = await conn.fetchrow(_SQL_SELECT_TEAM_TAGS, guild_id)
 
                 if not result:
                     logging.error(f"Guild {guild_id} not found in guild_configs")
@@ -431,9 +427,7 @@ class GuildRepository(BaseRepository):
             self._validate_guild_id(guild_id, "get_all_team_tags")
 
             async with self.get_connection() as conn:
-                result = await conn.fetchrow("""
-                    SELECT team_tags FROM guild_configs WHERE guild_id = $1
-                """, guild_id)
+                result = await conn.fetchrow(_SQL_SELECT_TEAM_TAGS, guild_id)
 
                 if not result or not result[0]:
                     return {}
