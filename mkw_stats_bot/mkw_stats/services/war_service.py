@@ -8,7 +8,6 @@ Replaces duplicated war submission logic that was in:
 - bot.py (handle_bulk_results_save)
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -45,7 +44,7 @@ class WarService:
         """
         self.db = db
 
-    def submit_war(
+    async def submit_war(
         self,
         results: list[dict],
         race_count: int,
@@ -73,7 +72,7 @@ class WarService:
             normalized = self._normalize_results(results, race_count)
 
             # Step 1: Add war to database
-            war_id = self.db.wars.add_race_results(normalized, race_count, guild_id=guild_id)
+            war_id = await self.db.wars.add_race_results(normalized, race_count, guild_id=guild_id)
 
             if war_id is None:
                 return WarSubmissionResult(
@@ -96,7 +95,7 @@ class WarService:
                 races_played = result.get('races_played', result.get('races', race_count))
                 war_participation = result.get('war_participation', races_played / race_count if race_count > 0 else 1.0)
 
-                success = self.db.stats.update_player_stats(
+                success = await self.db.stats.update_player_stats(
                     result['name'],
                     result['score'],
                     races_played,
@@ -132,19 +131,7 @@ class WarService:
                 error=str(e)
             )
 
-    async def submit_war_async(
-        self,
-        results: list[dict],
-        race_count: int,
-        guild_id: int,
-    ) -> "WarSubmissionResult":
-        """Async wrapper — runs submit_war off the event loop in a thread executor."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, self.submit_war, results, race_count, guild_id
-        )
-
-    def submit_appended_players(
+    async def submit_appended_players(
         self,
         war_id: int,
         new_players: list[dict],
@@ -162,7 +149,7 @@ class WarService:
         """
         try:
             # Get the updated war to compute new team differential
-            updated_war = self.db.wars.get_war_by_id(war_id, guild_id=guild_id)
+            updated_war = await self.db.wars.get_war_by_id(war_id, guild_id=guild_id)
             if not updated_war:
                 return WarSubmissionResult(success=False, error=f"War {war_id} not found")
 
@@ -181,7 +168,7 @@ class WarService:
                 races_played = player.get('races_played', race_count)
                 war_participation = player.get('war_participation', races_played / race_count if race_count > 0 else 1.0)
 
-                success = self.db.stats.update_player_stats(
+                success = await self.db.stats.update_player_stats(
                     player['name'],
                     player['score'],
                     races_played,
@@ -209,7 +196,7 @@ class WarService:
             logger.error(f"❌ Failed to update stats for appended players: {e}")
             return WarSubmissionResult(success=False, error=str(e))
 
-    def check_duplicate(self, results: list[dict], guild_id: int) -> bool:
+    async def check_duplicate(self, results: list[dict], guild_id: int) -> bool:
         """Check if the war results are a duplicate of the last war.
 
         Args:
@@ -219,7 +206,7 @@ class WarService:
         Returns:
             True if this appears to be a duplicate war
         """
-        last_war = self.db.wars.get_last_war_for_duplicate_check(guild_id)
+        last_war = await self.db.wars.get_last_war_for_duplicate_check(guild_id=guild_id)
         return self.db.wars.check_for_duplicate_war(results, last_war)
 
     @staticmethod

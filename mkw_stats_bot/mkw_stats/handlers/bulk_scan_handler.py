@@ -198,9 +198,7 @@ class BulkScanHandler:
         """Create a dashboard review session and send the review link."""
         try:
             api_results = []
-            roster_players = await asyncio.get_running_loop().run_in_executor(
-                None, self.bot.db.players.get_roster_players, guild_id
-            )
+            roster_players = await self.bot.db.players.get_roster_players(guild_id)
             roster_set = set(p.lower() for p in roster_players) if roster_players else set()
             for war in successful_wars:
                 players_with_roster_check = []
@@ -310,7 +308,7 @@ class BulkScanHandler:
 
             for war_info in successful_wars:
                 try:
-                    submission = await self.bot.war_service.submit_war_async(
+                    submission = await self.bot.war_service.submit_war(
                         war_info['players'], war_info['total_race_count'], guild_id
                     )
 

@@ -83,8 +83,11 @@ class OCRHandler:
                 )
                 return False, embed, None
 
+            # Pre-fetch roster data before entering executor (async DB -> sync code)
+            roster_data = await self.bot.db.players.get_all_players_stats(guild_id) or []
+
             processed_results = await loop.run_in_executor(
-                None, ocr._parse_mario_kart_results, extracted_texts, guild_id
+                None, ocr._parse_mario_kart_results, extracted_texts, guild_id, roster_data
             )
 
             if processed_results:
@@ -152,7 +155,7 @@ class OCRHandler:
                         await processing_msg.edit(content="\u274c **Error:** Could not determine guild ID.")
                         return
 
-                    configured_channel_id = self.bot.db.guilds.get_ocr_channel(guild_id)
+                    configured_channel_id = await self.bot.db.guilds.get_ocr_channel(guild_id)
                     if not configured_channel_id:
                         embed = discord.Embed(
                             title="\u274c No OCR Channel Set",
@@ -236,7 +239,7 @@ class OCRHandler:
 
             total_race_count = max(r.get('races', 12) for r in results)
 
-            submission = await self.bot.war_service.submit_war_async(results, total_race_count, guild_id)
+            submission = await self.bot.war_service.submit_war(results, total_race_count, guild_id)
 
             if submission.success:
                 try:
@@ -300,7 +303,7 @@ class OCRHandler:
 
             total_race_count = max(r.get('races', 12) for r in results)
 
-            submission = await self.bot.war_service.submit_war_async(results, total_race_count, guild_id)
+            submission = await self.bot.war_service.submit_war(results, total_race_count, guild_id)
 
             if submission.success:
                 if 'original_message_obj' in confirmation_data:

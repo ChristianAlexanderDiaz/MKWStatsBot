@@ -82,14 +82,12 @@ class AddPlayerToWarConfirmView(discord.ui.View):
 
             await interaction.response.edit_message(view=self)
 
-            success = await asyncio.to_thread(
-                self.cog.bot.db.wars.append_players_to_war_by_id,
+            success = await self.cog.bot.db.wars.append_players_to_war_by_id(
                 self.war_id, self.new_players, guild_id=self.guild_id,
             )
 
             if success:
-                submission = await asyncio.to_thread(
-                    self.cog.bot.war_service.submit_appended_players,
+                submission = await self.cog.bot.war_service.submit_appended_players(
                     self.war_id, self.new_players, self.guild_id,
                 )
                 if submission.success:
@@ -193,8 +191,8 @@ class RemoveWarConfirmView(discord.ui.View):
 
             await interaction.response.edit_message(view=self)
 
-            stats_reverted = await asyncio.to_thread(
-                self.cog.bot.db.wars.remove_war_by_id, self.war_id, guild_id=self.guild_id,
+            stats_reverted = await self.cog.bot.db.wars.remove_war_by_id(
+                self.war_id, guild_id=self.guild_id,
             )
 
             if stats_reverted is not None:
@@ -333,7 +331,7 @@ class WarCog(BaseCog):
             failed_players = []
 
             for result in results:
-                resolved_player = self.bot.db.players.resolve_player_name(result['name'], guild_id)
+                resolved_player = await self.bot.db.players.resolve_player_name(result['name'], guild_id)
                 logging.info(f"Player resolution: '{result['name']}' -> {resolved_player}")
                 if resolved_player:
                     resolved_results.append({
@@ -358,7 +356,7 @@ class WarCog(BaseCog):
                 else:
                     result['war_participation'] = 0.0
 
-            last_war_results = self.bot.db.wars.get_last_war_for_duplicate_check(guild_id)
+            last_war_results = await self.bot.db.wars.get_last_war_for_duplicate_check(guild_id=guild_id)
             is_duplicate = self.bot.db.wars.check_for_duplicate_war(resolved_results, last_war_results)
 
             already_responded = False
@@ -399,7 +397,7 @@ class WarCog(BaseCog):
                     await interaction.edit_original_response(embed=timeout_embed)
                     return
 
-            submission = await self.bot.war_service.submit_war_async(resolved_results, actual_war_race_count, guild_id)
+            submission = await self.bot.war_service.submit_war(resolved_results, actual_war_race_count, guild_id)
 
             if not submission.success:
                 error_msg = f"❌ Failed to add war to database. {submission.error or 'Check logs for details.'}"
@@ -465,7 +463,7 @@ class WarCog(BaseCog):
                 await interaction.followup.send("❌ Limit must be between 1 and 50.", ephemeral=True)
                 return
 
-            wars = self.bot.db.wars.get_all_wars(guild_id=guild_id, limit=limit)
+            wars = await self.bot.db.wars.get_all_wars(guild_id=guild_id, limit=limit)
 
             if not wars:
                 await interaction.followup.send("❌ No wars found.", ephemeral=True)
@@ -529,7 +527,7 @@ class WarCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            existing_war = self.bot.db.wars.get_war_by_id(war_id, guild_id=guild_id)
+            existing_war = await self.bot.db.wars.get_war_by_id(war_id, guild_id=guild_id)
             if not existing_war:
                 await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return
@@ -569,7 +567,7 @@ class WarCog(BaseCog):
                             await interaction.response.send_message(f"❌ {name}: {score} points invalid for {individual_races} races.", ephemeral=True)
                             return
 
-                        resolved_player = self.bot.db.players.resolve_player_name(name, guild_id)
+                        resolved_player = await self.bot.db.players.resolve_player_name(name, guild_id)
                         if not resolved_player:
                             await interaction.response.send_message(f"❌ Player **{name}** not found in players table.", ephemeral=True)
                             return
@@ -654,7 +652,7 @@ class WarCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            war = self.bot.db.wars.get_war_by_id(war_id, guild_id=guild_id)
+            war = await self.bot.db.wars.get_war_by_id(war_id, guild_id=guild_id)
             if not war:
                 await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return

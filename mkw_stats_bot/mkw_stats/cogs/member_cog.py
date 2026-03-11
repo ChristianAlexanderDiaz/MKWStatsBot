@@ -25,12 +25,12 @@ class MemberCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            resolved_player = self.bot.db.players.resolve_player_name(player_name, guild_id)
+            resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
                 await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.")
                 return
 
-            success = self.bot.db.players.set_player_member_status(resolved_player, member_status, guild_id)
+            success = await self.bot.db.players.set_player_member_status(resolved_player, member_status, guild_id)
 
             if success:
                 status_display = member_status.title()
@@ -57,18 +57,20 @@ class MemberCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            trials = self.bot.db.players.get_players_by_member_status('trial', guild_id)
+            trials = await self.bot.db.players.get_players_by_member_status('trial', guild_id)
 
             embed = discord.Embed(
                 title="🔍 Trial Members",
                 color=0xffa500
             )
 
+            team_tags = await self.bot.db.guilds.get_all_team_tags(guild_id)
+
             if trials:
                 trial_list = []
                 for player in trials:
                     team_name = player.get('team', 'Unassigned')
-                    display_name = get_player_display_name(player['player_name'], team_name, guild_id, self.bot.db)
+                    display_name = get_player_display_name(player['player_name'], team_name, guild_id, self.bot.db, team_tags=team_tags)
                     nickname_count = len(player.get('nicknames', []))
                     nickname_text = f" ({nickname_count} nicknames)" if nickname_count > 0 else ""
                     team_text = f" - {team_name}" if team_name != 'Unassigned' else ""
@@ -97,7 +99,7 @@ class MemberCog(BaseCog):
         try:
             guild_id = self.get_guild_id(interaction)
 
-            kicked = self.bot.db.players.get_players_by_member_status('kicked', guild_id)
+            kicked = await self.bot.db.players.get_players_by_member_status('kicked', guild_id)
 
             embed = discord.Embed(
                 title="🚫 Kicked Members",

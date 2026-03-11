@@ -6,9 +6,11 @@ connection pool access and common validation helpers.
 """
 
 import logging
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
+
+import asyncpg
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +25,10 @@ class BaseRepository:
         """
         self._db = db_manager
 
-    @contextmanager
-    def get_connection(self) -> Generator:
+    @asynccontextmanager
+    async def get_connection(self) -> AsyncIterator[asyncpg.Connection]:
         """Delegate to DatabaseManager's connection pool."""
-        with self._db.get_connection() as conn:
+        async with self._db.get_connection() as conn:
             yield conn
 
     def _validate_guild_id(self, guild_id: int, operation_name: str = "database operation") -> None:

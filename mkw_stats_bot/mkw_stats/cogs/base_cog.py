@@ -1,6 +1,5 @@
 """Shared base cog with decorators, helpers, and autocomplete methods."""
 
-import asyncio
 import functools
 import logging
 import time
@@ -100,6 +99,24 @@ def require_guild_setup(
                     await interaction.response.defer()
                 except discord.errors.NotFound:
                     logging.warning(f"/{cmd_name}: interaction expired before defer()")
+                    try:
+                        if interaction.channel is not None:
+                            await interaction.channel.send(
+                                f"{interaction.user.mention} Your `/{cmd_name}` didn't go through "
+                                f"— the bot was briefly unresponsive. Please try again.",
+                                delete_after=10,
+                            )
+                        else:
+                            logging.debug(f"/{cmd_name}: no channel available for fallback, attempting DM")
+                            try:
+                                await interaction.user.send(
+                                    f"Your `/{cmd_name}` didn't go through "
+                                    f"— the bot was briefly unresponsive. Please try again.",
+                                )
+                            except Exception as dm_err:
+                                logging.debug(f"/{cmd_name}: DM fallback also failed: {dm_err}")
+                    except Exception as fallback_err:
+                        logging.debug(f"/{cmd_name}: could not send fallback message to channel: {fallback_err}")
                     return  # type: ignore[return-value]
 
             guild_id = self.get_guild_id_from_interaction(interaction)
@@ -181,7 +198,7 @@ class BaseCog(commands.Cog):
     _NEGATIVE_TTL = 30   # 30 sec — so /setup takes effect quickly
 
     async def is_guild_initialized(self, guild_id: int) -> bool:
-        """Check if guild is properly initialized (async, offloads blocking DB call).
+        """Check if guild is properly initialized (async).
 
         Uses a simple TTL cache to reduce pool pressure.  On DB error, returns
         a cached value if one exists; otherwise re-raises so the caller can
@@ -194,18 +211,13 @@ class BaseCog(commands.Cog):
             if now < expiry:
                 return value
 
-        def _check() -> bool:
-            with self.bot.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT COUNT(*) FROM guild_configs WHERE guild_id = %s AND is_active = TRUE",
-                    (guild_id,)
-                )
-                return cursor.fetchone()[0] > 0
-
         try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, _check)
+            async with self.bot.db.get_connection() as conn:
+                count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM guild_configs WHERE guild_id = $1 AND is_active = TRUE",
+                    guild_id,
+                )
+                result = count > 0
         except Exception:
             # Return stale cached value if available, otherwise propagate
             if cached is not None:

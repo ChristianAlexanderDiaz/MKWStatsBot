@@ -29,7 +29,7 @@ def get_player_display_name(
     player_name: str,
     team_name: str,
     guild_id: int,
-    db: "DatabaseManager",
+    db: "DatabaseManager | None" = None,
     team_tags: dict[str, str] | None = None,
 ) -> str:
     """Return player name with team tag prefix if tag exists.
@@ -37,9 +37,9 @@ def get_player_display_name(
     Args:
         player_name: Player's name
         team_name: Player's team name
-        guild_id: Guild ID
-        db: Database manager instance
-        team_tags: Optional pre-fetched team tags dict to avoid DB calls
+        guild_id: Guild ID (kept for signature compat; unused when team_tags provided)
+        db: Deprecated — callers should pre-fetch team_tags instead
+        team_tags: Pre-fetched team tags dict (required for asyncpg callers)
 
     Returns:
         'TAG Playername' if tag exists, 'Playername' otherwise
@@ -50,7 +50,8 @@ def get_player_display_name(
     if team_tags is not None:
         tag = team_tags.get(team_name)
     else:
-        tag = db.guilds.get_team_tag(guild_id, team_name)
+        # No sync DB fallback — callers must supply team_tags
+        tag = None
 
     if tag:
         return f"{tag} {player_name}"

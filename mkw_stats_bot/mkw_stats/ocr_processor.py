@@ -103,6 +103,16 @@ class OCRProcessor:
 
         self._initialize_ocr()
 
+    def set_roster_data(self, guild_id: int, roster_data: list[dict]) -> None:
+        """Inject pre-fetched roster data into OCR sub-modules for a specific guild.
+
+        Call this from async context BEFORE dispatching sync work to an
+        executor so that NameResolver and TeamSplitter can operate without
+        making database calls.
+        """
+        self.name_resolver.set_roster_data(guild_id, roster_data)
+        self.team_splitter.set_roster_data(guild_id, roster_data)
+
     def _initialize_ocr(self):
         """Initialize PaddleOCR with optimized settings."""
         try:
@@ -280,7 +290,7 @@ class OCRProcessor:
             logging.error(traceback.format_exc())
             return {"success": False, "error": str(e)}
 
-    def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0) -> dict:
+    def process_image(self, image_path: str, message_timestamp=None, guild_id: int = 0, roster_data: list[dict] | None = None) -> dict:
         """Process image using PaddleOCR and return parsed Mario Kart results."""
         try:
             logging.info(f"🔍 Processing image with PaddleOCR: {image_path}")
@@ -327,7 +337,7 @@ class OCRProcessor:
                 }
 
             # Parse Mario Kart results
-            parsed_results = self._parse_mario_kart_results(extracted_texts, guild_id)
+            parsed_results = self._parse_mario_kart_results(extracted_texts, guild_id, roster_data=roster_data)
 
             if not parsed_results:
                 return {
@@ -368,12 +378,24 @@ class OCRProcessor:
         """
         Async process image with resource management and priority allocation.
         Falls back to sync processing if resource management is unavailable.
+
+        Pre-fetches roster data before entering the executor so that sync
+        OCR sub-modules (NameResolver, TeamSplitter) can work without DB calls.
         """
+        # Pre-fetch roster data for sync sub-modules (async DB -> sync executor)
+        roster_data: list[dict] = []
+        if self.db_manager and hasattr(self.db_manager, 'players'):
+            try:
+                roster_data = await self.db_manager.players.get_all_players_stats(guild_id) or []
+            except Exception as e:
+                logging.warning(f"Failed to pre-fetch roster data: {e}")
+                roster_data = []
+
         if not self.resource_management_enabled:
             # Fallback: run sync processing in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self.process_image, image_path, message_timestamp, guild_id
+                None, self.process_image, image_path, message_timestamp, guild_id, roster_data
             )
 
         try:
@@ -400,7 +422,8 @@ class OCRProcessor:
                         self.process_image,
                         image_path,
                         message_timestamp,
-                        guild_id
+                        guild_id,
+                        roster_data
                     )
 
                     # Update performance metrics
@@ -428,7 +451,7 @@ class OCRProcessor:
             # Fallback: run sync processing in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self.process_image, image_path, message_timestamp, guild_id
+                None, self.process_image, image_path, message_timestamp, guild_id, roster_data
             )
 
     async def process_bulk_images_async(self, image_data_list: list[dict], guild_id: int,
@@ -436,7 +459,19 @@ class OCRProcessor:
         """
         Process multiple images with intelligent batching and resource management.
         Falls back to individual sync processing if resource management is unavailable.
+
+        Pre-fetches roster data once before processing any images so that sync
+        OCR sub-modules can work without DB calls.
         """
+        # Pre-fetch roster data for sync sub-modules (async DB -> sync executor)
+        roster_data: list[dict] = []
+        if self.db_manager and hasattr(self.db_manager, 'players'):
+            try:
+                roster_data = await self.db_manager.players.get_all_players_stats(guild_id) or []
+            except Exception as e:
+                logging.warning(f"Failed to pre-fetch roster data for bulk processing: {e}")
+                roster_data = []
+
         if not self.resource_management_enabled:
             # Fallback: run sync processing in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
@@ -444,7 +479,7 @@ class OCRProcessor:
             for image_data in image_data_list:
                 result = await loop.run_in_executor(
                     None, self.process_image,
-                    image_data['path'], image_data.get('timestamp'), guild_id
+                    image_data['path'], image_data.get('timestamp'), guild_id, roster_data
                 )
                 results.append(result)
             return results
@@ -485,7 +520,8 @@ class OCRProcessor:
                                 self.process_image,
                                 image_data['path'],
                                 image_data.get('timestamp'),
-                                guild_id
+                                guild_id,
+                                roster_data
                             )
                             batch_tasks.append(task)
 
@@ -544,6 +580,7 @@ class OCRProcessor:
                         image_data['path'],
                         image_data.get('timestamp'),
                         guild_id,
+                        roster_data,
                     )
                     results.append(result)
                 except Exception as individual_error:
@@ -577,13 +614,18 @@ class OCRProcessor:
                 'error': str(e)
             }
 
-    def _parse_mario_kart_results(self, extracted_texts: list[dict], guild_id: int = 0) -> list[dict]:
+    def _parse_mario_kart_results(self, extracted_texts: list[dict], guild_id: int = 0, roster_data: list[dict] | None = None) -> list[dict]:
         """Parse extracted text to find Mario Kart player results using database validation."""
         from .ocr import extract_score_from_corrupted_token
         try:
             if not self.db_manager:
                 logging.error("❌ No database manager available for player validation")
                 return []
+
+            # Set per-request roster data for this guild to avoid shared state mutation
+            if roster_data is not None:
+                self.name_resolver.set_roster_data(guild_id, roster_data)
+                self.team_splitter.set_roster_data(guild_id, roster_data)
 
             # Combine all OCR text into single string and tokenize
             # Also build token-to-bbox mapping for spatial disambiguation
