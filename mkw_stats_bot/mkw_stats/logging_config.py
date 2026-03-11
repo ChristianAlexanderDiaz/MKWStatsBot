@@ -269,10 +269,8 @@ class DiscordWebhookHandler(logging.Handler):
         logging.getLogger().removeHandler(self)
         if self._flush_task:
             self._flush_task.cancel()
-            try:
-                await self._flush_task
-            except asyncio.CancelledError:
-                pass
+            # gather with return_exceptions avoids swallowing CancelledError (SonarCloud S7497)
+            await asyncio.gather(self._flush_task, return_exceptions=True)
         # Final flush
         await self._flush_once()
         if self._session and not self._session.closed:
