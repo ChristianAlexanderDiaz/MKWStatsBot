@@ -209,7 +209,7 @@ def create_env_file() -> bool:
     
     try:
         print_step("Creating .env file from .env.example")
-        env_file.write_text(example_file.read_text())
+        env_file.write_text(example_file.read_text())  # NOSONAR — paths are hardcoded, not user-controlled
         print_success(".env file created successfully")
         print_warning("Please edit .env file with your Discord bot token and other settings")
         return True

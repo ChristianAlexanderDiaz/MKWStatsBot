@@ -3,6 +3,7 @@ MKW Stats Dashboard API
 FastAPI backend for the MKW Stats Bot dashboard
 """
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -90,7 +91,7 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host=os.getenv("HOST", "0.0.0.0"),  # noqa: S104  # NOSONAR — local dev only; production uses uvicorn CLI (see Dockerfile / railway.toml)
         port=settings.port,
         reload=settings.debug
     )

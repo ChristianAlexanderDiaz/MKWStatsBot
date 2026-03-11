@@ -443,6 +443,7 @@ class OCRPerformanceMonitor:
 
         except asyncio.CancelledError:
             logger.debug("Performance monitoring loop cancelled")
+            raise
         except Exception as e:
             logger.error(f"Error in performance monitoring loop: {e}")
 

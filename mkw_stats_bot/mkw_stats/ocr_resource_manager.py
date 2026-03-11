@@ -509,6 +509,7 @@ class OCRResourceManager:
 
         except asyncio.CancelledError:
             logger.debug("Monitoring loop cancelled")
+            raise
         except Exception as e:
             logger.error(f"Error in monitoring loop: {e}")
 
@@ -580,6 +581,7 @@ class OCRResourceManager:
 
         except asyncio.CancelledError:
             logger.debug("Cleanup loop cancelled")
+            raise
         except Exception as e:
             logger.error(f"Error in cleanup loop: {e}")
 

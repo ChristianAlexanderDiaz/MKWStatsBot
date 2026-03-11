@@ -2,10 +2,19 @@
 Discord UI Modals for OCR War Result Editing
 """
 
+import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 import discord
 from discord import ui
+
+logger = logging.getLogger(__name__)
+
+
+def _log_task_error(t: asyncio.Task) -> None:
+    if not t.cancelled() and (exc := t.exception()):
+        logger.debug(f"Background task failed: {exc}")
 
 if TYPE_CHECKING:
     from .bot import OCRConfirmationView, ReportIssueView
@@ -228,12 +237,12 @@ class ReportIssueModal(ui.Modal, title="Report OCR Issue"):
                 try:
                     await self.report_view.message.edit(view=self.report_view)
                     # Schedule deletion with countdown
-                    import asyncio
-                    asyncio.create_task(self.ocr_view.bot._countdown_and_delete_message(
+                    _task = asyncio.create_task(self.ocr_view.bot._countdown_and_delete_message(
                         self.report_view.message,
                         self.report_view.message.embeds[0] if self.report_view.message.embeds else None,
                         countdown_seconds=10
                     ))
+                    _task.add_done_callback(_log_task_error)
                 except Exception:  # noqa: S110 - UI cleanup is best-effort
                     pass
 
