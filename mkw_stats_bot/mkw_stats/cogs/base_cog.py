@@ -94,6 +94,10 @@ def require_guild_setup(
             if param_str:
                 param_str = " " + param_str
 
+            interaction_age = time.time() - interaction.created_at.timestamp()
+            if interaction_age > 1.5:
+                logging.warning(f"/{cmd_name}: interaction already {interaction_age:.1f}s old when handler started")
+
             if defer:
                 try:
                     await interaction.response.defer()
@@ -195,7 +199,7 @@ class BaseCog(commands.Cog):
     # guild_id -> (result, expiry_timestamp)
     _guild_init_cache: dict[int, tuple[bool, float]] = {}
     _POSITIVE_TTL = 300  # 5 min — guild init status rarely changes
-    _NEGATIVE_TTL = 30   # 30 sec — so /setup takes effect quickly
+    _NEGATIVE_TTL = 10   # 10 sec — so /setup takes effect quickly
 
     async def is_guild_initialized(self, guild_id: int) -> bool:
         """Check if guild is properly initialized (async).
@@ -218,21 +222,32 @@ class BaseCog(commands.Cog):
                     guild_id,
                 )
                 result = count > 0
+                if not result:
+                    logging.getLogger(__name__).warning(
+                        "Guild %s failed init check: query returned count=%s (cache_had=%s)",
+                        guild_id, count, cached[0] if cached else "no_cache"
+                    )
         except Exception:
-            # Return stale cached value if available, otherwise propagate
-            if cached is not None:
+            # Return stale True to avoid false "not set up" errors,
+            # but never stale False — re-raise so caller shows "DB unavailable"
+            if cached is not None and cached[0] is True:
                 logging.getLogger(__name__).warning(
                     "DB error during guild init check for guild %s; "
-                    "returning stale cached value (expired %.0fs ago)",
+                    "returning stale cached True (expired %.0fs ago)",
                     guild_id,
                     now - cached[1],
                 )
-                return cached[0]
+                return True
             raise
 
         ttl = self._POSITIVE_TTL if result else self._NEGATIVE_TTL
         self._guild_init_cache[guild_id] = (result, now + ttl)
         return result
+
+    @classmethod
+    def invalidate_guild_cache(cls, guild_id: int) -> None:
+        """Remove a guild's cached initialization status."""
+        cls._guild_init_cache.pop(guild_id, None)
 
     def _format_error_for_user(self, error: Exception, context: str = "") -> str:
         """Convert exception to user-friendly message with technical details."""

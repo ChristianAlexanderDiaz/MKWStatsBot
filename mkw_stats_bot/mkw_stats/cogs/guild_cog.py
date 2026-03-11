@@ -147,7 +147,10 @@ class GuildCog(BaseCog):
                     await self.bot.db.guilds.update_guild_config(guild_id, is_active=False)
                 except Exception as cleanup_err:
                     logging.error(f"Failed to roll back guild config: {cleanup_err}")
+                self.invalidate_guild_cache(guild_id)
                 raise
+
+            self.invalidate_guild_cache(guild_id)
 
             for pd in player_data:
                 added_players.append(pd['player_name'])

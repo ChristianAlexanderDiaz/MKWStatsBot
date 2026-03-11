@@ -63,7 +63,7 @@ class OCRHandler:
 
             # Offload blocking OCR (500ms–5s) to thread pool so event loop stays free
             loop = asyncio.get_running_loop()
-            ocr_result = await loop.run_in_executor(None, ocr.perform_ocr_on_file, temp_path)
+            ocr_result = await loop.run_in_executor(self.bot.ocr_executor, ocr.perform_ocr_on_file, temp_path)
 
             if not ocr_result["success"]:
                 embed = discord.Embed(
@@ -95,7 +95,7 @@ class OCRHandler:
             roster_data = await self.bot.db.players.get_all_players_stats(guild_id) or []
 
             processed_results = await loop.run_in_executor(
-                None, ocr._parse_mario_kart_results, extracted_texts, guild_id, roster_data
+                self.bot.ocr_executor, ocr._parse_mario_kart_results, extracted_texts, guild_id, roster_data
             )
 
             if processed_results:

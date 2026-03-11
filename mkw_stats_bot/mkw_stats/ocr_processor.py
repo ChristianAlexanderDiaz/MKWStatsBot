@@ -89,6 +89,7 @@ class OCRProcessor:
         """Initialize PaddleOCR processor with memory optimization and optional resource management."""
         self.db_manager = db_manager
         self.ocr = None
+        self.executor = None  # Set by bot.py to dedicated OCR thread pool
 
         # Initialize OCR sub-modules
         from .ocr import NameResolver, ScorePairer, TeamSplitter
@@ -405,7 +406,7 @@ class OCRProcessor:
             # Fallback: run sync processing in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self.process_image, image_path, message_timestamp, guild_id, roster_data
+                self.executor, self.process_image, image_path, message_timestamp, guild_id, roster_data
             )
 
         try:
@@ -428,7 +429,7 @@ class OCRProcessor:
                     # Perform OCR processing in executor to avoid blocking
                     loop = asyncio.get_running_loop()
                     result = await loop.run_in_executor(
-                        None,
+                        self.executor,
                         self.process_image,
                         image_path,
                         message_timestamp,
@@ -461,7 +462,7 @@ class OCRProcessor:
             # Fallback: run sync processing in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self.process_image, image_path, message_timestamp, guild_id, roster_data
+                self.executor, self.process_image, image_path, message_timestamp, guild_id, roster_data
             )
 
     async def process_bulk_images_async(self, image_data_list: list[dict], guild_id: int,
@@ -488,7 +489,7 @@ class OCRProcessor:
             results = []
             for image_data in image_data_list:
                 result = await loop.run_in_executor(
-                    None, self.process_image,
+                    self.executor, self.process_image,
                     image_data['path'], image_data.get('timestamp'), guild_id, roster_data
                 )
                 results.append(result)
@@ -526,7 +527,7 @@ class OCRProcessor:
 
                         for image_data in batch:
                             task = loop.run_in_executor(
-                                None,
+                                self.executor,
                                 self.process_image,
                                 image_data['path'],
                                 image_data.get('timestamp'),
@@ -585,7 +586,9 @@ class OCRProcessor:
             results = []
             for image_data in image_data_list:
                 try:
-                    result = await asyncio.to_thread(
+                    loop = asyncio.get_running_loop()
+                    result = await loop.run_in_executor(
+                        self.executor,
                         self.process_image,
                         image_data['path'],
                         image_data.get('timestamp'),

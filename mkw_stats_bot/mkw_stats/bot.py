@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import aiohttp
 import discord
@@ -317,6 +318,13 @@ class MarioKartBot(commands.Bot):
         self.war_service = WarService(self.db)
         self.ocr = OCRProcessor(db_manager=self.db)
 
+        # Dedicated thread pool for blocking OCR calls — isolates from default executor
+        from .constants import OCR_THREAD_POOL_SIZE
+        self.ocr_executor = ThreadPoolExecutor(
+            max_workers=OCR_THREAD_POOL_SIZE, thread_name_prefix="ocr"
+        )
+        self.ocr.executor = self.ocr_executor
+
         # Shared HTTP client (created in setup_hook after the event loop is running)
         self.http_session: aiohttp.ClientSession | None = None
 
@@ -373,7 +381,20 @@ class MarioKartBot(commands.Bot):
         except Exception as e:
             logger.warning(f"Error closing database pool: {e}")
 
+        # Shut down dedicated OCR thread pool
+        self.ocr_executor.shutdown(wait=False)
+
         await super().close()
+
+    async def _monitor_event_loop_latency(self):
+        """Log warnings when the event loop is blocked for >1s."""
+        loop = asyncio.get_running_loop()
+        while True:
+            t0 = loop.time()
+            await asyncio.sleep(1)
+            latency = loop.time() - t0 - 1.0
+            if latency > 1.0:
+                logger.warning(f"Event loop blocked for {latency:.1f}s (>1s threshold)")
 
     async def on_ready(self) -> None:
         """Event handler called when bot is ready."""
@@ -402,6 +423,10 @@ class MarioKartBot(commands.Bot):
                     logger.info("OCR mode: basic")
             except Exception as e:
                 logger.warning(f"OCR resource management init failed: {e}")
+
+        # Start event loop latency monitor (once, not on reconnects)
+        if not hasattr(self, '_latency_monitor_task'):
+            self._latency_monitor_task = asyncio.create_task(self._monitor_event_loop_latency())
 
         # Set bot status
         await self.change_presence(

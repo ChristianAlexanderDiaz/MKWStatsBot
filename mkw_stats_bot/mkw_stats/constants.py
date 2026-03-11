@@ -80,6 +80,7 @@ DB_POOL_MIN: int = 1
 DB_POOL_MAX: int = 10
 DB_CONNECT_TIMEOUT: int = 10
 DB_STATEMENT_TIMEOUT: int = 30  # seconds (asyncpg command_timeout)
+OCR_THREAD_POOL_SIZE: int = 2  # dedicated executor for blocking OCR calls
 
 # =============================================================================
 # Form Score Calculation
