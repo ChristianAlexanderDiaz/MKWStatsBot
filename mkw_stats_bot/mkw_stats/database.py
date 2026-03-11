@@ -92,11 +92,13 @@ class DatabaseManager:
                 init=_init_connection,
             )
             logging.info("PostgreSQL connection pool created successfully")
+            await self.init_database()
         except Exception as e:
-            logging.error(f"Failed to create PostgreSQL connection pool: {e}")
+            if self.pool is not None:
+                await self.pool.close()
+                self.pool = None
+            logging.error(f"Failed to connect to PostgreSQL: {e}")
             raise
-
-        await self.init_database()
 
     def _build_local_url(self) -> str:
         """Build local PostgreSQL URL for development."""

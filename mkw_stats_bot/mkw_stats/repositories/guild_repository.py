@@ -334,20 +334,16 @@ class GuildRepository(BaseRepository):
                 return False
 
             async with self.get_connection() as conn:
-                result = await conn.fetchrow(_SQL_SELECT_TEAM_TAGS, guild_id)
+                status = await conn.execute("""
+                    UPDATE guild_configs
+                    SET team_tags = COALESCE(team_tags, '{}'::jsonb) || $1::jsonb,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE guild_id = $2
+                """, {team_to_tag: tag}, guild_id)
 
-                if not result:
+                if int(status.split()[-1]) == 0:
                     logging.error(f"Guild {guild_id} not found in guild_configs")
                     return False
-
-                team_tags = result[0] if result[0] else {}
-                team_tags[team_to_tag] = tag
-
-                await conn.execute("""
-                    UPDATE guild_configs
-                    SET team_tags = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE guild_id = $2
-                """, team_tags, guild_id)
 
                 logging.info(f"Set tag '{tag}' for team '{team_to_tag}' in guild {guild_id}")
                 return True
@@ -388,31 +384,35 @@ class GuildRepository(BaseRepository):
             self._validate_guild_id(guild_id, "remove_team_tag")
 
             async with self.get_connection() as conn:
-                result = await conn.fetchrow(_SQL_SELECT_TEAM_TAGS, guild_id)
+                async with conn.transaction():
+                    result = await conn.fetchrow(
+                        "SELECT team_tags FROM guild_configs WHERE guild_id = $1 FOR UPDATE",
+                        guild_id,
+                    )
 
-                if not result:
-                    logging.error(f"Guild {guild_id} not found in guild_configs")
-                    return False
+                    if not result:
+                        logging.error(f"Guild {guild_id} not found in guild_configs")
+                        return False
 
-                team_tags = result[0] if result[0] else {}
+                    team_tags = result[0] if result[0] else {}
 
-                team_to_remove = None
-                for team in team_tags.keys():
-                    if team.lower() == team_name.lower():
-                        team_to_remove = team
-                        break
+                    team_to_remove = None
+                    for team in team_tags.keys():
+                        if team.lower() == team_name.lower():
+                            team_to_remove = team
+                            break
 
-                if not team_to_remove:
-                    logging.error(f"No tag set for team '{team_name}' in guild {guild_id}")
-                    return False
+                    if not team_to_remove:
+                        logging.error(f"No tag set for team '{team_name}' in guild {guild_id}")
+                        return False
 
-                del team_tags[team_to_remove]
+                    del team_tags[team_to_remove]
 
-                await conn.execute("""
-                    UPDATE guild_configs
-                    SET team_tags = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE guild_id = $2
-                """, team_tags, guild_id)
+                    await conn.execute("""
+                        UPDATE guild_configs
+                        SET team_tags = $1, updated_at = CURRENT_TIMESTAMP
+                        WHERE guild_id = $2
+                    """, team_tags, guild_id)
 
                 logging.info(f"Removed tag from team '{team_to_remove}' in guild {guild_id}")
                 return True

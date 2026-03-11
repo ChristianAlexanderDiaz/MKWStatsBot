@@ -116,7 +116,7 @@ class GuildCog(BaseCog):
                     'role_name': role_name,
                 })
 
-            # All setup DB calls in a single transaction for atomicity
+            # Setup DB calls (each opens its own connection; rollback deactivates guild on failure)
             try:
                 # Guild config (team names, OCR channel)
                 await self.bot.db.guilds.setup_guild(

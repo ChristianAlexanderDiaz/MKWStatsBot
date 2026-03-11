@@ -398,8 +398,8 @@ class OCRProcessor:
             try:
                 roster_data = await self.db_manager.players.get_all_players_stats(guild_id) or []
             except Exception as e:
-                logging.warning(f"Failed to pre-fetch roster data: {e}")
-                roster_data = []
+                logging.error(f"Failed to pre-fetch roster data for guild {guild_id}: {e}")
+                raise
 
         if not self.resource_management_enabled:
             # Fallback: run sync processing in executor to avoid blocking event loop
@@ -479,8 +479,8 @@ class OCRProcessor:
             try:
                 roster_data = await self.db_manager.players.get_all_players_stats(guild_id) or []
             except Exception as e:
-                logging.warning(f"Failed to pre-fetch roster data for bulk processing: {e}")
-                roster_data = []
+                logging.error(f"Failed to pre-fetch roster data for bulk processing in guild {guild_id}: {e}")
+                raise
 
         if not self.resource_management_enabled:
             # Fallback: run sync processing in executor to avoid blocking event loop
@@ -676,8 +676,8 @@ class OCRProcessor:
     def _parse_mario_kart_results(self, extracted_texts: list[dict], guild_id: int = 0, roster_data: list[dict] | None = None) -> list[dict]:
         """Parse extracted text to find Mario Kart player results using database validation."""
         try:
-            if not self.db_manager:
-                logging.error("No database manager available for player validation")
+            if not self.db_manager and roster_data is None:
+                logging.error("No database manager or roster data available for player validation")
                 return []
 
             if roster_data is not None:

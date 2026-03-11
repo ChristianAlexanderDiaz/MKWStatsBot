@@ -19,7 +19,7 @@ def _log_task_error(t: asyncio.Task) -> None:
         logger.debug(f"Background task failed: {exc}")
 
 
-_VALID_TEXT_PATTERN = re.compile(r'^[a-zA-Z0-9\s.,\-+%$()]+$')
+_VALID_TEXT_PATTERN = re.compile(r'^[^\x00-\x1f]+$')
 
 
 def _filter_ocr_texts(ocr_results: list[dict]) -> list[dict]:
