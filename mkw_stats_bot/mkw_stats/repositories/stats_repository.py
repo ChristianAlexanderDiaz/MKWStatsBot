@@ -23,11 +23,26 @@ def _float_or_none(val) -> float | None:
     return float(val) if val is not None else None
 
 
+def _float_or_zero(val) -> float:
+    """Convert to float if truthy, else return 0.0."""
+    return float(val) if val else 0.0
+
+
+def _iso_or_none(val) -> str | None:
+    """Convert to ISO string if not None, else return None."""
+    return val.isoformat() if val else None
+
+
+def _int_or_zero(val) -> int:
+    """Return val if not None, else 0."""
+    return val if val is not None else 0
+
+
 def _build_player_stats_dict(player_name: str, result) -> dict:
     """Build player stats dict from a database row."""
-    avg = float(result[4]) if result[4] else 0.0
-    stddev = float(result[13]) if result[13] else 0.0
-    wars = float(result[3]) if result[3] else 0.0
+    avg = _float_or_zero(result[4])
+    stddev = _float_or_zero(result[13])
+    wars = _float_or_zero(result[3])
     cv = (stddev / avg * 100) if avg > 0 and wars >= 2 else None
 
     return {
@@ -36,13 +51,13 @@ def _build_player_stats_dict(player_name: str, result) -> dict:
         'total_races': result[2],
         'war_count': result[3],
         'average_score': avg,
-        'last_war_date': result[5].isoformat() if result[5] else None,
-        'stats_created_at': result[6].isoformat() if result[6] else None,
-        'stats_updated_at': result[7].isoformat() if result[7] else None,
+        'last_war_date': _iso_or_none(result[5]),
+        'stats_created_at': _iso_or_none(result[6]),
+        'stats_updated_at': _iso_or_none(result[7]),
         'team': result[8] or 'Unassigned',
         'nicknames': result[9] or [],
         'added_by': result[10],
-        'total_team_differential': result[11] if result[11] is not None else 0,
+        'total_team_differential': _int_or_zero(result[11]),
         'country_code': result[12] or None,
         'highest_score': result[15] or 0,
         'lowest_score': result[16] or 0,
@@ -52,13 +67,35 @@ def _build_player_stats_dict(player_name: str, result) -> dict:
         'wins': result[17] or 0,
         'losses': result[18] or 0,
         'ties': result[19] or 0,
-        'win_percentage': float(result[20]) if result[20] else 0.0,
+        'win_percentage': _float_or_zero(result[20]),
         'avg10_score': _float_or_none(result[21]),
         'form_score': _float_or_none(result[22]),
         'clutch_factor': _float_or_none(result[23]),
         'potential': _float_or_none(result[24]),
         'hotstreak': _float_or_none(result[25]),
     }
+
+
+def _classify_war_result(team_diff) -> tuple[int, int, int]:
+    """Classify a team differential into (wins, losses, ties) increments."""
+    if team_diff is None:
+        return (0, 0, 0)
+    if team_diff > 0:
+        return (1, 0, 0)
+    if team_diff < 0:
+        return (0, 1, 0)
+    return (0, 0, 1)
+
+
+def _update_score_extremes(
+    score: int, races_played: int, highest: int, lowest: int | None
+) -> tuple[int, int | None]:
+    """Update highest/lowest scores for full 12-race wars."""
+    if races_played != 12:
+        return highest, lowest
+    highest = max(highest, score)
+    lowest = score if lowest is None else min(lowest, score)
+    return highest, lowest
 
 
 def _accumulate_war_stats(performances: list) -> dict:
@@ -90,19 +127,14 @@ def _accumulate_war_stats(performances: list) -> dict:
         scores_list.append(normalized_score)
         total_team_differential += int((team_diff or 0) * wp)
 
-        if team_diff is not None:
-            if team_diff > 0:
-                wins += 1
-            elif team_diff < 0:
-                losses += 1
-            else:
-                ties += 1
+        w, l, t = _classify_war_result(team_diff)
+        wins += w
+        losses += l
+        ties += t
 
-        if races_played_val == 12:
-            if score > highest_score:
-                highest_score = score
-            if lowest_score is None or score < lowest_score:
-                lowest_score = score
+        highest_score, lowest_score = _update_score_extremes(
+            score, races_played_val, highest_score, lowest_score
+        )
 
         if war_date and (not last_war_date or war_date > last_war_date):
             last_war_date = war_date

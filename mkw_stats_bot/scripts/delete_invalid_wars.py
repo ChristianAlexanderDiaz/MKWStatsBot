@@ -36,7 +36,8 @@ async def main():
             print("No records to delete. Exiting.")
             return
 
-        confirm = input(
+        confirm = await asyncio.to_thread(
+            input,
             f"\nAre you sure you want to delete {war_count} wars "
             f"and {perf_count} performance records? (yes/no): "
         )
