@@ -52,7 +52,6 @@ _QUIET_LOGGERS = [
     "PIL",
     "urllib3",
     "aiohttp.access",
-    "discord.http",
 ]
 
 

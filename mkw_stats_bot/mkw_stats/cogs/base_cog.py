@@ -96,7 +96,7 @@ def require_guild_setup(
 
             interaction_age = time.time() - interaction.created_at.timestamp()
             guild_id = self.get_guild_id_from_interaction(interaction)
-            logging.warning(
+            logging.debug(
                 "/%s: DIAG handler_start age=%.2fs guild_id=%s guild=%s",
                 cmd_name, interaction_age, guild_id, guild_name,
             )
@@ -106,7 +106,7 @@ def require_guild_setup(
                     t0 = time.monotonic()
                     await interaction.response.defer()
                     defer_ms = (time.monotonic() - t0) * 1000
-                    logging.warning("/%s: DIAG defer_ok %.0fms", cmd_name, defer_ms)
+                    logging.debug("/%s: DIAG defer_ok %.0fms", cmd_name, defer_ms)
                 except discord.errors.NotFound:
                     defer_ms = (time.monotonic() - t0) * 1000
                     logging.warning(
@@ -137,7 +137,7 @@ def require_guild_setup(
                 t0 = time.monotonic()
                 initialized = await self.is_guild_initialized(guild_id)
                 check_ms = (time.monotonic() - t0) * 1000
-                logging.warning(
+                logging.debug(
                     "/%s: DIAG guild_check guild_id=%s result=%s took=%.0fms",
                     cmd_name, guild_id, initialized, check_ms,
                 )
