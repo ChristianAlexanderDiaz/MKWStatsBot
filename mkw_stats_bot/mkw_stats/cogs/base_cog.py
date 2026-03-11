@@ -95,14 +95,24 @@ def require_guild_setup(
                 param_str = " " + param_str
 
             interaction_age = time.time() - interaction.created_at.timestamp()
-            if interaction_age > 1.5:
-                logging.warning(f"/{cmd_name}: interaction already {interaction_age:.1f}s old when handler started")
+            guild_id = self.get_guild_id_from_interaction(interaction)
+            logging.warning(
+                "/%s: DIAG handler_start age=%.2fs guild_id=%s guild=%s",
+                cmd_name, interaction_age, guild_id, guild_name,
+            )
 
             if defer:
                 try:
+                    t0 = time.monotonic()
                     await interaction.response.defer()
+                    defer_ms = (time.monotonic() - t0) * 1000
+                    logging.warning("/%s: DIAG defer_ok %.0fms", cmd_name, defer_ms)
                 except discord.errors.NotFound:
-                    logging.warning(f"/{cmd_name}: interaction expired before defer()")
+                    defer_ms = (time.monotonic() - t0) * 1000
+                    logging.warning(
+                        "/%s: DIAG defer_EXPIRED age=%.2fs defer_took=%.0fms",
+                        cmd_name, interaction_age, defer_ms,
+                    )
                     try:
                         if interaction.channel is not None:
                             await interaction.channel.send(
@@ -123,9 +133,14 @@ def require_guild_setup(
                         logging.debug(f"/{cmd_name}: could not send fallback message to channel: {fallback_err}")
                     return  # type: ignore[return-value]
 
-            guild_id = self.get_guild_id_from_interaction(interaction)
             try:
+                t0 = time.monotonic()
                 initialized = await self.is_guild_initialized(guild_id)
+                check_ms = (time.monotonic() - t0) * 1000
+                logging.warning(
+                    "/%s: DIAG guild_check guild_id=%s result=%s took=%.0fms",
+                    cmd_name, guild_id, initialized, check_ms,
+                )
             except Exception:
                 logging.getLogger(__name__).exception(
                     "DB error during guild init check for guild %s", guild_id
@@ -138,6 +153,10 @@ def require_guild_setup(
                 return  # type: ignore[return-value]
 
             if not initialized:
+                logging.warning(
+                    "/%s: DIAG guild_NOT_initialized guild_id=%s — sending 'not set up' to user",
+                    cmd_name, guild_id,
+                )
                 msg = "❌ Guild not set up! Please run `/setup` first to initialize your clan."
                 if defer:
                     await interaction.followup.send(msg, ephemeral=True)
