@@ -48,7 +48,7 @@ async def resilient_defer(
 
     Discord's REST API intermittently returns 10062 for valid interactions,
     especially after idle periods. discord.py never retries 404s, so we add
-    retry logic here. interaction.response._responded stays False on failure,
+    retry logic here. interaction.response._response_type stays None on failure,
     so retrying is safe.
 
     On retry, Discord may return 40060 "already acknowledged" — meaning the
@@ -82,7 +82,7 @@ async def resilient_defer(
                     "defer 40060 on attempt %d — prior defer succeeded for interaction %s",
                     attempt + 1, interaction.id,
                 )
-                interaction.response._responded = True
+                interaction.response._response_type = discord.InteractionResponseType.deferred_channel_message
                 return
             raise
     raise last_exc  # all 3 attempts failed
