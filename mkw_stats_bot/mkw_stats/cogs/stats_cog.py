@@ -13,7 +13,7 @@ from ..constants import (
     SORT_DISPLAY_NAMES,
 )
 from ..utils.formatters import country_code_to_flag, get_player_display_name
-from .base_cog import BaseCog, require_guild_setup
+from .base_cog import BaseCog, require_guild_setup, resilient_defer
 
 
 class LeaderboardView(discord.ui.View):
@@ -917,7 +917,7 @@ class StatsCog(BaseCog):
         sortby: str | None = None
     ):
         """Display global cross-guild leaderboard."""
-        await interaction.response.defer()
+        await resilient_defer(interaction)
 
         # Default sortby to 'avg'
         if sortby is None:

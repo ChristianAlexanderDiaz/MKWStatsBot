@@ -9,7 +9,7 @@ from discord import app_commands
 from ..database import DatabaseManager
 from ..utils.formatters import country_code_to_flag, get_player_display_name
 from ..utils.validators import has_admin_permission
-from .base_cog import BaseCog, require_guild_setup
+from .base_cog import BaseCog, require_guild_setup, resilient_defer
 
 
 class PlayerCog(BaseCog):
@@ -379,7 +379,7 @@ class PlayerCog(BaseCog):
                 )
                 return
 
-            await interaction.response.defer()
+            await resilient_defer(interaction)
 
             synced = 0
             changes = []
@@ -584,7 +584,7 @@ class PlayerCog(BaseCog):
                 )
                 return
 
-            await interaction.response.defer(ephemeral=True)
+            await resilient_defer(interaction, ephemeral=True)
 
             guild_id = self.get_guild_id(interaction)
 

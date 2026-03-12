@@ -391,6 +391,16 @@ class MarioKartBot(commands.Bot):
 
         await super().close()
 
+    async def _keepalive_rest(self):
+        """Periodically ping Discord REST API to prevent stale connections."""
+        while True:
+            await asyncio.sleep(300)  # 5 minutes
+            try:
+                await self.application_info()
+                logger.debug("REST keepalive ping OK")
+            except Exception as e:
+                logger.warning(f"REST keepalive ping failed: {e}")
+
     async def _monitor_event_loop_latency(self):
         """Log warnings when the event loop is blocked for >1s."""
         loop = asyncio.get_running_loop()
@@ -409,6 +419,11 @@ class MarioKartBot(commands.Bot):
 
     async def on_resumed(self) -> None:
         logger.warning("GATEWAY: resumed session")
+        try:
+            await self.application_info()
+            logger.info("REST connections refreshed after resume")
+        except Exception:
+            pass
 
     async def on_ready(self) -> None:
         """Event handler called when bot is ready."""
@@ -432,6 +447,10 @@ class MarioKartBot(commands.Bot):
         # Start event loop latency monitor (once, not on reconnects)
         if not hasattr(self, '_latency_monitor_task'):
             self._latency_monitor_task = asyncio.create_task(self._monitor_event_loop_latency())
+
+        # Start REST keepalive to prevent stale connections during idle (once)
+        if not hasattr(self, '_keepalive_rest_task'):
+            self._keepalive_rest_task = asyncio.create_task(self._keepalive_rest())
 
         # Set bot status
         await self.change_presence(

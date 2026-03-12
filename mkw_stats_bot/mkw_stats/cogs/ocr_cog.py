@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 
 from ..database import DatabaseManager
-from .base_cog import BaseCog, require_guild_setup
+from .base_cog import BaseCog, require_guild_setup, resilient_defer
 
 
 def _log_task_error(t: asyncio.Task) -> None:
@@ -104,7 +104,7 @@ class OCRCog(BaseCog):
     @require_guild_setup
     async def scanimage(self, interaction: discord.Interaction):
         """Manually scan the most recent image uploaded to the channel."""
-        await interaction.response.defer(thinking=True)
+        await resilient_defer(interaction, thinking=True)
 
         try:
             guild_id = self.get_guild_id(interaction)
@@ -229,7 +229,7 @@ class OCRCog(BaseCog):
     @require_guild_setup
     async def bulkscanimage(self, interaction: discord.Interaction, limit: int = None):
         """Bulk scan all images in the channel and process them sequentially."""
-        await interaction.response.defer(thinking=True)
+        await resilient_defer(interaction, thinking=True)
 
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
@@ -378,7 +378,7 @@ class OCRCog(BaseCog):
     @require_guild_setup
     async def debugocr(self, interaction: discord.Interaction, limit: int = None):
         """Debug OCR processing with detailed output file."""
-        await interaction.response.defer(thinking=True)
+        await resilient_defer(interaction, thinking=True)
 
         debug_output_path = None  # Track the debug output file for cleanup
 

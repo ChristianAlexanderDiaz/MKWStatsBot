@@ -9,6 +9,7 @@ import aiofiles.tempfile
 import discord
 
 from .. import config
+from ..cogs.base_cog import resilient_defer
 from ..logging_config import LogBlock, get_logger
 
 logger = get_logger(__name__)
@@ -236,7 +237,7 @@ class OCRHandler:
 
     async def handle_war_submission_from_view(self, interaction: discord.Interaction, view):
         """Handle OCR war submission from interactive view."""
-        await interaction.response.defer()
+        await resilient_defer(interaction)
 
         try:
             results = view.results

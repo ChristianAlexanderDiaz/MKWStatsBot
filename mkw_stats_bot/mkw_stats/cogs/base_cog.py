@@ -1,5 +1,6 @@
 """Shared base cog with decorators, helpers, and autocomplete methods."""
 
+import asyncio
 import functools
 import logging
 import time
@@ -37,6 +38,39 @@ MEMBER_STATUS_CHOICES = [
 def get_member_status_text() -> str:
     """Get formatted member status text for help documentation."""
     return "/".join(choice.name for choice in MEMBER_STATUS_CHOICES)
+
+
+async def resilient_defer(
+    interaction: discord.Interaction,
+    **kwargs: Any,
+) -> None:
+    """Defer with retry on Discord 10062 (Unknown interaction).
+
+    Discord's REST API intermittently returns 10062 for valid interactions,
+    especially after idle periods. discord.py never retries 404s, so we add
+    retry logic here. interaction.response._responded stays False on failure,
+    so retrying is safe.
+    """
+    last_exc: discord.errors.NotFound | None = None
+    for attempt in range(3):
+        try:
+            await interaction.response.defer(**kwargs)
+            if attempt > 0:
+                logging.info(
+                    "defer succeeded on retry %d for interaction %s",
+                    attempt, interaction.id,
+                )
+            return
+        except discord.errors.NotFound as e:
+            if e.code != 10062:
+                raise
+            last_exc = e
+            logging.warning(
+                "defer 10062 attempt %d/3 for interaction %s, retrying in 1s",
+                attempt + 1, interaction.id,
+            )
+            await asyncio.sleep(1.0)
+    raise last_exc  # all 3 attempts failed
 
 
 @overload
@@ -104,7 +138,7 @@ def require_guild_setup(
             if defer:
                 try:
                     t0 = time.monotonic()
-                    await interaction.response.defer()
+                    await resilient_defer(interaction)
                     defer_ms = (time.monotonic() - t0) * 1000
                     logging.debug("/%s: DIAG defer_ok %.0fms", cmd_name, defer_ms)
                 except discord.errors.NotFound as e:

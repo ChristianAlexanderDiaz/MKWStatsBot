@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 
 from ..database import DatabaseManager
-from .base_cog import BaseCog, require_guild_setup
+from .base_cog import BaseCog, require_guild_setup, resilient_defer
 
 
 class GuildCog(BaseCog):
@@ -392,7 +392,7 @@ class GuildCog(BaseCog):
     @require_guild_setup
     async def debug_roles(self, interaction: discord.Interaction):
         """Debug command to check why /stats shows 'No members found'."""
-        await interaction.response.defer(ephemeral=True)
+        await resilient_defer(interaction, ephemeral=True)
 
         guild_id = self.get_guild_id(interaction)
 
