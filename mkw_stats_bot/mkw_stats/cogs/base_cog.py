@@ -50,6 +50,10 @@ async def resilient_defer(
     especially after idle periods. discord.py never retries 404s, so we add
     retry logic here. interaction.response._responded stays False on failure,
     so retrying is safe.
+
+    On retry, Discord may return 40060 "already acknowledged" — meaning the
+    prior attempt's defer actually succeeded despite returning 10062. We treat
+    40060 on retries as success.
     """
     last_exc: discord.errors.NotFound | None = None
     for attempt in range(3):
@@ -70,6 +74,17 @@ async def resilient_defer(
                 attempt + 1, interaction.id,
             )
             await asyncio.sleep(1.0)
+        except discord.errors.HTTPException as e:
+            # 40060 = "Interaction has already been acknowledged"
+            # A prior attempt's defer actually succeeded despite returning 10062.
+            if attempt > 0 and e.code == 40060:
+                logging.info(
+                    "defer 40060 on attempt %d — prior defer succeeded for interaction %s",
+                    attempt + 1, interaction.id,
+                )
+                interaction.response._responded = True
+                return
+            raise
     raise last_exc  # all 3 attempts failed
 
 
