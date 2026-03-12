@@ -9,7 +9,7 @@ from discord import app_commands
 from ..database import DatabaseManager
 from ..utils.formatters import country_code_to_flag, get_player_display_name
 from ..utils.validators import has_admin_permission
-from .base_cog import BaseCog, require_guild_setup, resilient_defer
+from .base_cog import BaseCog, require_guild_setup
 
 
 class PlayerCog(BaseCog):
@@ -98,7 +98,7 @@ class PlayerCog(BaseCog):
 
             role_config = await self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Guild roles are not configured. Please run `/setup` first to configure Member, Trial, and Ally roles.",
                     ephemeral=True
                 )
@@ -116,7 +116,7 @@ class PlayerCog(BaseCog):
                 member_status = 'ally'
                 role_name = "Ally"
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ {user.mention} doesn't have a Member, Trial, or Ally role.\n"
                     f"Please assign them one of these roles before adding to the roster.",
                     ephemeral=True
@@ -129,7 +129,7 @@ class PlayerCog(BaseCog):
                 if len(country) == 2 and country.isalpha():
                     country_code = country
                 else:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f"❌ Invalid country code '{country}'. Use 2-letter codes like US, CA, GB, JP.",
                         ephemeral=True
                     )
@@ -163,19 +163,16 @@ class PlayerCog(BaseCog):
                 else:
                     embed.set_footer(text="OCR will match using display name. Use ingame_name parameter if different.")
 
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ {user.mention} is already in the roster or couldn't be added.",
                     ephemeral=True
                 )
 
         except Exception as e:
             logging.error(f"Error adding player to roster: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error adding player to roster", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error adding player to roster", ephemeral=True)
+            await interaction.followup.send("❌ Error adding player to roster", ephemeral=True)
 
     @app_commands.command(name="removeplayer", description="Remove a player from the clan roster")
     @app_commands.describe(player_name="Name of the player to remove from the roster")
@@ -184,7 +181,7 @@ class PlayerCog(BaseCog):
         """Remove a player from the clan roster."""
         try:
             if not interaction.user.guild_permissions.administrator:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ You need administrator permission to remove players from the roster.",
                     ephemeral=True
                 )
@@ -204,16 +201,13 @@ class PlayerCog(BaseCog):
                     value="This marks the player as inactive but keeps their stats.",
                     inline=False
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(f"❌ **{player_name}** is not in the active players table or couldn't be removed.")
+                await interaction.followup.send(f"❌ **{player_name}** is not in the active players table or couldn't be removed.")
 
         except Exception as e:
             logging.error(f"Error removing player from roster: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error removing player from roster", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error removing player from roster", ephemeral=True)
+            await interaction.followup.send("❌ Error removing player from roster", ephemeral=True)
 
     @app_commands.command(name="linkplayer", description="Link an existing player to their Discord account")
     @app_commands.describe(
@@ -225,7 +219,7 @@ class PlayerCog(BaseCog):
         """Link an existing player to a Discord user."""
         try:
             if not interaction.user.guild_permissions.administrator and user.id != interaction.user.id:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ You can only link your own Discord account. Administrators can link any account.",
                     ephemeral=True
                 )
@@ -235,7 +229,7 @@ class PlayerCog(BaseCog):
 
             role_config = await self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Guild roles are not configured. Please run `/setup` first.",
                     ephemeral=True
                 )
@@ -253,7 +247,7 @@ class PlayerCog(BaseCog):
                 member_status = 'ally'
                 role_name = "Ally"
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ {user.mention} doesn't have a Member, Trial, or Ally role.\n"
                     f"Please assign them one of these roles before linking.",
                     ephemeral=True
@@ -279,16 +273,16 @@ class PlayerCog(BaseCog):
                 embed.add_field(name="Discord User", value=user.mention, inline=True)
                 embed.add_field(name="Role Detected", value=role_name, inline=True)
                 embed.set_footer(text="Role status and display name will now auto-sync from Discord")
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ Could not link **{player_name}**. Player may not exist or is already linked.",
                     ephemeral=True
                 )
 
         except Exception as e:
             logging.error(f"Error linking player: {e}")
-            await interaction.response.send_message("❌ Error linking player to Discord account", ephemeral=True)
+            await interaction.followup.send("❌ Error linking player to Discord account", ephemeral=True)
 
     @app_commands.command(name="listunlinked", description="Show players not yet linked to Discord accounts")
     @require_guild_setup
@@ -305,7 +299,7 @@ class PlayerCog(BaseCog):
                     description="All active players are linked to Discord accounts!",
                     color=0x00ff00
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
                 return
 
             embed = discord.Embed(
@@ -341,11 +335,11 @@ class PlayerCog(BaseCog):
                 inline=False
             )
 
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error listing unlinked players: {e}")
-            await interaction.response.send_message("❌ Error retrieving unlinked players", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving unlinked players", ephemeral=True)
 
     @app_commands.command(name="syncstatus", description="Sync all player roles from Discord")
     @require_guild_setup
@@ -353,7 +347,7 @@ class PlayerCog(BaseCog):
         """Sync member_status for all linked players from their Discord roles."""
         try:
             if not interaction.user.guild_permissions.administrator:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ You need administrator permission to sync player statuses.",
                     ephemeral=True
                 )
@@ -363,7 +357,7 @@ class PlayerCog(BaseCog):
 
             role_config = await self.bot.db.guilds.get_guild_role_config(guild_id)
             if not role_config:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Guild roles are not configured. Please run `/setup` first.",
                     ephemeral=True
                 )
@@ -373,13 +367,11 @@ class PlayerCog(BaseCog):
             linked_players = [p for p in all_players if p.get('discord_user_id')]
 
             if not linked_players:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ No players are linked to Discord accounts yet.",
                     ephemeral=True
                 )
                 return
-
-            await resilient_defer(interaction)
 
             synced = 0
             changes = []
@@ -434,10 +426,7 @@ class PlayerCog(BaseCog):
 
         except Exception as e:
             logging.error(f"Error syncing player status: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error syncing player roles", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error syncing player roles", ephemeral=True)
+            await interaction.followup.send("❌ Error syncing player roles", ephemeral=True)
 
     @app_commands.command(name="setcountry", description="Set country flag for stats display")
     @app_commands.describe(
@@ -452,8 +441,8 @@ class PlayerCog(BaseCog):
 
             country = country.upper().strip()
             if len(country) != 2 or not country.isalpha():
-                await interaction.response.send_message(
-                    f"❌ Invalid country code '{country}'. Use 2-letter codes like US, CA, GB, JP.",
+                await interaction.followup.send(
+                    "❌ Invalid country code '{country}'. Use 2-letter codes like US, CA, GB, JP.",
                     ephemeral=True
                 )
                 return
@@ -462,12 +451,12 @@ class PlayerCog(BaseCog):
             target_member = interaction.guild.get_member(target_user.id)
 
             if not target_member:
-                await interaction.response.send_message("❌ User not found in server.", ephemeral=True)
+                await interaction.followup.send("❌ User not found in server.", ephemeral=True)
                 return
 
             if user and user != interaction.user:
                 if not has_admin_permission(interaction):
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "❌ Only administrators can set country for other players.",
                         ephemeral=True
                     )
@@ -476,7 +465,7 @@ class PlayerCog(BaseCog):
             success = await self.bot.db.players.set_country_code_by_discord_id(target_member.id, country, guild_id)
 
             if not success:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ {target_member.mention} is not in the active roster.",
                     ephemeral=True
                 )
@@ -498,11 +487,11 @@ class PlayerCog(BaseCog):
             embed.add_field(name="Flag", value=flag, inline=True)
             embed.set_footer(text="Your flag will appear in /stats leaderboard")
 
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error setting country: {e}")
-            await interaction.response.send_message("❌ Error setting country flag", ephemeral=True)
+            await interaction.followup.send("❌ Error setting country flag", ephemeral=True)
 
     @app_commands.command(name="setflag", description="[ADMIN] Set country flag for any player across guilds")
     @app_commands.describe(
@@ -578,13 +567,11 @@ class PlayerCog(BaseCog):
         """Set countries for multiple players at once."""
         try:
             if not has_admin_permission(interaction):
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Only administrators can bulk set country flags.",
                     ephemeral=True,
                 )
                 return
-
-            await resilient_defer(interaction, ephemeral=True)
 
             guild_id = self.get_guild_id(interaction)
 

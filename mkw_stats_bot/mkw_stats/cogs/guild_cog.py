@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 
 from ..database import DatabaseManager
-from .base_cog import BaseCog, require_guild_setup, resilient_defer
+from .base_cog import BaseCog, require_guild_setup
 
 
 class GuildCog(BaseCog):
@@ -255,13 +255,13 @@ class GuildCog(BaseCog):
                 )
 
                 embed.set_footer(text="Player status will now auto-sync from Discord roles!")
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message("❌ Failed to configure roles. Try again.", ephemeral=True)
+                await interaction.followup.send("❌ Failed to configure roles. Try again.", ephemeral=True)
 
         except Exception as e:
             logging.error(f"Error setting roles: {e}")
-            await interaction.response.send_message("❌ Error configuring roles", ephemeral=True)
+            await interaction.followup.send("❌ Error configuring roles", ephemeral=True)
 
     @app_commands.command(name="setchannel", description="Set the channel for automatic OCR processing of uploaded images")
     @app_commands.describe(channel="Channel where images will be automatically scanned for Mario Kart results")
@@ -273,7 +273,7 @@ class GuildCog(BaseCog):
 
             bot_member = interaction.guild.get_member(self.bot.user.id)
             if not bot_member:
-                await interaction.response.send_message("❌ Unable to get bot member information.", ephemeral=True)
+                await interaction.followup.send("❌ Unable to get bot member information.", ephemeral=True)
                 return
 
             channel_perms = channel.permissions_for(bot_member)
@@ -288,7 +288,7 @@ class GuildCog(BaseCog):
             missing_perms = [name for name, has_perm in required_perms.items() if not has_perm]
             if missing_perms:
                 missing_list = "\n".join([f"• {name.replace('_', ' ').title()}" for name in missing_perms])
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ **Missing required permissions in {channel.mention}:**\n{missing_list}\n\n"
                     f"Please grant these permissions and try again, or use `/checkpermissions {channel.mention}` to verify.",
                     ephemeral=True
@@ -313,13 +313,13 @@ class GuildCog(BaseCog):
                     value=f"• Current channel: {channel.mention}\n• Change channel: `/setchannel #new-channel`\n• Check permissions: `/checkpermissions {channel.mention}`",
                     inline=False
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message("❌ Failed to set OCR channel. Please try again.", ephemeral=True)
+                await interaction.followup.send("❌ Failed to set OCR channel. Please try again.", ephemeral=True)
 
         except Exception:
             logging.exception("Error setting OCR channel for guild")
-            await interaction.response.send_message("❌ Error setting OCR channel. Please try again.", ephemeral=True)
+            await interaction.followup.send("❌ Error setting OCR channel. Please try again.", ephemeral=True)
 
     @app_commands.command(name="checkpermissions", description="Check bot permissions in a channel for OCR functionality")
     @app_commands.describe(channel="Channel to check permissions for (defaults to current channel)")
@@ -392,8 +392,6 @@ class GuildCog(BaseCog):
     @require_guild_setup
     async def debug_roles(self, interaction: discord.Interaction):
         """Debug command to check why /stats shows 'No members found'."""
-        await resilient_defer(interaction, ephemeral=True)
-
         guild_id = self.get_guild_id(interaction)
 
         role_config = await self.bot.db.guilds.get_guild_role_config(guild_id)
@@ -548,7 +546,7 @@ class GuildCog(BaseCog):
             inline=False
         )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="sendcommand", description="[ADMIN ONLY - TEMPORARY] Execute a bot command in a different channel")
     @app_commands.describe(
@@ -560,7 +558,7 @@ class GuildCog(BaseCog):
     async def send_command(self, interaction: discord.Interaction, command_name: str, channel: discord.TextChannel, args: str = None):
         """[TEMPORARY ADMIN COMMAND] Execute any bot command in a different channel."""
         if not DatabaseManager.is_bot_owner(interaction.user.id):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ This command is restricted to the bot owner only.",
                 ephemeral=True
             )
@@ -570,7 +568,7 @@ class GuildCog(BaseCog):
 
         bot_member = interaction.guild.get_member(self.bot.user.id)
         if not bot_member:
-            await interaction.response.send_message("❌ Unable to get bot member information.", ephemeral=True)
+            await interaction.followup.send("❌ Unable to get bot member information.", ephemeral=True)
             return
 
         channel_perms = channel.permissions_for(bot_member)
@@ -579,7 +577,7 @@ class GuildCog(BaseCog):
 
         if missing_perms:
             missing_list = "\n".join([f"• {perm.replace('_', ' ').title()}" for perm in missing_perms])
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ **Bot is missing permissions in {channel.mention}:**\n{missing_list}\n\n"
                 f"Please grant these permissions to the bot and try again.",
                 ephemeral=True
@@ -599,7 +597,7 @@ class GuildCog(BaseCog):
                 break
 
         if not command_method:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Command '{command_name}' not found.\n\n"
                 f"Use `/help` to see available commands, or check the command name spelling.",
                 ephemeral=True
@@ -617,7 +615,7 @@ class GuildCog(BaseCog):
                         except ValueError:
                             kwargs[key] = value
             except Exception as e:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ Failed to parse arguments: {str(e)}\n\n"
                     f"Expected format: `key:value` separated by spaces\n"
                     f"Example: `limit:10` or `player_scores:Alice:150,Bob:140`",
@@ -640,7 +638,7 @@ class GuildCog(BaseCog):
             await command_method(target_cog, proxy_interaction, **kwargs)
             logging.info(f"✅ [ADMIN] Successfully executed /{command_name} in {channel.name}")
         except TypeError as e:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Invalid arguments for command '{command_name}': {str(e)}\n\n"
                 f"Check the command signature and try again.",
                 ephemeral=True
@@ -648,8 +646,7 @@ class GuildCog(BaseCog):
         except Exception as e:
             logging.error(f"Error executing sendcommand: {e}")
             logging.error(traceback.format_exc())
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"❌ Error executing command: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ Error executing command: {str(e)}", ephemeral=True)
 
 
 async def setup(bot):

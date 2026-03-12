@@ -27,7 +27,7 @@ class MemberCog(BaseCog):
 
             resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.")
+                await interaction.followup.send(f"❌ Player **{player_name}** not found in players table.")
                 return
 
             success = await self.bot.db.players.set_player_member_status(resolved_player, member_status, guild_id)
@@ -39,16 +39,13 @@ class MemberCog(BaseCog):
                     description=f"Set **{resolved_player}** status to **{status_display}**",
                     color=0x00ff00
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(f"❌ Failed to update member status for **{resolved_player}**.")
+                await interaction.followup.send(f"❌ Failed to update member status for **{resolved_player}**.")
 
         except Exception as e:
             logging.error(f"Error setting member status: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error setting member status", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error setting member status", ephemeral=True)
+            await interaction.followup.send("❌ Error setting member status", ephemeral=True)
 
     @app_commands.command(name="showtrials", description="Show all trial members")
     @require_guild_setup(defer=True)

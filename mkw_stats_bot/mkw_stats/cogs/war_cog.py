@@ -257,12 +257,8 @@ class WarCog(BaseCog):
         try:
             guild_id = self.get_guild_id_from_interaction(interaction)
 
-            if not await self.is_guild_initialized(guild_id):
-                await interaction.response.send_message("❌ Guild not set up! Please run `/setup` first to initialize your clan.", ephemeral=True)
-                return
-
             if races < 1 or races > 12:
-                await interaction.response.send_message("❌ Race count must be between 1 and 12.", ephemeral=True)
+                await interaction.followup.send("❌ Race count must be between 1 and 12.", ephemeral=True)
                 return
 
             results = []
@@ -287,16 +283,16 @@ class WarCog(BaseCog):
                                 name = base_name
 
                                 if individual_races < 1:
-                                    await interaction.response.send_message(f"❌ Invalid race count for {base_name}: {individual_races}. Must be at least 1.", ephemeral=True)
+                                    await interaction.followup.send(f"❌ Invalid race count for {base_name}: {individual_races}. Must be at least 1.", ephemeral=True)
                                     return
                                 elif individual_races >= races:
                                     if individual_races == races:
-                                        await interaction.response.send_message(f"❌ {base_name}({individual_races}): If they played all {races} races, use `{base_name}: {score_str}` instead (no parentheses).", ephemeral=True)
+                                        await interaction.followup.send(f"❌ {base_name}({individual_races}): If they played all {races} races, use `{base_name}: {score_str}` instead (no parentheses).", ephemeral=True)
                                     else:
-                                        await interaction.response.send_message(f"❌ {base_name}({individual_races}): Cannot play {individual_races} races when war only has {races} races total.", ephemeral=True)
+                                        await interaction.followup.send(f"❌ {base_name}({individual_races}): Cannot play {individual_races} races when war only has {races} races total.", ephemeral=True)
                                     return
                             except ValueError:
-                                await interaction.response.send_message(f"❌ Invalid race count format in: `{name}`. Use PlayerName(races): Score.", ephemeral=True)
+                                await interaction.followup.send(f"❌ Invalid race count format in: `{name}`. Use PlayerName(races): Score.", ephemeral=True)
                                 return
 
                         score = int(score_str)
@@ -305,9 +301,9 @@ class WarCog(BaseCog):
                         max_score = individual_races * 15
                         if score < min_score or score > max_score:
                             if '(' in original_name and ')' in original_name:
-                                await interaction.response.send_message(f"❌ {base_name}({individual_races}): {score} points invalid. Must be {min_score}-{max_score} points for {individual_races} races.", ephemeral=True)
+                                await interaction.followup.send(f"❌ {base_name}({individual_races}): {score} points invalid. Must be {min_score}-{max_score} points for {individual_races} races.", ephemeral=True)
                             else:
-                                await interaction.response.send_message(f"❌ {name}: {score} points invalid. Must be {min_score}-{max_score} points for {individual_races} races.", ephemeral=True)
+                                await interaction.followup.send(f"❌ {name}: {score} points invalid. Must be {min_score}-{max_score} points for {individual_races} races.", ephemeral=True)
                             return
 
                         war_participation = individual_races / races
@@ -320,11 +316,11 @@ class WarCog(BaseCog):
                             'raw_input': part
                         })
                     except ValueError:
-                        await interaction.response.send_message(f"❌ Invalid score format: `{part}`. Use PlayerName: Score or PlayerName(races): Score.", ephemeral=True)
+                        await interaction.followup.send(f"❌ Invalid score format: `{part}`. Use PlayerName: Score or PlayerName(races): Score.", ephemeral=True)
                         return
 
             if not results:
-                await interaction.response.send_message("❌ No player scores provided. Use format: `PlayerName: Score`", ephemeral=True)
+                await interaction.followup.send("❌ No player scores provided. Use format: `PlayerName: Score`", ephemeral=True)
                 return
 
             resolved_results = []
@@ -345,7 +341,7 @@ class WarCog(BaseCog):
                     failed_players.append(result['name'])
 
             if failed_players:
-                await interaction.response.send_message(f"❌ These players are not in the players table: {', '.join(failed_players)}\nUse `/addplayer <player>` to add them first.", ephemeral=True)
+                await interaction.followup.send(f"❌ These players are not in the players table: {', '.join(failed_players)}\nUse `/addplayer <player>` to add them first.", ephemeral=True)
                 return
 
             actual_war_race_count = max(result['races_played'] for result in resolved_results)
@@ -364,8 +360,7 @@ class WarCog(BaseCog):
             if is_duplicate:
                 duplicate_embed = create_duplicate_war_embed(resolved_results, actual_war_race_count)
 
-                await interaction.response.send_message(embed=duplicate_embed)
-                confirmation_msg = await interaction.original_response()
+                confirmation_msg = await interaction.followup.send(embed=duplicate_embed)
                 already_responded = True
 
                 await confirmation_msg.add_reaction("✅")
@@ -385,7 +380,7 @@ class WarCog(BaseCog):
                             description="Duplicate war was not added to the database.",
                             color=0xff4444
                         )
-                        await interaction.edit_original_response(embed=cancel_embed)
+                        await confirmation_msg.edit(embed=cancel_embed)
                         return
 
                 except TimeoutError:
@@ -394,7 +389,7 @@ class WarCog(BaseCog):
                         description="Duplicate war confirmation timed out. War was not added.",
                         color=0xff4444
                     )
-                    await interaction.edit_original_response(embed=timeout_embed)
+                    await confirmation_msg.edit(embed=timeout_embed)
                     return
 
             submission = await self.bot.war_service.submit_war(resolved_results, actual_war_race_count, guild_id)
@@ -402,9 +397,9 @@ class WarCog(BaseCog):
             if not submission.success:
                 error_msg = f"❌ Failed to add war to database. {submission.error or 'Check logs for details.'}"
                 if already_responded:
-                    await interaction.edit_original_response(content=error_msg)
+                    await confirmation_msg.edit(content=error_msg, embed=None)
                 else:
-                    await interaction.response.send_message(error_msg, ephemeral=True)
+                    await interaction.followup.send(error_msg, ephemeral=True)
                 return
 
             stats_updated = submission.stats_updated or []
@@ -437,19 +432,16 @@ class WarCog(BaseCog):
             embed.set_footer(text="Player statistics have been automatically updated")
 
             if already_responded:
-                await interaction.edit_original_response(embed=embed, content="")
+                await confirmation_msg.edit(embed=embed, content="")
             else:
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
 
             task = asyncio.create_task(self.bot._countdown_and_delete_interaction(interaction, embed))
             task.add_done_callback(_log_task_error)
 
         except Exception as e:
             logging.error(f"Error adding war: {e}")
-            try:
-                await interaction.response.send_message("❌ Error adding war. Check the command format and try again.", ephemeral=True)
-            except discord.errors.InteractionResponded:
-                await interaction.followup.send("❌ Error adding war. Check the command format and try again.", ephemeral=True)
+            await interaction.followup.send("❌ Error adding war. Check the command format and try again.", ephemeral=True)
 
     @app_commands.command(name="wars", description="Show recent wars")
     @app_commands.describe(limit="Number of wars to show (default: 10, max: 50)")
@@ -529,7 +521,7 @@ class WarCog(BaseCog):
 
             existing_war = await self.bot.db.wars.get_war_by_id(war_id, guild_id=guild_id)
             if not existing_war:
-                await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
+                await interaction.followup.send(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return
 
             races = existing_war.get('race_count', 12)
@@ -553,10 +545,10 @@ class WarCog(BaseCog):
                                 name = base_name
 
                                 if individual_races < 1 or individual_races > races:
-                                    await interaction.response.send_message(f"❌ Invalid race count for {base_name}: {individual_races}", ephemeral=True)
+                                    await interaction.followup.send(f"❌ Invalid race count for {base_name}: {individual_races}", ephemeral=True)
                                     return
                             except ValueError:
-                                await interaction.response.send_message(f"❌ Invalid race count format in: `{name}`", ephemeral=True)
+                                await interaction.followup.send(f"❌ Invalid race count format in: `{name}`", ephemeral=True)
                                 return
 
                         score = int(score_str)
@@ -564,12 +556,12 @@ class WarCog(BaseCog):
                         min_score = individual_races * 1
                         max_score = individual_races * 15
                         if score < min_score or score > max_score:
-                            await interaction.response.send_message(f"❌ {name}: {score} points invalid for {individual_races} races.", ephemeral=True)
+                            await interaction.followup.send(f"❌ {name}: {score} points invalid for {individual_races} races.", ephemeral=True)
                             return
 
                         resolved_player = await self.bot.db.players.resolve_player_name(name, guild_id)
                         if not resolved_player:
-                            await interaction.response.send_message(f"❌ Player **{name}** not found in players table.", ephemeral=True)
+                            await interaction.followup.send(f"❌ Player **{name}** not found in players table.", ephemeral=True)
                             return
 
                         war_participation = individual_races / races
@@ -582,11 +574,11 @@ class WarCog(BaseCog):
                             'raw_line': f"Append: {part}"
                         })
                     except ValueError:
-                        await interaction.response.send_message(f"❌ Invalid score format: `{part}`", ephemeral=True)
+                        await interaction.followup.send(f"❌ Invalid score format: `{part}`", ephemeral=True)
                         return
 
             if not new_players:
-                await interaction.response.send_message("❌ No valid player scores provided.", ephemeral=True)
+                await interaction.followup.send("❌ No valid player scores provided.", ephemeral=True)
                 return
 
             existing_results = existing_war.get('results', [])
@@ -597,7 +589,7 @@ class WarCog(BaseCog):
                     conflicts.append(new_player.get('name', 'Unknown'))
 
             if conflicts:
-                await interaction.response.send_message(f"❌ These players already exist in war {war_id}: {', '.join(conflicts)}\nUse a different command to update existing player scores.", ephemeral=True)
+                await interaction.followup.send(f"❌ These players already exist in war {war_id}: {', '.join(conflicts)}\nUse a different command to update existing player scores.", ephemeral=True)
                 return
 
             embed = discord.Embed(
@@ -634,15 +626,12 @@ class WarCog(BaseCog):
             embed.set_footer(text="Click ✅ Confirm or ❌ Cancel")
 
             view = AddPlayerToWarConfirmView(war_id, new_players, existing_war, races, interaction.user, self, guild_id)
-            await interaction.response.send_message(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view)
 
         except Exception as e:
             logging.error(f"Error appending players to war: {e}", exc_info=True)
             error_message = self._format_error_for_user(e, "Failed to add players to war")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(error_message, ephemeral=True)
-            else:
-                await interaction.followup.send(error_message, ephemeral=True)
+            await interaction.followup.send(error_message, ephemeral=True)
 
     @app_commands.command(name="removewar", description="Remove a war and revert player statistics")
     @app_commands.describe(war_id="ID of the war to remove")
@@ -654,7 +643,7 @@ class WarCog(BaseCog):
 
             war = await self.bot.db.wars.get_war_by_id(war_id, guild_id=guild_id)
             if not war:
-                await interaction.response.send_message(f"❌ War ID: {war_id} not found.", ephemeral=True)
+                await interaction.followup.send(f"❌ War ID: {war_id} not found.", ephemeral=True)
                 return
 
             war_date = war.get('war_date')
@@ -706,15 +695,12 @@ class WarCog(BaseCog):
             embed.set_footer(text="Click ✅ Confirm or ❌ Cancel")
 
             view = RemoveWarConfirmView(war_id, war, interaction.user, self, guild_id)
-            await interaction.response.send_message(embed=embed, view=view)
+            await interaction.followup.send(embed=embed, view=view)
 
         except Exception as e:
             logging.error(f"Error removing war: {e}", exc_info=True)
             error_message = self._format_error_for_user(e, "Failed to remove war")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(error_message, ephemeral=True)
-            else:
-                await interaction.followup.send(error_message, ephemeral=True)
+            await interaction.followup.send(error_message, ephemeral=True)
 
 
 async def setup(bot):

@@ -66,13 +66,13 @@ class TeamCog(BaseCog):
 
             player_names = [name.strip() for name in players.split(',') if name.strip()]
             if len(player_names) == 0:
-                await interaction.response.send_message("❌ Please provide at least one player name. Use commas to separate multiple players.")
+                await interaction.followup.send("❌ Please provide at least one player name. Use commas to separate multiple players.")
                 return
 
             valid_teams = await self.bot.db.guilds.get_guild_team_names(guild_id)
             valid_teams.append('Unassigned')
             if team_name not in valid_teams:
-                await interaction.response.send_message(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/roster` to see team assignments or `/addteam` to create new teams.")
+                await interaction.followup.send(f"❌ Invalid team name. Valid teams: {', '.join(valid_teams)}\nUse `/roster` to see team assignments or `/addteam` to create new teams.")
                 return
 
             resolved_players = []
@@ -86,7 +86,7 @@ class TeamCog(BaseCog):
                     failed_players.append(player_name)
 
             if failed_players:
-                await interaction.response.send_message(f"❌ These players were not found in players table: {', '.join(failed_players)}\nUse `/addplayer <player>` to add them first.")
+                await interaction.followup.send(f"❌ These players were not found in players table: {', '.join(failed_players)}\nUse `/addplayer <player>` to add them first.")
                 return
 
             successful_assignments = []
@@ -124,14 +124,11 @@ class TeamCog(BaseCog):
                 inline=False
             )
 
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error assigning players to team: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error assigning players to team", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error assigning players to team", ephemeral=True)
+            await interaction.followup.send("❌ Error assigning players to team", ephemeral=True)
 
     @app_commands.command(name="unassignplayer", description="Unassign a player from their team (set to Unassigned)")
     @app_commands.describe(player_name="Name of the player to unassign from their team")
@@ -144,22 +141,19 @@ class TeamCog(BaseCog):
 
             resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.")
+                await interaction.followup.send(f"❌ Player **{player_name}** not found in players table.")
                 return
 
             success = await self.bot.db.players.set_player_team(resolved_player, 'Unassigned', guild_id)
 
             if success:
-                await interaction.response.send_message(f"✅ Set **{resolved_player}** to **Unassigned**!")
+                await interaction.followup.send(f"✅ Set **{resolved_player}** to **Unassigned**!")
             else:
-                await interaction.response.send_message(f"❌ Failed to unassign **{resolved_player}** from team.")
+                await interaction.followup.send(f"❌ Failed to unassign **{resolved_player}** from team.")
 
         except Exception as e:
             logging.error(f"Error unassigning player from team: {e}")
-            try:
-                await interaction.response.send_message("❌ Error unassigning player from team", ephemeral=True)
-            except discord.errors.HTTPException:
-                await interaction.followup.send("❌ Error unassigning player from team", ephemeral=True)
+            await interaction.followup.send("❌ Error unassigning player from team", ephemeral=True)
 
     @app_commands.command(name="showmemberstatus", description="Show all players organized by member status")
     @require_guild_setup(defer=True)
@@ -306,16 +300,13 @@ class TeamCog(BaseCog):
                     value="• 1-50 characters long\n• Unicode characters supported\n• Maximum 5 teams per guild",
                     inline=False
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message("❌ Failed to create team. Check if the name is valid and you haven't reached the 5-team limit.")
+                await interaction.followup.send("❌ Failed to create team. Check if the name is valid and you haven't reached the 5-team limit.")
 
         except Exception as e:
             logging.error(f"Error adding team: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error creating team", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error creating team", ephemeral=True)
+            await interaction.followup.send("❌ Error creating team", ephemeral=True)
 
     @app_commands.command(name="removeteam", description="Remove a team from the guild")
     @app_commands.describe(team_name="Name of the team to remove (players will be moved to 'Unassigned')")
@@ -329,7 +320,7 @@ class TeamCog(BaseCog):
             team_exists = any(team.lower() == team_name.lower() for team in current_teams)
 
             if not team_exists:
-                await interaction.response.send_message(f"❌ Team '{team_name}' not found. Use `/roster` to see available teams.")
+                await interaction.followup.send(f"❌ Team '{team_name}' not found. Use `/roster` to see available teams.")
                 return
 
             teams_with_counts = await self.bot.db.guilds.get_guild_teams_with_counts(guild_id)
@@ -349,8 +340,7 @@ class TeamCog(BaseCog):
             )
             embed.set_footer(text="React with ✅ to confirm or ❌ to cancel")
 
-            await interaction.response.send_message(embed=embed)
-            msg = await interaction.original_response()
+            msg = await interaction.followup.send(embed=embed)
             await msg.add_reaction("✅")
             await msg.add_reaction("❌")
 
@@ -369,11 +359,11 @@ class TeamCog(BaseCog):
                             description=f"Successfully removed team: **{actual_team_name}**\n\n{player_count} players moved to 'Unassigned'.",
                             color=0x00ff00
                         )
-                        await interaction.edit_original_response(embed=embed)
+                        await msg.edit(embed=embed)
                     else:
-                        await interaction.edit_original_response(content="❌ Failed to remove team. Check logs for details.")
+                        await msg.edit(content="❌ Failed to remove team. Check logs for details.")
                 else:
-                    await interaction.edit_original_response(content="❌ Team removal cancelled.")
+                    await msg.edit(content="❌ Team removal cancelled.")
 
                 try:
                     await msg.clear_reactions()
@@ -381,7 +371,7 @@ class TeamCog(BaseCog):
                     logging.debug(f"Failed to clear reactions: {e}")
 
             except TimeoutError:
-                await interaction.edit_original_response(content="❌ Team removal timed out.")
+                await msg.edit(content="❌ Team removal timed out.")
                 try:
                     await msg.clear_reactions()
                 except (discord.errors.Forbidden, discord.errors.NotFound, discord.errors.HTTPException) as e:
@@ -389,10 +379,7 @@ class TeamCog(BaseCog):
 
         except Exception as e:
             logging.error(f"Error removing team: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error removing team", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error removing team", ephemeral=True)
+            await interaction.followup.send("❌ Error removing team", ephemeral=True)
 
     @app_commands.command(name="renameteam", description="Rename an existing team in the guild")
     @app_commands.describe(old_name="Current team name", new_name="New team name")
@@ -414,16 +401,13 @@ class TeamCog(BaseCog):
                     value="All player assignments have been preserved.",
                     inline=False
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message("❌ Failed to rename team. Check if the old team exists and the new name is valid.")
+                await interaction.followup.send("❌ Failed to rename team. Check if the old team exists and the new name is valid.")
 
         except Exception as e:
             logging.error(f"Error renaming team: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error renaming team", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error renaming team", ephemeral=True)
+            await interaction.followup.send("❌ Error renaming team", ephemeral=True)
 
     @app_commands.command(name="setteamtag", description="Set a tag for a team (1-8 chars, displays as 'TAG Playername')")
     @app_commands.describe(
@@ -438,7 +422,7 @@ class TeamCog(BaseCog):
             guild_id = self.get_guild_id(interaction)
 
             if not has_admin_permission(interaction):
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Only server administrators can set team tags.",
                     ephemeral=True
                 )
@@ -446,7 +430,7 @@ class TeamCog(BaseCog):
 
             tag_stripped = tag.strip()
             if len(tag_stripped) < 1 or len(tag_stripped) > 8:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ Tag must be 1-8 characters long (you provided {len(tag_stripped)} chars).\n"
                     f"Max 8 chars due to Switch 10-char name limit (8 tag + 1 separator + 1 name minimum).",
                     ephemeral=True
@@ -464,9 +448,9 @@ class TeamCog(BaseCog):
                 embed.add_field(name="Tag", value=f"`{tag_stripped}`", inline=True)
                 embed.add_field(name="Display Format", value=f"`{tag_stripped} Playername`", inline=True)
                 embed.set_footer(text="Tags will appear in roster, leaderboard, and stats views")
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ Failed to set tag for team '{team_name}'.\n"
                     f"Make sure the team exists. Use `/roster` to see available teams.",
                     ephemeral=True
@@ -474,10 +458,7 @@ class TeamCog(BaseCog):
 
         except Exception as e:
             logging.error(f"Error setting team tag: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error setting team tag", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error setting team tag", ephemeral=True)
+            await interaction.followup.send("❌ Error setting team tag", ephemeral=True)
 
     @app_commands.command(name="removeteamtag", description="Remove the tag from a team")
     @app_commands.describe(team_name="Team to remove tag from")
@@ -489,7 +470,7 @@ class TeamCog(BaseCog):
             guild_id = self.get_guild_id(interaction)
 
             if not has_admin_permission(interaction):
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Only server administrators can remove team tags.",
                     ephemeral=True
                 )
@@ -504,9 +485,9 @@ class TeamCog(BaseCog):
                     color=0x00ff00
                 )
                 embed.set_footer(text="Players from this team will now display without a tag")
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ Failed to remove tag from team '{team_name}'.\n"
                     f"Make sure the team exists and has a tag set. Use `/showteamtags` to see teams with tags.",
                     ephemeral=True
@@ -514,10 +495,7 @@ class TeamCog(BaseCog):
 
         except Exception as e:
             logging.error(f"Error removing team tag: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error removing team tag", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error removing team tag", ephemeral=True)
+            await interaction.followup.send("❌ Error removing team tag", ephemeral=True)
 
     @app_commands.command(name="showteamtags", description="Show all team tags for this guild")
     @require_guild_setup
@@ -529,7 +507,7 @@ class TeamCog(BaseCog):
             all_teams = await self.bot.db.guilds.get_guild_team_names(guild_id)
 
             if not all_teams:
-                await interaction.response.send_message("❌ No teams found. Use `/addteam` to create teams.", ephemeral=True)
+                await interaction.followup.send("❌ No teams found. Use `/addteam` to create teams.", ephemeral=True)
                 return
 
             all_teams.append('Unassigned')
@@ -574,14 +552,11 @@ class TeamCog(BaseCog):
                 )
 
             embed.set_footer(text="Use /setteamtag to add tags | /removeteamtag to remove tags")
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error showing team tags: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving team tags", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving team tags", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving team tags", ephemeral=True)
 
 
 async def setup(bot):

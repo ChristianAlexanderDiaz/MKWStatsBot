@@ -21,11 +21,11 @@ class NicknameCog(BaseCog):
             guild_id = self.get_guild_id(interaction)
             resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table. Use `/addplayer {player_name}` to add them first.", ephemeral=True)
+                await interaction.followup.send(f"❌ Player **{player_name}** not found in players table. Use `/addplayer {player_name}` to add them first.", ephemeral=True)
                 return
 
             if nickname.lower() == resolved_player.lower():
-                await interaction.response.send_message(f"❌ No need to add **{nickname}** as a nickname for **{resolved_player}** - name matching is case-insensitive!", ephemeral=True)
+                await interaction.followup.send(f"❌ No need to add **{nickname}** as a nickname for **{resolved_player}** - name matching is case-insensitive!", ephemeral=True)
                 return
 
             success = await self.bot.db.players.add_nickname(resolved_player, nickname, guild_id)
@@ -41,16 +41,13 @@ class NicknameCog(BaseCog):
                     value="Nicknames help OCR recognize players when their names appear differently in race results.",
                     inline=False
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(f"❌ Nickname **{nickname}** already exists for **{resolved_player}** or couldn't be added.")
+                await interaction.followup.send(f"❌ Nickname **{nickname}** already exists for **{resolved_player}** or couldn't be added.")
 
         except Exception as e:
             logging.error(f"Error adding nickname: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error adding nickname", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error adding nickname", ephemeral=True)
+            await interaction.followup.send("❌ Error adding nickname", ephemeral=True)
 
     @app_commands.command(name="removenickname", description="Remove a nickname from a player")
     @app_commands.describe(player_name="Player to remove nickname from", nickname="Nickname to remove")
@@ -61,7 +58,7 @@ class NicknameCog(BaseCog):
             guild_id = self.get_guild_id(interaction)
             resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.", ephemeral=True)
+                await interaction.followup.send(f"❌ Player **{player_name}** not found in players table.", ephemeral=True)
                 return
 
             success = await self.bot.db.players.remove_nickname(resolved_player, nickname, guild_id)
@@ -72,16 +69,13 @@ class NicknameCog(BaseCog):
                     description=f"Removed nickname **{nickname}** from **{resolved_player}**",
                     color=0xff4444
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(f"❌ Nickname **{nickname}** not found for **{resolved_player}** or couldn't be removed.", ephemeral=True)
+                await interaction.followup.send(f"❌ Nickname **{nickname}** not found for **{resolved_player}** or couldn't be removed.", ephemeral=True)
 
         except Exception as e:
             logging.error(f"Error removing nickname: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error removing nickname", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error removing nickname", ephemeral=True)
+            await interaction.followup.send("❌ Error removing nickname", ephemeral=True)
 
     @app_commands.command(name="nicknamesfor", description="Show all nicknames for a player")
     @app_commands.describe(player_name="Player to show nicknames for")
@@ -92,7 +86,7 @@ class NicknameCog(BaseCog):
             guild_id = self.get_guild_id(interaction)
             resolved_player = await self.bot.db.players.resolve_player_name(player_name, guild_id)
             if not resolved_player:
-                await interaction.response.send_message(f"❌ Player **{player_name}** not found in players table.", ephemeral=True)
+                await interaction.followup.send(f"❌ Player **{player_name}** not found in players table.", ephemeral=True)
                 return
 
             nicknames = await self.bot.db.players.get_player_nicknames(resolved_player, guild_id)
@@ -108,14 +102,11 @@ class NicknameCog(BaseCog):
                 embed.description = "No nicknames set for this player."
 
             embed.set_footer(text=f"Use /addnickname {resolved_player} <nickname> to add more nicknames")
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logging.error(f"Error showing nicknames: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Error retrieving nicknames", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error retrieving nicknames", ephemeral=True)
+            await interaction.followup.send("❌ Error retrieving nicknames", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

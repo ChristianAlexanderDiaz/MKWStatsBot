@@ -430,6 +430,17 @@ class MarioKartBot(commands.Bot):
         async with LogBlock("BOT STARTUP", logger):
             logger.info(f"{self.user} — v{config.BOT_VERSION} — {len(self.guilds)} guild(s)")
 
+            # Log REST session state to help diagnose systematic 10062 errors
+            try:
+                session = self.http._HTTPClient__session
+                logger.info(
+                    "REST session: connector=%s, closed=%s",
+                    type(session.connector).__name__,
+                    session.closed,
+                )
+            except Exception:
+                logger.debug("Could not inspect REST session state")
+
             # Initialize OCR resource management if available
             try:
                 if hasattr(self.ocr, 'resource_management_enabled') and self.ocr.resource_management_enabled:

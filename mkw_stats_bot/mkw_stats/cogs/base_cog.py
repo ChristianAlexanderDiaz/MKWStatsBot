@@ -65,15 +65,19 @@ async def resilient_defer(
                     attempt, interaction.id,
                 )
             return
+        except discord.errors.InteractionResponded:
+            # Already deferred (e.g., by a parent command like /sendcommand)
+            return
         except discord.errors.NotFound as e:
             if e.code != 10062:
                 raise
             last_exc = e
+            age = time.time() - interaction.created_at.timestamp()
             logging.warning(
-                "defer 10062 attempt %d/3 for interaction %s, retrying in 1s",
-                attempt + 1, interaction.id,
+                "defer 10062 attempt %d/3 for interaction %s (age=%.2fs), retrying in 0.1s",
+                attempt + 1, interaction.id, age,
             )
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.1)
         except discord.errors.HTTPException as e:
             # 40060 = "Interaction has already been acknowledged"
             # A prior attempt's defer actually succeeded despite returning 10062.
@@ -112,13 +116,12 @@ def require_guild_setup(
 ) -> Callable[..., Coroutine[Any, Any, R]] | Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """Decorator to ensure guild is initialized before running slash commands.
 
-    Usage:
-        @require_guild_setup              # no defer (light commands)
-        @require_guild_setup(defer=True)  # defer first (heavy DB commands)
+    Always defers the interaction first to meet Discord's 3-second deadline,
+    then checks guild initialization. All responses in decorated commands
+    must use followup.send() instead of response.send_message().
 
-    When defer=True, calls interaction.response.defer() before the guild-check
-    DB call so the 3-second Discord deadline is always met. All responses in
-    deferred commands must use followup.send() instead of response.send_message().
+    The ``defer`` parameter is accepted for backward compatibility but ignored —
+    deferral always happens.
     """
 
     def decorator(
@@ -155,41 +158,42 @@ def require_guild_setup(
                 cmd_name, interaction_age, guild_id, guild_name,
             )
 
-            if defer:
+            # Always defer first to meet Discord's 3-second deadline
+            try:
+                t0 = time.monotonic()
+                await resilient_defer(interaction)
+                defer_ms = (time.monotonic() - t0) * 1000
+                logging.debug("/%s: DIAG defer_ok %.0fms", cmd_name, defer_ms)
+            except discord.errors.NotFound as e:
+                defer_ms = (time.monotonic() - t0) * 1000
+                logging.warning(
+                    "/%s: DIAG defer_EXPIRED age=%.2fs defer_took=%.0fms "
+                    "discord_code=%s discord_text=%s is_done=%s interaction_id=%s guild=%s",
+                    cmd_name, interaction_age, defer_ms,
+                    e.code, e.text, interaction.response.is_done(),
+                    interaction.id, guild_name,
+                )
                 try:
-                    t0 = time.monotonic()
-                    await resilient_defer(interaction)
-                    defer_ms = (time.monotonic() - t0) * 1000
-                    logging.debug("/%s: DIAG defer_ok %.0fms", cmd_name, defer_ms)
-                except discord.errors.NotFound as e:
-                    defer_ms = (time.monotonic() - t0) * 1000
-                    logging.warning(
-                        "/%s: DIAG defer_EXPIRED age=%.2fs defer_took=%.0fms "
-                        "discord_code=%s discord_text=%s is_done=%s interaction_id=%s guild=%s",
-                        cmd_name, interaction_age, defer_ms,
-                        e.code, e.text, interaction.response.is_done(),
-                        interaction.id, guild_name,
-                    )
-                    try:
-                        if interaction.channel is not None:
-                            await interaction.channel.send(
-                                f"{interaction.user.mention} Your `/{cmd_name}` didn't go through "
+                    if interaction.channel is not None:
+                        await interaction.channel.send(
+                            f"{interaction.user.mention} Your `/{cmd_name}` didn't go through "
+                            f"— the bot was briefly unresponsive. Please try again.",
+                            delete_after=10,
+                        )
+                    else:
+                        logging.debug(f"/{cmd_name}: no channel available for fallback, attempting DM")
+                        try:
+                            await interaction.user.send(
+                                f"Your `/{cmd_name}` didn't go through "
                                 f"— the bot was briefly unresponsive. Please try again.",
-                                delete_after=10,
                             )
-                        else:
-                            logging.debug(f"/{cmd_name}: no channel available for fallback, attempting DM")
-                            try:
-                                await interaction.user.send(
-                                    f"Your `/{cmd_name}` didn't go through "
-                                    f"— the bot was briefly unresponsive. Please try again.",
-                                )
-                            except Exception as dm_err:
-                                logging.debug(f"/{cmd_name}: DM fallback also failed: {dm_err}")
-                    except Exception as fallback_err:
-                        logging.debug(f"/{cmd_name}: could not send fallback message to channel: {fallback_err}")
-                    return  # type: ignore[return-value]
+                        except Exception as dm_err:
+                            logging.debug(f"/{cmd_name}: DM fallback also failed: {dm_err}")
+                except Exception as fallback_err:
+                    logging.debug(f"/{cmd_name}: could not send fallback message to channel: {fallback_err}")
+                return  # type: ignore[return-value]
 
+            # Now safe to do DB work — we have 15 minutes
             try:
                 t0 = time.monotonic()
                 initialized = await self.is_guild_initialized(guild_id)
@@ -202,11 +206,10 @@ def require_guild_setup(
                 logging.getLogger(__name__).exception(
                     "DB error during guild init check for guild %s", guild_id
                 )
-                msg = "❌ Database temporarily unavailable, please try again in a moment."
-                if defer:
-                    await interaction.followup.send(msg, ephemeral=True)
-                else:
-                    await interaction.response.send_message(msg, ephemeral=True)
+                await interaction.followup.send(
+                    "❌ Database temporarily unavailable, please try again in a moment.",
+                    ephemeral=True,
+                )
                 return  # type: ignore[return-value]
 
             if not initialized:
@@ -214,11 +217,10 @@ def require_guild_setup(
                     "/%s: DIAG guild_NOT_initialized guild_id=%s — sending 'not set up' to user",
                     cmd_name, guild_id,
                 )
-                msg = "❌ Guild not set up! Please run `/setup` first to initialize your clan."
-                if defer:
-                    await interaction.followup.send(msg, ephemeral=True)
-                else:
-                    await interaction.response.send_message(msg, ephemeral=True)
+                await interaction.followup.send(
+                    "❌ Guild not set up! Please run `/setup` first to initialize your clan.",
+                    ephemeral=True,
+                )
                 return  # type: ignore[return-value]
 
             async with LogBlock(f"/{cmd_name}{param_str} [{user_name} · {guild_name}]"):
