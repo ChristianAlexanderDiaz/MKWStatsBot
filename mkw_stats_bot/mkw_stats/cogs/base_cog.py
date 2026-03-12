@@ -130,7 +130,12 @@ def require_guild_setup(
         ) -> R:
             cmd_name = fn.__name__.removesuffix("_slash")
             user_name = getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Unknown")
-            guild_name = interaction.guild.name if interaction.guild else "DM"
+            guild_name = interaction.guild.name if interaction.guild else f"uncached:{interaction.guild_id}"
+            if not interaction.guild and interaction.guild_id:
+                logging.warning(
+                    "/%s: guild cache miss — interaction.guild is None but guild_id=%s",
+                    cmd_name, interaction.guild_id,
+                )
 
             # Format slash-command parameters for the log header
             param_parts: list[str] = []
@@ -258,13 +263,15 @@ class BaseCog(commands.Cog):
 
     def get_guild_id(self, ctx_or_interaction: "commands.Context | discord.Interaction") -> int:
         """Helper method to get guild ID from context or interaction."""
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            return ctx_or_interaction.guild_id or 0
         if hasattr(ctx_or_interaction, 'guild') and ctx_or_interaction.guild:
             return ctx_or_interaction.guild.id
         return 0
 
     def get_guild_id_from_interaction(self, interaction: discord.Interaction) -> int:
         """Get guild ID from interaction."""
-        return interaction.guild.id if interaction.guild else 0
+        return interaction.guild_id or 0
 
     # Intentionally class-level: shared singleton cache across all cog instances
     # guild_id -> (result, expiry_timestamp)

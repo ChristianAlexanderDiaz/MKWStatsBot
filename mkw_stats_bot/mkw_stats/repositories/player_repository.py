@@ -223,33 +223,28 @@ class PlayerRepository(BaseRepository):
 
     async def get_all_players_stats(self, guild_id: int = 0) -> list[dict]:
         """Get all roster players info."""
-        try:
-            async with self.get_connection() as conn:
-                rows = await conn.fetch("""
-                    SELECT player_name, added_by, created_at, updated_at, team, nicknames, member_status, country_code, discord_user_id
-                    FROM players
-                    WHERE guild_id = $1 AND is_active = TRUE
-                    ORDER BY member_status, player_name
-                """, guild_id)
+        async with self.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT player_name, added_by, created_at, updated_at, team, nicknames, member_status, country_code, discord_user_id
+                FROM players
+                WHERE guild_id = $1 AND is_active = TRUE
+                ORDER BY member_status, player_name
+            """, guild_id)
 
-                return [
-                    {
-                        'player_name': row[0],
-                        'added_by': row[1],
-                        'created_at': row[2].isoformat() if row[2] else None,
-                        'updated_at': row[3].isoformat() if row[3] else None,
-                        'team': row[4] or 'Unassigned',
-                        'nicknames': row[5] or [],
-                        'member_status': row[6] or 'member',
-                        'country_code': row[7] or None,
-                        'discord_user_id': row[8] or None,
-                    }
-                    for row in rows
-                ]
-
-        except Exception as e:
-            logging.error(f"Error getting all player stats: {e}")
-            return []
+            return [
+                {
+                    'player_name': row[0],
+                    'added_by': row[1],
+                    'created_at': row[2].isoformat() if row[2] else None,
+                    'updated_at': row[3].isoformat() if row[3] else None,
+                    'team': row[4] or 'Unassigned',
+                    'nicknames': row[5] or [],
+                    'member_status': row[6] or 'member',
+                    'country_code': row[7] or None,
+                    'discord_user_id': row[8] or None,
+                }
+                for row in rows
+            ]
 
     async def get_all_players_stats_global(self, limit: int | None = None) -> list[dict]:
         """Get basic stats for all active players across all guilds for global leaderboard.
@@ -257,67 +252,57 @@ class PlayerRepository(BaseRepository):
         Automatically excludes testing/dev guilds configured in EXCLUDED_GUILD_IDS env var.
         """
 
-        try:
-            async with self.get_connection() as conn:
-                query = """
-                    SELECT player_name, guild_id, team, nicknames,
-                           country_code, member_status
-                    FROM players
-                    WHERE is_active = TRUE
-                """
+        async with self.get_connection() as conn:
+            query = """
+                SELECT player_name, guild_id, team, nicknames,
+                       country_code, member_status
+                FROM players
+                WHERE is_active = TRUE
+            """
 
-                params: list = []
-                param_idx = 1
+            params: list = []
+            param_idx = 1
 
-                if EXCLUDED_GUILD_IDS:
-                    placeholders = ','.join([f'${i}' for i in range(param_idx, param_idx + len(EXCLUDED_GUILD_IDS))])
-                    query += f" AND guild_id NOT IN ({placeholders})"
-                    params.extend(EXCLUDED_GUILD_IDS)
-                    param_idx += len(EXCLUDED_GUILD_IDS)
+            if EXCLUDED_GUILD_IDS:
+                placeholders = ','.join([f'${i}' for i in range(param_idx, param_idx + len(EXCLUDED_GUILD_IDS))])
+                query += f" AND guild_id NOT IN ({placeholders})"
+                params.extend(EXCLUDED_GUILD_IDS)
+                param_idx += len(EXCLUDED_GUILD_IDS)
 
-                query += " ORDER BY player_name"
+            query += " ORDER BY player_name"
 
-                if limit is not None:
-                    query += f" LIMIT ${param_idx}"
-                    params.append(limit)
+            if limit is not None:
+                query += f" LIMIT ${param_idx}"
+                params.append(limit)
 
-                rows = await conn.fetch(query, *params)
+            rows = await conn.fetch(query, *params)
 
-                players = []
-                for row in rows:
-                    players.append({
-                        'player_name': row[0],
-                        'guild_id': row[1],
-                        'team': row[2] or 'Unassigned',
-                        'nicknames': row[3] or [],
-                        'country_code': row[4] or None,
-                        'member_status': row[5] or 'member',
-                    })
+            players = []
+            for row in rows:
+                players.append({
+                    'player_name': row[0],
+                    'guild_id': row[1],
+                    'team': row[2] or 'Unassigned',
+                    'nicknames': row[3] or [],
+                    'country_code': row[4] or None,
+                    'member_status': row[5] or 'member',
+                })
 
-                logging.info(f"Retrieved {len(players)} active players globally")
-                return players
-
-        except Exception as e:
-            logging.error(f"Error getting global players: {e}")
-            return []
+            logging.info(f"Retrieved {len(players)} active players globally")
+            return players
 
     # Roster Management Methods
 
     async def get_roster_players(self, guild_id: int = 0) -> list[str]:
         """Get list of active roster players."""
-        try:
-            async with self.get_connection() as conn:
-                rows = await conn.fetch("""
-                    SELECT player_name FROM players
-                    WHERE guild_id = $1 AND is_active = TRUE
-                    ORDER BY player_name
-                """, guild_id)
+        async with self.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT player_name FROM players
+                WHERE guild_id = $1 AND is_active = TRUE
+                ORDER BY player_name
+            """, guild_id)
 
-                return [row[0] for row in rows]
-
-        except Exception as e:
-            logging.error(f"Error getting roster players: {e}")
-            return []
+            return [row[0] for row in rows]
 
     async def add_roster_player(self, player_name: str, added_by: str = None, *, guild_id: int, member_status: str = 'member') -> bool:
         """Add a player to the active roster with optional member status."""
