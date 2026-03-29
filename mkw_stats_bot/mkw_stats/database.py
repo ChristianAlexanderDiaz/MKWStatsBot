@@ -113,7 +113,7 @@ class DatabaseManager:
         if password:
             return f"postgresql://{user}:{password}@{host}:{port}/{database}"
         else:
-            return f"postgresql://{user}@{host}:{port}/{database}"
+            return f"postgresql://{user}@{host}:{port}/{database}"  # NOSONAR — passwordless fallback; production MUST set DATABASE_URL/DATABASE_PUBLIC_URL
 
     @asynccontextmanager
     async def get_connection(self):

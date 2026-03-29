@@ -221,7 +221,6 @@ $RECYCLE.BIN/
 .railway/
 
 # Docker
-.dockerignore
 docker-compose.yml
 docker-compose.override.yml
 
